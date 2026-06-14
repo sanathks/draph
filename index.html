@@ -513,16 +513,8 @@
         <div id="fillColorGroup" class="relative" style="display:inline-block">
           <button id="fillColorBtn" onclick="toggleFillColorPalette()" title="Fill Color" style="width:24px;height:24px;border-radius:50%;background:#24283b;border:2px solid #414868"></button>
           <div id="fillColorPalette" class="hidden absolute bg-storm-bg2 border border-storm-fg/20 rounded shadow-lg z-50" style="top:32px;left:50%;transform:translateX(-50%);padding:8px">
-            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px">
-              <button onclick="setNodeColor('');closeFillColorPalette()" style="width:22px;height:22px;border-radius:50%;background:#24283b;border:2px solid #414868"></button>
-              <button onclick="setNodeColor('#7aa2f7');closeFillColorPalette()" style="width:22px;height:22px;border-radius:50%;background:#7aa2f7;border:none"></button>
-              <button onclick="setNodeColor('#9ece6a');closeFillColorPalette()" style="width:22px;height:22px;border-radius:50%;background:#9ece6a;border:none"></button>
-              <button onclick="setNodeColor('#f7768e');closeFillColorPalette()" style="width:22px;height:22px;border-radius:50%;background:#f7768e;border:none"></button>
-              <button onclick="setNodeColor('#e0af68');closeFillColorPalette()" style="width:22px;height:22px;border-radius:50%;background:#e0af68;border:none"></button>
-              <button onclick="setNodeColor('#bb9af7');closeFillColorPalette()" style="width:22px;height:22px;border-radius:50%;background:#bb9af7;border:none"></button>
-              <button onclick="setNodeColor('#7dcfff');closeFillColorPalette()" style="width:22px;height:22px;border-radius:50%;background:#7dcfff;border:none"></button>
-              <button onclick="setNodeColor('#ff9e64');closeFillColorPalette()" style="width:22px;height:22px;border-radius:50%;background:#ff9e64;border:none"></button>
-            </div>
+            <!-- swatches generated from CONFIG.palette by buildPalettes() -->
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px"></div>
           </div>
         </div>
         
@@ -545,16 +537,8 @@
         <div class="relative" style="display:inline-block">
           <button id="outlineColorBtn" onclick="toggleOutlineColorPalette()" title="Outline Color" style="width:24px;height:24px;border-radius:50%;background:transparent;border:3px solid #a9b1d6"></button>
           <div id="outlineColorPalette" class="hidden absolute bg-storm-bg2 border border-storm-fg/20 rounded shadow-lg z-50" style="top:32px;left:50%;transform:translateX(-50%);padding:8px">
-            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px">
-              <button onclick="setOutlineColor('');closeOutlineColorPalette()" style="width:22px;height:22px;border-radius:50%;background:transparent;border:3px solid #414868"></button>
-              <button onclick="setOutlineColor('#7aa2f7');closeOutlineColorPalette()" style="width:22px;height:22px;border-radius:50%;background:transparent;border:3px solid #7aa2f7"></button>
-              <button onclick="setOutlineColor('#9ece6a');closeOutlineColorPalette()" style="width:22px;height:22px;border-radius:50%;background:transparent;border:3px solid #9ece6a"></button>
-              <button onclick="setOutlineColor('#f7768e');closeOutlineColorPalette()" style="width:22px;height:22px;border-radius:50%;background:transparent;border:3px solid #f7768e"></button>
-              <button onclick="setOutlineColor('#e0af68');closeOutlineColorPalette()" style="width:22px;height:22px;border-radius:50%;background:transparent;border:3px solid #e0af68"></button>
-              <button onclick="setOutlineColor('#bb9af7');closeOutlineColorPalette()" style="width:22px;height:22px;border-radius:50%;background:transparent;border:3px solid #bb9af7"></button>
-              <button onclick="setOutlineColor('#7dcfff');closeOutlineColorPalette()" style="width:22px;height:22px;border-radius:50%;background:transparent;border:3px solid #7dcfff"></button>
-              <button onclick="setOutlineColor('#ff9e64');closeOutlineColorPalette()" style="width:22px;height:22px;border-radius:50%;background:transparent;border:3px solid #ff9e64"></button>
-            </div>
+            <!-- swatches generated from CONFIG.palette by buildPalettes() -->
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px"></div>
           </div>
         </div>
         
@@ -585,16 +569,8 @@
         <div class="relative" style="display:inline-block">
           <button id="connColorBtn" onclick="toggleConnColorPalette()" title="Line Color" style="width:24px;height:24px;border-radius:50%;background:transparent;border:3px solid #a9b1d6"></button>
           <div id="connColorPalette" class="hidden absolute bg-storm-bg2 border border-storm-fg/20 rounded shadow-lg z-50" style="top:32px;left:50%;transform:translateX(-50%);padding:8px">
-            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px">
-              <button onclick="setConnColor('');closeConnColorPalette()" style="width:22px;height:22px;border-radius:50%;background:transparent;border:3px solid #a9b1d6"></button>
-              <button onclick="setConnColor('#7aa2f7');closeConnColorPalette()" style="width:22px;height:22px;border-radius:50%;background:transparent;border:3px solid #7aa2f7"></button>
-              <button onclick="setConnColor('#9ece6a');closeConnColorPalette()" style="width:22px;height:22px;border-radius:50%;background:transparent;border:3px solid #9ece6a"></button>
-              <button onclick="setConnColor('#f7768e');closeConnColorPalette()" style="width:22px;height:22px;border-radius:50%;background:transparent;border:3px solid #f7768e"></button>
-              <button onclick="setConnColor('#e0af68');closeConnColorPalette()" style="width:22px;height:22px;border-radius:50%;background:transparent;border:3px solid #e0af68"></button>
-              <button onclick="setConnColor('#bb9af7');closeConnColorPalette()" style="width:22px;height:22px;border-radius:50%;background:transparent;border:3px solid #bb9af7"></button>
-              <button onclick="setConnColor('#7dcfff');closeConnColorPalette()" style="width:22px;height:22px;border-radius:50%;background:transparent;border:3px solid #7dcfff"></button>
-              <button onclick="setConnColor('#ff9e64');closeConnColorPalette()" style="width:22px;height:22px;border-radius:50%;background:transparent;border:3px solid #ff9e64"></button>
-            </div>
+            <!-- swatches generated from CONFIG.palette by buildPalettes() -->
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px"></div>
           </div>
         </div>
         
@@ -650,29 +626,105 @@
   </div>
 
   <script>
-    // State
-    let nodes = [];
-    let connections = [];
-    let sequenceFrames = []; // For sequence diagram loop/alt frames
-    let selectedId = null;
-    let selectedIds = [];
-    let selectedConnId = null;
-    let currentTool = 'select'; // select, rect, pill, diamond, circle, container, arrow
-    let drawing = null; // { startX, startY, type }
-    let dragging = null;
-    let connecting = null;
-    let pendingConnection = null; // For node type picker: { from, fromSide, fromIdx, dropX, dropY, screenX, screenY }
-    let panning = false;
+    /* ===========================================================================
+     * DRAPH — Mermaid + visual diagram editor
+     * ===========================================================================
+     * A single self-contained static file. No build step, no framework, no
+     * runtime dependencies — open index.html (or `npm run dev`) and it runs.
+     * Keep it that way: prefer a small vanilla helper over adding a dependency.
+     *
+     * ── HOW THE CODE IS ORGANISED ──────────────────────────────────────────────
+     * The whole app lives in this one <script>, divided into labelled SECTIONS
+     * (search for "=== SECTION:"). Top to bottom:
+     *   STATE & CONFIG      — the data model, mutable state, and tunables (CONFIG)
+     *   UI PRIMITIVES       — toasts, confirm dialog, empty state, temp line
+     *   TOOLS & PICKERS     — current tool, dropdowns, the node-type picker
+     *   LIFECYCLE           — init, history (undo/redo), URL persistence, share
+     *   GEOMETRY & ROUTING  — node creation + the orthogonal connection router
+     *   RENDERING           — render()/renderConnections()/renderNodes() pipeline
+     *   SELECTION & TOOLBARS— select/edit nodes & connections, styling controls
+     *   LAYOUT              — auto-arrange algorithms per diagram type
+     *   INTERACTION         — mouse/keyboard handlers (event-delegated)
+     *   EXPORT              — SVG / PNG / GIF
+     *   MERMAID             — syntax highlight, generate (diagram→code), parse,
+     *                         layout, and import (code→diagram)
+     *
+     * ── CORE DATA MODEL ────────────────────────────────────────────────────────
+     * node = {
+     *   id:        'n<number>'       unique, from generateId()
+     *   type:      'rect'|'pill'|'diamond'|'circle'|'container'|'text'|'line'
+     *   x, y:      number            top-left in canvas coords (for 'line', the start point)
+     *   width,height: number         size (for 'line', these are dx,dy of the end point; may be negative)
+     *   label:     string
+     *   color?:        string        fill color (hex) or '' for default
+     *   outlineColor?: string        border/line color
+     *   fillStyle?:    'outline'|'infill'|'stripe'|'grid'
+     *   isParticipant?, hasLifeline?: boolean   (sequence diagrams)
+     *   isClass?, properties?, methods?:        (UML class diagrams)
+     * }
+     *
+     * connection = {
+     *   id:        'c<number>'
+     *   from, to:  node id
+     *   fromSide,toSide:  'top'|'bottom'|'left'|'right'   which connector to attach to
+     *   fromSideLocked, toSideLocked?: boolean   true = user chose this side; the
+     *                                            auto-router must NOT override it
+     *   fromIdx, toIdx?: number      connector index along a side (legacy; usually 1)
+     *   label?:     string
+     *   color?:     string           line color
+     *   lineStyle?: 'rounded'|'straight'
+     *   strokeStyle?: 'dashed'       (else solid)
+     *   isSequenceMessage?, messageY?, arrow?:  (sequence diagrams)
+     * }
+     *
+     * ── RENDER PIPELINE ────────────────────────────────────────────────────────
+     * render() = renderConnections() + renderNodes() + updateEmptyState(). It
+     * rebuilds the SVG innerHTML of three persistent layers, drawn back-to-front:
+     *   #connections  (lines)  ->  #nodes  (shapes)  ->  #connHandles (drag dots)
+     * Call scheduleRender() (rAF-throttled) from hot paths; scheduleDragRender()
+     * is the cheap path used while dragging a node (transforms it + redraws lines
+     * only). Events are DELEGATED once onto the persistent layer groups in
+     * bindCanvasEvents() — innerHTML rebuilds never need to re-bind listeners.
+     *
+     * ── EXTENDING (common tasks) ───────────────────────────────────────────────
+     *   • New tunable / magic number  -> add to CONFIG (don't sprinkle literals).
+     *   • New palette color           -> add one hex to CONFIG.palette.
+     *   • New node shape              -> add default size to createNode() and a
+     *                                    branch in renderNodes(); add a tool button.
+     *   • New keyboard shortcut       -> add an entry to KEY_BINDINGS.
+     *   • Routing tweak               -> ROUTE_CFG + routeConnection()/connectExits().
+     *
+     * ── TESTING ────────────────────────────────────────────────────────────────
+     * `npm test` runs test/regression.mjs (jsdom). Run it before AND after any
+     * change to state, routing, rendering, or Mermaid code. It covers logic, not
+     * pixels — visual changes still need a human eye on `npm run dev`.
+     * =========================================================================== */
+
+    // === SECTION: STATE & CONFIG ==============================================
+
+    // ---- Mutable application state -------------------------------------------
+    let nodes = [];              // node[]        — all shapes on the canvas
+    let connections = [];        // connection[]  — all edges
+    let sequenceFrames = [];     // loop/alt/opt frames for sequence diagrams
+    let selectedId = null;       // id of the single selected node (or null)
+    let selectedIds = [];        // ids in a multi-selection (marquee / shift-click)
+    let selectedConnId = null;   // id of the selected connection (or null)
+    let currentTool = 'select';  // 'select' | a SHAPE_TOOLS entry
+    let drawing = null;          // in-progress shape draw: { startX, startY, type }
+    let dragging = null;         // in-progress node drag: { node, offsetX, offsetY, startX, startY, multiDrag? }
+    let connecting = null;       // in-progress connection draw from a connector
+    let pendingConnection = null;// connection awaiting node-type pick: { from, fromSide, fromIdx, dropX, dropY }
+    let panning = false;         // canvas pan in progress (shift/middle-drag)
     let panStart = { x: 0, y: 0 };
-    let selecting = null;
-    let viewBox = { x: 0, y: 0, w: 0, h: 0 };
-    let zoom = 1;
-    let idCounter = 0;
-    let historyStack = [];
-    let historyIndex = -1;
-    let snapToGrid = true;
-    let clipboard = null;
-    let globalLineStyle = 'rounded';
+    let selecting = null;        // marquee selection rect in progress
+    let viewBox = { x: 0, y: 0, w: 0, h: 0 }; // SVG viewport (pan/zoom)
+    let zoom = 1;                // viewBox scale (higher = more zoomed out)
+    let idCounter = 0;           // monotonic id source (see generateId)
+    let historyStack = [];       // JSON snapshots for undo/redo
+    let historyIndex = -1;       // pointer into historyStack
+    let snapToGrid = true;       // snap positions to GRID_SIZE
+    let clipboard = null;        // copy/paste buffer
+    let globalLineStyle = 'rounded'; // default lineStyle for new connections
     
     const canvas = document.getElementById('canvas');
     const nodesGroup = document.getElementById('nodes');
@@ -697,9 +749,19 @@
     const floatingToolbar = document.getElementById('floatingToolbar');
     const toolbarLabel = document.getElementById('toolbarLabel');
     
+    // ---- Theme & tunables (single source of truth) ---------------------------
+    // Tokyo Night palette. COLORS are the semantic UI colors; CONFIG.palette is
+    // the user-pickable swatch set (fill / outline / connection colors). Add a
+    // color to the picker by appending one hex to CONFIG.palette — the toolbar
+    // swatches are generated from it at init (see buildPalettes()).
     const COLORS = { bg: '#1a1b26', bg2: '#24283b', fg: '#a9b1d6', accent: '#7aa2f7', border: '#414868' };
     const GRID_SIZE = 20;
     const SHAPE_TOOLS = ['rect', 'pill', 'diamond', 'circle', 'container', 'text', 'line'];
+    const CONFIG = {
+      palette: ['#7aa2f7', '#9ece6a', '#f7768e', '#e0af68', '#bb9af7', '#7dcfff', '#ff9e64'],
+      arrow: { length: 8, width: 4 },     // arrowhead size (px)
+      node: { minWidth: 40, minHeight: 20 },
+    };
 
     // --- Lightweight UI helpers (toasts, confirm dialog, empty state) ---
     const toastContainer = document.getElementById('toastContainer');
@@ -883,11 +945,30 @@
       gridBg.style.display = snapToGrid ? 'block' : 'none';
     }
     
+    // Populate the three color pickers from CONFIG.palette. Each grid gets a
+    // "default/none" swatch followed by one swatch per palette color. This is
+    // the only place swatches are defined — add a color to CONFIG.palette and it
+    // appears in all three pickers.
+    function buildPalettes() {
+      const dot = 'width:22px;height:22px;border-radius:50%;';
+      const fills = `<button onclick="setNodeColor('');closeFillColorPalette()" style="${dot}background:#24283b;border:2px solid #414868"></button>`
+        + CONFIG.palette.map(c => `<button onclick="setNodeColor('${c}');closeFillColorPalette()" style="${dot}background:${c};border:none"></button>`).join('');
+      const outlines = `<button onclick="setOutlineColor('');closeOutlineColorPalette()" style="${dot}background:transparent;border:3px solid #414868"></button>`
+        + CONFIG.palette.map(c => `<button onclick="setOutlineColor('${c}');closeOutlineColorPalette()" style="${dot}background:transparent;border:3px solid ${c}"></button>`).join('');
+      const conns = `<button onclick="setConnColor('');closeConnColorPalette()" style="${dot}background:transparent;border:3px solid #a9b1d6"></button>`
+        + CONFIG.palette.map(c => `<button onclick="setConnColor('${c}');closeConnColorPalette()" style="${dot}background:transparent;border:3px solid ${c}"></button>`).join('');
+      const grid = (paletteId) => document.querySelector('#' + paletteId + ' > div');
+      grid('fillColorPalette').innerHTML = fills;
+      grid('outlineColorPalette').innerHTML = outlines;
+      grid('connColorPalette').innerHTML = conns;
+    }
+
     // Initialize
     function init() {
       const rect = canvas.getBoundingClientRect();
       viewBox = { x: 0, y: 0, w: rect.width, h: rect.height };
       updateViewBox();
+      buildPalettes();
       bindCanvasEvents();
       loadFromUrl();
       saveState();
@@ -942,12 +1023,10 @@
     
     function loadFromUrl() {
       const hash = window.location.hash.slice(1);
-      console.log('loadFromUrl called, hash length:', hash?.length || 0);
       if (!hash) return;
       try {
         const json = decodeURIComponent(atob(hash));
         const data = JSON.parse(json);
-        console.log('Parsed data:', { nodesCount: data.n?.length, hasViewport: !!data.v });
         nodes = data.n || [];
         connections = data.c || [];
         idCounter = Math.max(...nodes.map(n => parseInt(n.id.slice(1)) || 0), 0) + 1;
@@ -968,7 +1047,6 @@
           if (contentMaxX < savedVx || contentMinX > savedVx + savedVw ||
               contentMinY > savedVy + savedVh) {
             shouldAutoCenter = true;
-            console.log('Saved viewport misses content, auto-centering');
           }
         }
         
@@ -993,13 +1071,10 @@
           const centerY = (minY + maxY) / 2;
           viewBox.x = centerX - viewBox.w / 2;
           viewBox.y = centerY - viewBox.h / 2;
-          console.log('Auto-center:', { centerX, centerY, viewBox: {...viewBox}, nodes: nodes.length });
           updateViewBox();
-        } else {
-          console.log('No auto-center: nodes.length=', nodes.length, 'data.v=', false);
         }
       } catch (e) {
-        console.error('Failed to load from URL:', e);
+        console.error('Failed to load diagram from URL:', e);
       }
     }
     
@@ -3155,26 +3230,33 @@
     }, { passive: false });
     
     // Keyboard shortcuts
+    // Single-key shortcuts (no Cmd/Ctrl). Add a shortcut by adding one entry —
+    // keep the empty-state hint text in sync. Keys are matched case-insensitively.
+    const KEY_BINDINGS = {
+      v: () => setTool('select'),
+      '1': () => setTool('rect'),
+      '2': () => setTool('pill'),
+      '3': () => setTool('diamond'),
+      '4': () => setTool('circle'),
+      '5': () => setTool('container'),
+      t: () => setTool('text'),
+      '6': () => setTool('line'),
+      '7': () => toggleDropdown('lineDropdown'),
+      '8': () => toggleGrid(),
+      f: () => toggleFlow(),
+      '9': () => toggleDropdown('exportDropdown'),
+      '0': () => shareDiagram(),
+      a: () => arrangeDiagram(),
+    };
+
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') { deselectAll(); setTool('select'); closeDropdowns(); return; }
       if (e.target.tagName === 'INPUT') return;
-      
-      // Tool shortcuts
-      if (e.key === 'v' || e.key === 'V') { setTool('select'); return; }
-      if (e.key === '1') { setTool('rect'); return; }
-      if (e.key === '2') { setTool('pill'); return; }
-      if (e.key === '3') { setTool('diamond'); return; }
-      if (e.key === '4') { setTool('circle'); return; }
-      if (e.key === '5') { setTool('container'); return; }
-      if (e.key === 't' || e.key === 'T') { setTool('text'); return; }
-      if (e.key === '6') { setTool('line'); return; }
-      if (e.key === '7') { toggleDropdown('lineDropdown'); return; }
-      if (e.key === '8') { toggleGrid(); return; }
-      if (e.key === 'f' || e.key === 'F') { toggleFlow(); return; }
-      if (e.key === '9') { toggleDropdown('exportDropdown'); return; }
-      if (e.key === '0') { shareDiagram(); return; }
-      if (e.key === 'a' && !e.ctrlKey && !e.metaKey) { arrangeDiagram(); return; }
-      
+
+      // Single-key shortcut (only without Cmd/Ctrl, so Cmd+V etc. fall through)
+      const binding = KEY_BINDINGS[e.key.toLowerCase()];
+      if (binding && !e.metaKey && !e.ctrlKey) { binding(); return; }
+
       // Alt shows connectors temporarily
       if (e.key === 'Alt') canvas.classList.add('show-connectors');
       

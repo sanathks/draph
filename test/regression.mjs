@@ -173,4 +173,40 @@ group('Toasts and non-blocking confirm replace native dialogs');
   check('confirming clears the canvas', win.eval('nodes.length') === 0);
 }
 
+// ---------------------------------------------------------------------------
+group('Color palettes generated from CONFIG.palette');
+{
+  const { win, doc, E } = boot();
+  const n = E('CONFIG.palette.length');
+  for (const id of ['fillColorPalette', 'outlineColorPalette', 'connColorPalette']) {
+    const btns = doc.querySelectorAll(`#${id} > div > button`);
+    check(`${id} has palette+1 swatches`, btns.length === n + 1, `got ${btns.length}, expected ${n + 1}`);
+  }
+  // a fill swatch actually sets a node's color
+  const node = win.createNode('rect', 100, 100, 120, 60); win.render(); win.selectNode(node.id);
+  const swatch = doc.querySelectorAll('#fillColorPalette > div > button')[1]; // first real color
+  swatch.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+  check('clicking a swatch sets node.color', node.color === E('CONFIG.palette[0]'));
+}
+
+// ---------------------------------------------------------------------------
+group('Keyboard shortcuts (KEY_BINDINGS map)');
+{
+  const { win, doc, E } = boot();
+  key(doc, '2');
+  check("'2' selects the pill tool", E('currentTool') === 'pill');
+  key(doc, 'v');
+  check("'v' selects the select tool", E('currentTool') === 'select');
+  key(doc, 'T');
+  check("'T' (uppercase) selects text tool", E('currentTool') === 'text');
+  // Cmd/Ctrl + V must NOT be swallowed by the 'v' tool shortcut (paste path)
+  E(`currentTool='select'`);
+  const a = win.createNode('rect', 100, 100, 120, 60); a.label = 'X';
+  E(`selectedId='${a.id}'`);
+  key(doc, 'c', { metaKey: true });
+  const before = E('nodes.length');
+  key(doc, 'v', { metaKey: true });
+  check('Cmd+V pastes instead of selecting move tool', E('nodes.length') === before + 1 && E('currentTool') === 'select');
+}
+
 process.exit(report() ? 0 : 1);
