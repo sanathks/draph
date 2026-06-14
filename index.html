@@ -97,6 +97,8 @@
     .show-connectors .connector { opacity: 0.5; pointer-events: auto; }
     .show-connectors .lifeline-connector { opacity: 0.6; pointer-events: auto; }
     .connector:hover, .connector.active-connector:hover { opacity: 1; fill: #7aa2f7 !important; }
+    /* connector we'd snap an endpoint to while re-routing */
+    .connector.snap-target { opacity: 1 !important; fill: #9ece6a !important; stroke: #9ece6a !important; r: 8; }
     .lifeline-connector { opacity: 0; transition: opacity 0.15s, transform 0.15s; pointer-events: auto; }
     .node:hover .lifeline-connector { opacity: 0.5; }
     .lifeline-connector:hover { opacity: 1 !important; }
@@ -118,10 +120,12 @@
       background: transparent; border: none; border-radius: 8px;
       color: #a9b1d6; cursor: pointer; transition: all 0.15s;
     }
-    .tool-btn:hover { background: rgba(122, 162, 247, 0.15); }
-    .tool-btn.active { background: #7aa2f7; color: #1a1b26; }
+    .tool-btn:hover { background: rgba(122, 162, 247, 0.15); color: #c0caf5; }
+    .tool-btn:active { transform: scale(0.92); }
+    .tool-btn:focus-visible { outline: 2px solid #7aa2f7; outline-offset: 1px; }
+    .tool-btn.active { background: #7aa2f7; color: #1a1b26; box-shadow: 0 2px 6px rgba(122,162,247,0.35); }
     .tool-btn svg { width: 20px; height: 20px; }
-    .divider { width: 1px; height: 24px; background: #414868; margin: 0 4px; }
+    .divider { width: 1px; height: 22px; background: #414868; margin: 0 6px; opacity: 0.8; }
     .dropdown { position: relative; }
     .dropdown-menu { 
       position: absolute; top: 44px; left: 50%; transform: translateX(-50%);
@@ -138,6 +142,94 @@
     
     /* Cursor styles for drawing modes */
     .canvas-draw { cursor: crosshair; }
+
+    /* In-place node label editor (double-click a node) */
+    .node-label-editor {
+      position: absolute; z-index: 20; box-sizing: border-box;
+      background: #24283b; color: #c0caf5;
+      border: 2px solid #7aa2f7; border-radius: 6px;
+      padding: 2px 6px; margin: 0;
+      font-family: system-ui, -apple-system, sans-serif; font-size: 12px;
+      text-align: center; outline: none;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.45);
+    }
+
+    /* --- Toasts --- */
+    #toastContainer {
+      position: fixed; top: 64px; left: 50%; transform: translateX(-50%);
+      z-index: 300; display: flex; flex-direction: column; gap: 8px;
+      align-items: center; pointer-events: none;
+    }
+    .toast {
+      display: flex; align-items: center; gap: 8px;
+      background: #24283b; border: 1px solid #414868; color: #c0caf5;
+      padding: 10px 16px; border-radius: 8px; font-size: 13px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.45); pointer-events: auto;
+      opacity: 0; transform: translateY(-8px); transition: opacity .18s ease, transform .18s ease;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.success { border-color: #9ece6a; }
+    .toast.error { border-color: #f7768e; }
+    .toast svg { width: 15px; height: 15px; flex-shrink: 0; }
+    .toast.success svg { color: #9ece6a; }
+    .toast.error svg { color: #f7768e; }
+    .toast.info svg { color: #7aa2f7; }
+
+    /* --- Confirm dialog --- */
+    #confirmOverlay {
+      position: fixed; inset: 0; z-index: 400; display: flex;
+      align-items: center; justify-content: center;
+      background: rgba(15, 16, 25, 0.55); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+      opacity: 0; visibility: hidden; pointer-events: none;
+      transition: opacity .15s ease, visibility .15s ease;
+    }
+    #confirmOverlay.show { opacity: 1; visibility: visible; pointer-events: auto; }
+    #confirmCard {
+      background: #24283b; border: 1px solid #414868; border-radius: 12px;
+      padding: 20px; width: 320px; box-shadow: 0 16px 48px rgba(0,0,0,0.55);
+      transform: scale(0.96); transition: transform .15s ease;
+    }
+    #confirmOverlay.show #confirmCard { transform: scale(1); }
+    #confirmMessage { font-size: 14px; line-height: 1.4; color: #c0caf5; margin-bottom: 18px; }
+    .confirm-btn {
+      padding: 7px 14px; border-radius: 7px; font-size: 13px; font-weight: 600;
+      border: 1px solid #414868; background: #1a1b26; color: #a9b1d6; cursor: pointer;
+      transition: background .12s ease, border-color .12s ease;
+    }
+    .confirm-btn:hover { background: rgba(122,162,247,0.12); }
+    .confirm-btn.primary { background: #7aa2f7; border-color: #7aa2f7; color: #1a1b26; }
+    .confirm-btn.primary:hover { background: #8fb3ff; }
+    .confirm-btn.danger { background: #f7768e; border-color: #f7768e; color: #1a1b26; }
+    .confirm-btn.danger:hover { background: #ff8aa0; }
+
+    /* --- Empty state --- */
+    #emptyState {
+      position: absolute; inset: 0; z-index: 5;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      pointer-events: none; text-align: center; padding: 24px;
+    }
+    #emptyState .es-card { max-width: 420px; pointer-events: none; }
+    #emptyState h2 { font-size: 20px; font-weight: 600; color: #c0caf5; margin-bottom: 8px; }
+    #emptyState p { font-size: 13px; color: #565f89; margin-bottom: 22px; line-height: 1.5; }
+    #emptyState .es-actions { display: flex; gap: 10px; justify-content: center; margin-bottom: 26px; pointer-events: auto; }
+    .es-btn {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 9px 16px; border-radius: 9px; font-size: 13px; font-weight: 600;
+      cursor: pointer; transition: background .12s ease, border-color .12s ease, transform .08s ease;
+    }
+    .es-btn:active { transform: translateY(1px); }
+    .es-btn svg { width: 15px; height: 15px; }
+    .es-btn.primary { background: #7aa2f7; border: 1px solid #7aa2f7; color: #1a1b26; }
+    .es-btn.primary:hover { background: #8fb3ff; }
+    .es-btn.ghost { background: transparent; border: 1px solid #414868; color: #a9b1d6; }
+    .es-btn.ghost:hover { background: rgba(122,162,247,0.1); border-color: #7aa2f7; }
+    #emptyState .es-tips { display: grid; gap: 8px; font-size: 12px; color: #565f89; }
+    #emptyState .es-tips .row { display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .es-key {
+      display: inline-flex; align-items: center; justify-content: center; min-width: 18px;
+      padding: 1px 6px; background: #24283b; border: 1px solid #414868; border-radius: 4px;
+      font-size: 11px; color: #a9b1d6; font-family: 'JetBrains Mono', Consolas, monospace;
+    }
   </style>
 </head>
 <body class="h-screen flex flex-col">
@@ -327,6 +419,8 @@
       <g id="viewport">
         <g id="connections"></g>
         <g id="nodes"></g>
+        <!-- Connection endpoint drag-handles, kept above nodes so they're grabbable -->
+        <g id="connHandles"></g>
       </g>
     </svg>
     
@@ -340,8 +434,30 @@
       <span id="zoomLevel">100%</span>
     </div>
     
+    <!-- Empty state (shown when the canvas has no nodes) -->
+    <div id="emptyState">
+      <div class="es-card">
+        <h2>Start your diagram</h2>
+        <p>Double-click anywhere to drop a shape, or pick a tool and drag on the canvas.<br>Drag from a shape's edge to connect it to another.</p>
+        <div class="es-actions">
+          <button class="es-btn primary" onclick="addShapeAtCenter()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add a shape
+          </button>
+          <button class="es-btn ghost" onclick="loadExample()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            Load example
+          </button>
+        </div>
+        <div class="es-tips">
+          <div class="row"><span class="es-key">1</span>–<span class="es-key">6</span> shapes <span class="es-key">T</span> text <span class="es-key">V</span> select <span class="es-key">M</span> code</div>
+          <div class="row">Shift-drag to pan · Scroll to zoom</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Keyboard hints -->
-    <div class="absolute bottom-4 left-4 text-xs text-storm-fg/30 space-y-0.5">
+    <div class="absolute bottom-4 left-4 text-xs text-storm-fg/60 space-y-0.5">
       <div><kbd class="bg-storm-bg2 px-1 py-0.5 rounded">V</kbd> Select <kbd class="bg-storm-bg2 px-1 py-0.5 rounded">1-5</kbd> Shapes <kbd class="bg-storm-bg2 px-1 py-0.5 rounded">T</kbd> Text <kbd class="bg-storm-bg2 px-1 py-0.5 rounded">6</kbd> Arrow</div>
       <div>Click+drag to draw • Drag from edge to quick-connect</div>
     </div>
@@ -519,6 +635,20 @@
     </div>
   </main>
 
+  <!-- Toast notifications -->
+  <div id="toastContainer"></div>
+
+  <!-- Confirm dialog -->
+  <div id="confirmOverlay">
+    <div id="confirmCard">
+      <div id="confirmMessage"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button id="confirmCancel" class="confirm-btn">Cancel</button>
+        <button id="confirmOk" class="confirm-btn primary">Confirm</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     // State
     let nodes = [];
@@ -547,6 +677,7 @@
     const canvas = document.getElementById('canvas');
     const nodesGroup = document.getElementById('nodes');
     const connectionsGroup = document.getElementById('connections');
+    const connHandlesGroup = document.getElementById('connHandles');
     const tempLine = document.getElementById('tempLine');
     const tempPath = document.getElementById('tempPath');
     
@@ -569,6 +700,75 @@
     const COLORS = { bg: '#1a1b26', bg2: '#24283b', fg: '#a9b1d6', accent: '#7aa2f7', border: '#414868' };
     const GRID_SIZE = 20;
     const SHAPE_TOOLS = ['rect', 'pill', 'diamond', 'circle', 'container', 'text', 'line'];
+
+    // --- Lightweight UI helpers (toasts, confirm dialog, empty state) ---
+    const toastContainer = document.getElementById('toastContainer');
+    const TOAST_ICONS = {
+      success: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>',
+      error: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+      info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+    };
+    function toast(message, type = 'info', duration = 2500) {
+      const el = document.createElement('div');
+      el.className = 'toast ' + type;
+      el.innerHTML = (TOAST_ICONS[type] || '') + '<span></span>';
+      el.querySelector('span').textContent = message;
+      toastContainer.appendChild(el);
+      requestAnimationFrame(() => el.classList.add('show'));
+      setTimeout(() => {
+        el.classList.remove('show');
+        setTimeout(() => el.remove(), 200);
+      }, duration);
+    }
+
+    const confirmOverlay = document.getElementById('confirmOverlay');
+    const confirmMessageEl = document.getElementById('confirmMessage');
+    const confirmOkBtn = document.getElementById('confirmOk');
+    const confirmCancelBtn = document.getElementById('confirmCancel');
+    let _confirmResolve = null;
+    function confirmDialog(message, onConfirm, opts = {}) {
+      confirmMessageEl.textContent = message;
+      confirmOkBtn.textContent = opts.okLabel || 'Confirm';
+      confirmOkBtn.className = 'confirm-btn ' + (opts.danger ? 'danger' : 'primary');
+      _confirmResolve = onConfirm;
+      confirmOverlay.classList.add('show');
+    }
+    function closeConfirm() {
+      confirmOverlay.classList.remove('show');
+      _confirmResolve = null;
+    }
+    confirmOkBtn.addEventListener('click', () => { const cb = _confirmResolve; closeConfirm(); if (cb) cb(); });
+    confirmCancelBtn.addEventListener('click', closeConfirm);
+    confirmOverlay.addEventListener('mousedown', (e) => { if (e.target === confirmOverlay) closeConfirm(); });
+
+    const emptyStateEl = document.getElementById('emptyState');
+    function updateEmptyState() {
+      emptyStateEl.style.display = nodes.length === 0 ? 'flex' : 'none';
+    }
+
+    // Add a shape at the visible center of the canvas (empty-state button)
+    function addShapeAtCenter() {
+      const cx = viewBox.x + viewBox.w / 2;
+      const cy = viewBox.y + viewBox.h / 2;
+      const node = createNode('rect', snap(cx - 60), snap(cy - 22), 120, 44);
+      saveState();
+      render();
+      selectNode(node.id);
+      setTimeout(() => { const i = document.getElementById('toolbarLabel'); if (i) { i.focus(); i.select(); } }, 60);
+    }
+
+    const EXAMPLE_DIAGRAM = `flowchart TD
+    A[User request] --> B{Authenticated?}
+    B -->|Yes| C[Load dashboard]
+    B -->|No| D[Show login]
+    D --> E[Submit credentials]
+    E --> B
+    C --> F([Done])`;
+    function loadExample() {
+      const editor = document.getElementById('mermaidEditor');
+      if (editor) editor.value = EXAMPLE_DIAGRAM;
+      importMermaid(true);
+    }
     
     // Tool management
     function setTool(tool) {
@@ -651,12 +851,13 @@
       // Determine best sides for connection
       const toSide = getBestConnectorSide(newNode, fromNode.x + fromNode.width/2, fromNode.y + fromNode.height/2);
       
-      connections.push({ 
-        id: 'c' + Date.now(), 
-        from: from, 
+      connections.push({
+        id: 'c' + Date.now(),
+        from: from,
         fromSide: fromSide,
+        fromSideLocked: true,
         fromIdx: fromIdx,
-        to: newNode.id, 
+        to: newNode.id,
         toSide: toSide,
         toIdx: 1,
         lineStyle: globalLineStyle
@@ -805,7 +1006,9 @@
     function shareDiagram() {
       updateUrlHash();
       navigator.clipboard.writeText(window.location.href).then(() => {
-        alert('Link copied to clipboard!');
+        toast('Share link copied to clipboard', 'success');
+      }).catch(() => {
+        toast('Could not copy link', 'error');
       });
     }
     
@@ -906,67 +1109,105 @@
       return { fromSide, toSide };
     }
     
-    function routeConnection(from, to, lineStyle = 'rounded') {
-      // Auto-calculate optimal sides
-      const { fromSide, toSide } = getOptimalSides(from, to);
-      
-      const [x1, y1] = getConnectorPos(from, fromSide, 1);
-      const [x2, y2] = getConnectorPos(to, toSide, 1);
-      
-      const margin = 25;
-      const points = [{ x: x1, y: y1 }];
-      
-      const dirs = { right: {x:1,y:0}, left: {x:-1,y:0}, bottom: {x:0,y:1}, top: {x:0,y:-1} };
-      const d1 = dirs[fromSide];
-      const d2 = dirs[toSide];
-      
-      const isHorizontal = d1.x !== 0;
-      
-      if (isHorizontal) {
-          if (Math.abs(y1 - y2) < 5) {
-            points.push({ x: x2, y: y2 });
-          } else {
-            const midX = (x1 + x2) / 2;
-            if ((d1.x > 0 && x2 > x1) || (d1.x < 0 && x2 < x1)) {
-              points.push({ x: midX, y: y1 });
-              points.push({ x: midX, y: y2 });
-            } else {
-              const ext = d1.x > 0 ? Math.max(x1, x2) + margin : Math.min(x1, x2) - margin;
-              points.push({ x: ext, y: y1 });
-              points.push({ x: ext, y: y2 });
-            }
-            points.push({ x: x2, y: y2 });
-          }
-        } else {
-          if (Math.abs(x1 - x2) < 5) {
-            points.push({ x: x2, y: y2 });
-          } else {
-            const midY = (y1 + y2) / 2;
-            if ((d1.y > 0 && y2 > y1) || (d1.y < 0 && y2 < y1)) {
-              points.push({ x: x1, y: midY });
-              points.push({ x: x2, y: midY });
-            } else {
-              const ext = d1.y > 0 ? Math.max(y1, y2) + margin : Math.min(y1, y2) - margin;
-              points.push({ x: x1, y: ext });
-              points.push({ x: x2, y: ext });
-            }
-            points.push({ x: x2, y: y2 });
-          }
-        }
-      
-      // Add gap before the target node (shorten the last segment)
-      const gap = 8;
-      const lastPt = points[points.length - 1];
-      const prevPt = points[points.length - 2] || points[0];
-      const dx = lastPt.x - prevPt.x;
-      const dy = lastPt.y - prevPt.y;
-      const len = Math.sqrt(dx * dx + dy * dy);
-      if (len > gap) {
-        lastPt.x = lastPt.x - (dx / len) * gap;
-        lastPt.y = lastPt.y - (dy / len) * gap;
+    // =====================================================================
+    //  Orthogonal connection routing
+    //  Pure geometry: node rectangles + the sides to attach to -> a clean
+    //  orthogonal polyline from one connector to the other. Guarantees:
+    //    - the line LEAVES the source and ENTERS the target perpendicular to
+    //      their edges, so the arrowhead sits square on the connector;
+    //    - a clearance "stub" off each node that shrinks when nodes are close
+    //      (so a tight layout doesn't produce a cramped back-jog);
+    //    - a square 90° corner at the target (never a spike beside the arrow).
+    //  All tunables live in ROUTE_CFG so future tweaks are one-liners.
+    // =====================================================================
+    const SIDE_NORMAL = { top: {x:0,y:-1}, bottom: {x:0,y:1}, left: {x:-1,y:0}, right: {x:1,y:0} };
+    const ROUTE_CFG = { minClear: 14, maxClear: 24 };
+
+    // Point on a node's side at a fractional position along it (0..1).
+    function sidePoint(node, side, frac = 0.5) {
+      switch (side) {
+        case 'top':    return { x: node.x + node.width * frac, y: node.y };
+        case 'bottom': return { x: node.x + node.width * frac, y: node.y + node.height };
+        case 'left':   return { x: node.x, y: node.y + node.height * frac };
+        case 'right':  return { x: node.x + node.width, y: node.y + node.height * frac };
       }
-      
-      return { points, fromSide, toSide, endX: x2, endY: y2 };
+      return { x: node.x + node.width / 2, y: node.y + node.height / 2 };
+    }
+
+    // Resolve each connection's attach sides. A side is honored verbatim when the
+    // user locked it (by dragging an endpoint); otherwise it's auto-chosen toward
+    // the other node. Edges landing on the same side share the connector (merged).
+    function computeConnectionGeometry(nodeById) {
+      const sideOf = new Map();   // connId -> { fromSide, toSide }
+      connections.forEach(conn => {
+        if (conn.isSequenceMessage) return;
+        const from = nodeById.get(conn.from), to = nodeById.get(conn.to);
+        if (!from || !to) return;
+        const auto = getOptimalSides(from, to);
+        sideOf.set(conn.id, {
+          fromSide: conn.fromSideLocked ? conn.fromSide : auto.fromSide,
+          toSide: conn.toSideLocked ? conn.toSide : auto.toSide,
+        });
+      });
+      return { sideOf };
+    }
+
+    // Remove duplicate points and any point that sits *between* its neighbours on
+    // a straight run. Deliberate U-turn/overshoot points (which reverse direction)
+    // are kept, so wrap-around routes stay intact.
+    function simplifyPath(pts) {
+      const out = [];
+      for (const p of pts) {
+        const last = out[out.length - 1];
+        if (last && Math.abs(last.x - p.x) < 0.5 && Math.abs(last.y - p.y) < 0.5) continue;
+        out.push({ x: p.x, y: p.y });
+      }
+      if (out.length <= 2) return out;
+      const res = [out[0]];
+      for (let i = 1; i < out.length - 1; i++) {
+        const a = res[res.length - 1], b = out[i], c = out[i + 1];
+        const collinear = Math.abs((b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x)) < 0.5;
+        const between = (b.x-a.x)*(c.x-b.x) + (b.y-a.y)*(c.y-b.y) > 0;
+        if (collinear && between) continue;
+        res.push(b);
+      }
+      res.push(out[out.length - 1]);
+      return res;
+    }
+
+    // Orthogonally connect two "exit" points (already pushed out perpendicular
+    // from each node). The corner is picked so the segment ENTERING e2 is
+    // perpendicular to the target normal n2 -> a clean 90° at the target, which
+    // is what keeps the arrowhead from ever sitting on a spike/reversal.
+    function connectExits(e1, n1, e2, n2) {
+      const h1 = n1.x !== 0, h2 = n2.x !== 0;
+      if (h1 === h2) {
+        // same orientation -> a single jog across the middle of the gap (Z)
+        return h1
+          ? [{ x:(e1.x+e2.x)/2, y:e1.y }, { x:(e1.x+e2.x)/2, y:e2.y }]
+          : [{ x:e1.x, y:(e1.y+e2.y)/2 }, { x:e2.x, y:(e1.y+e2.y)/2 }];
+      }
+      // mixed orientation -> one corner, entering e2 perpendicular to n2
+      return h2 ? [{ x:e2.x, y:e1.y }]   // n2 horizontal -> enter e2 vertically
+                : [{ x:e1.x, y:e2.y }];  // n2 vertical   -> enter e2 horizontally
+    }
+
+    // Build the full route between two connectors. Returns the polyline (ending
+    // exactly on the target connector) plus the inward arrow direction there.
+    function routeConnection(from, to, fromSide, toSide, fromFrac = 0.5, toFrac = 0.5) {
+      const p1 = sidePoint(from, fromSide, fromFrac);
+      const p2 = sidePoint(to, toSide, toFrac);
+      const n1 = SIDE_NORMAL[fromSide] || { x:0, y:0 };
+      const n2 = SIDE_NORMAL[toSide]  || { x:0, y:0 };
+
+      // clearance off each node, adaptive so close nodes get a smaller stub
+      const gap = Math.abs(p2.x - p1.x) + Math.abs(p2.y - p1.y);
+      const clear = Math.max(ROUTE_CFG.minClear, Math.min(ROUTE_CFG.maxClear, gap / 3));
+      const e1 = { x: p1.x + n1.x * clear, y: p1.y + n1.y * clear };
+      const e2 = { x: p2.x + n2.x * clear, y: p2.y + n2.y * clear };
+
+      const points = simplifyPath([p1, e1, ...connectExits(e1, n1, e2, n2), e2, p2]);
+      return { points, fromSide, toSide, endX: p2.x, endY: p2.y, inDir: { x: -n2.x, y: -n2.y } };
     }
     
     // Coalesce render calls to one per animation frame. Mouse events fire far
@@ -982,6 +1223,7 @@
     function render() {
       renderConnections();
       renderNodes();
+      updateEmptyState();
     }
 
     // Fast path used while dragging nodes: instead of regenerating every node's
@@ -1074,6 +1316,8 @@
       }).join('');
       
       // Connections
+      const connGeom = computeConnectionGeometry(nodeById);
+      let selHandles = null;  // endpoint coords for the selected connection (drawn on top)
       connectionsGroup.innerHTML = framesSvg + connections.map(conn => {
         const from = nodeById.get(conn.from);
         const to = nodeById.get(conn.to);
@@ -1163,16 +1407,27 @@
           </g>`;
         }
         
-        // Smart routing - ignores stored sides, calculates optimal path
+        // Smart routing — respects manually-locked sides, auto-distributes the rest
         const lineStyle = conn.lineStyle || 'rounded';
-        const { points, endX, endY } = routeConnection(from, to, lineStyle);
+        const cg = connGeom.sideOf.get(conn.id) || getOptimalSides(from, to);
+        const { points, endX, endY, inDir } = routeConnection(from, to, cg.fromSide, cg.toSide);
         const [x1, y1] = [points[0].x, points[0].y];
         const [x2, y2] = [points[points.length-1].x, points[points.length-1].y];
         
+        // Arrow points straight into the target connector (inward normal), so it
+        // sits perpendicular on the node edge. The tip is exactly on the connector
+        // and the drawn line is shortened to the arrow base, so no line pokes out.
+        const aLen = 8, aWidth = 4;
+        const angle = Math.atan2(inDir.y, inDir.x);   // straight into the connector
+        const ca = Math.cos(angle), sa = Math.sin(angle);
+        const tipX = endX, tipY = endY;                       // tip on the connector
+        const baseX = tipX - ca * aLen, baseY = tipY - sa * aLen;
+        points[points.length - 1] = { x: baseX, y: baseY };   // line ends at arrow base
+
         // Rounded corners for 'rounded' style
         const r = lineStyle === 'rounded' ? 12 : 0;
-        let path, midX, midY, angle;
-        
+        let path, midX, midY;
+
         if (lineStyle === 'rounded' && points.length >= 3) {
           path = `M${points[0].x},${points[0].y}`;
           for (let i = 1; i < points.length - 1; i++) {
@@ -1209,18 +1464,6 @@
           midY = (y1 + y2) / 2;
         }
         
-        // Arrow pointing toward the node edge
-        const lastPt = points[points.length - 1];
-        const prevPt = points.length > 1 ? points[points.length - 2] : points[0];
-        angle = Math.atan2(endY - prevPt.y, endX - prevPt.x);
-        
-        const aLen = 8, aWidth = 4;
-        const tipGap = 3; // Small gap between arrow tip and node for premium look
-        // Arrow tip near the endpoint with a small gap
-        const tipX = endX - Math.cos(angle) * tipGap;
-        const tipY = endY - Math.sin(angle) * tipGap;
-        const baseX = tipX - Math.cos(angle) * aLen;
-        const baseY = tipY - Math.sin(angle) * aLen;
         const px = Math.cos(angle + Math.PI/2) * aWidth;
         const py = Math.sin(angle + Math.PI/2) * aWidth;
         const arrow = `M${tipX},${tipY} L${baseX + px},${baseY + py} L${baseX - px},${baseY - py} Z`;
@@ -1272,8 +1515,18 @@
         const arrowHit = `<circle class="conn-hit" cx="${tipX}" cy="${tipY}" r="15" fill="transparent" data-conn="${conn.id}" style="cursor:pointer;pointer-events:all"/>`;
         
         const connDashArray = conn.strokeStyle === 'dashed' ? '5,3' : 'none';
+        // Endpoint drag-handles are drawn in the #connHandles overlay (above nodes)
+        if (isConnSelected) selHandles = { fromX: x1, fromY: y1, toX: endX, toY: endY };
         return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" style="cursor:pointer">${hitArea}${arrowHit}<path class="connection" d="${path}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${connDashArray}" style="pointer-events:none"/><path d="${arrow}" fill="${strokeColor}" style="pointer-events:none"/>${labelEl}</g>`;
       }).join('');
+
+      // Endpoint handles on top of everything, with a generous transparent hit area
+      const handle = (end, cx, cy) => `
+        <circle class="conn-endpoint" data-conn="${selectedConnId}" data-end="${end}" cx="${cx}" cy="${cy}" r="13" fill="transparent" style="cursor:grab;pointer-events:all"/>
+        <circle class="conn-endpoint" data-conn="${selectedConnId}" data-end="${end}" cx="${cx}" cy="${cy}" r="6" fill="${COLORS.accent}" stroke="${COLORS.bg}" stroke-width="2" style="cursor:grab;pointer-events:all"/>`;
+      connHandlesGroup.innerHTML = selHandles
+        ? handle('from', selHandles.fromX, selHandles.fromY) + handle('to', selHandles.toX, selHandles.toY)
+        : '';
     }
 
     function renderNodes() {
@@ -1526,6 +1779,10 @@
       connectionsGroup.addEventListener('mousedown', (e) => {
         if (e.target.closest('[data-conn]')) onConnectionMouseDown(e);
       });
+      connHandlesGroup.addEventListener('mousedown', (e) => {
+        const ep = e.target.closest('.conn-endpoint');
+        if (ep) startEndpointDrag(e, ep);
+      });
     }
     
     function renderConnectors(node) {
@@ -1652,7 +1909,48 @@
       floatingToolbar.style.left = left + 'px';
       floatingToolbar.style.top = top + 'px';
     }
-    
+
+    // In-place label editing: an input overlaid on the node itself
+    let labelEditor = null;
+    function editNodeLabel(node) {
+      if (labelEditor) labelEditor.commit(true);
+      const canvasContainer = document.getElementById('canvasContainer');
+      const canvasRect = canvas.getBoundingClientRect();
+      const scaleX = canvasRect.width / viewBox.w;
+      const left = (node.x - viewBox.x) * scaleX;
+      const top = (node.y - viewBox.y) * scaleX;
+      const w = node.width * scaleX;
+      const h = node.height * scaleX;
+
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.className = 'node-label-editor';
+      inp.value = node.label || '';
+      inp.style.left = left + 'px';
+      inp.style.top = top + 'px';
+      inp.style.width = w + 'px';
+      inp.style.height = h + 'px';
+      canvasContainer.appendChild(inp);
+      inp.focus();
+      inp.select();
+
+      let done = false;
+      const commit = (save) => {
+        if (done) return;
+        done = true;
+        if (save) { node.label = inp.value.trim(); saveState(); render(); }
+        inp.remove();
+        labelEditor = null;
+      };
+      inp.addEventListener('blur', () => commit(true));
+      inp.addEventListener('keydown', (ev) => {
+        ev.stopPropagation();
+        if (ev.key === 'Enter') { ev.preventDefault(); commit(true); }
+        else if (ev.key === 'Escape') { ev.preventDefault(); commit(false); }
+      });
+      labelEditor = { commit };
+    }
+
     function deleteSelected() {
       // Delete selected connection
       if (selectedConnId) {
@@ -1920,13 +2218,15 @@
     }
     
     function clearCanvas() {
-      if (confirm('Clear entire canvas?')) {
+      if (nodes.length === 0 && connections.length === 0) return;
+      confirmDialog('Clear the entire canvas? This removes all shapes and connections.', () => {
         nodes = [];
         connections = [];
         deselectAll();
         saveState();
         render();
-      }
+        toast('Canvas cleared', 'success');
+      }, { danger: true, okLabel: 'Clear' });
     }
     
     // Smart auto-arrange based on diagram type
@@ -2199,8 +2499,8 @@
         const toNode = nodes.find(n => n.id === c.to);
         if (fromNode && toNode) {
           const { fromSide, toSide } = getOptimalSides(fromNode, toNode);
-          c.fromSide = fromSide;
-          c.toSide = toSide;
+          if (!c.fromSideLocked) c.fromSide = fromSide;
+          if (!c.toSideLocked) c.toSide = toSide;
         }
       });
       
@@ -2222,6 +2522,33 @@
       if (connections.length > 0) { saveState(); render(); }
     }
     
+    // Topmost (last-drawn) node whose box contains the point; ignores arrows
+    function nodeAt(x, y) {
+      for (let i = nodes.length - 1; i >= 0; i--) {
+        const n = nodes[i];
+        if (n.type === 'line') continue;
+        if (x >= n.x && x <= n.x + n.width && y >= n.y && y <= n.y + n.height) return n;
+      }
+      return null;
+    }
+
+    // Re-routing a connection by dragging one of its endpoint handles
+    let connEndpointDrag = null;
+    let _snapTargetEl = null;
+    function startEndpointDrag(e, ep) {
+      e.preventDefault();
+      e.stopPropagation();
+      const otherEnd = ep.dataset.end === 'from' ? 'to' : 'from';
+      const otherEl = connHandlesGroup.querySelector(`.conn-endpoint[data-end="${otherEnd}"]`);
+      connEndpointDrag = {
+        connId: ep.dataset.conn,
+        end: ep.dataset.end,
+        fixed: otherEl ? { x: +otherEl.getAttribute('cx'), y: +otherEl.getAttribute('cy') } : null,
+      };
+      // Reveal connector targets on all nodes while re-routing
+      canvas.classList.add('show-connectors');
+    }
+
     // Find best connector side for a point relative to a node
     function getBestConnectorSide(node, px, py) {
       const cx = node.x + node.width / 2;
@@ -2305,10 +2632,8 @@
       dragging = null;
       setTool('select');
       selectNode(id);
-      setTimeout(() => {
-        const input = document.getElementById('toolbarLabel');
-        if (input) { input.focus(); input.select(); }
-      }, 100);
+      const node = nodes.find(n => n.id === id);
+      if (node && node.type !== 'line') editNodeLabel(node);
     }
     
     function onConnectionMouseDown(e) {
@@ -2389,11 +2714,24 @@
     }
     
     // Canvas events
+    // Double-click empty canvas to drop a rectangle (and start labeling it)
+    canvas.addEventListener('dblclick', (e) => {
+      if (currentTool !== 'select') return;
+      if (e.target.closest('.node') || e.target.closest('[data-conn]') ||
+          e.target.classList.contains('connector') || e.target.classList.contains('lifeline-connector')) return;
+      const pos = screenToCanvas(e.clientX, e.clientY);
+      const node = createNode('rect', snap(pos.x - 60), snap(pos.y - 22), 120, 44);
+      saveState();
+      render();
+      selectNode(node.id);
+      setTimeout(() => { const i = document.getElementById('toolbarLabel'); if (i) { i.focus(); i.select(); } }, 60);
+    });
+
     canvas.addEventListener('mousedown', (e) => {
       if (e.target.closest('.node') || e.target.classList.contains('connector')) return;
-      
+
       const pos = screenToCanvas(e.clientX, e.clientY);
-      
+
       // Shift+drag or middle mouse = pan
       if (e.shiftKey || e.button === 1) {
         panning = true;
@@ -2427,6 +2765,25 @@
     
     document.addEventListener('mousemove', (e) => {
       const pos = screenToCanvas(e.clientX, e.clientY);
+
+      // Re-routing a connection endpoint: show a guide line + highlight the
+      // connector we'd snap to so the target is obvious.
+      if (connEndpointDrag) {
+        if (_snapTargetEl) { _snapTargetEl.classList.remove('snap-target'); _snapTargetEl = null; }
+        const conn = connections.find(c => c.id === connEndpointDrag.connId);
+        const otherId = conn && (connEndpointDrag.end === 'from' ? conn.to : conn.from);
+        const target = nodeAt(pos.x, pos.y);
+        if (target && target.id !== otherId) {
+          const side = getBestConnectorSide(target, pos.x, pos.y);
+          const el = nodesGroup.querySelector(`.connector[data-node="${target.id}"][data-side="${side}"]`);
+          if (el) { el.classList.add('snap-target'); _snapTargetEl = el; }
+        }
+        if (connEndpointDrag.fixed) {
+          tempPath.setAttribute('d', `M${connEndpointDrag.fixed.x},${connEndpointDrag.fixed.y} L${pos.x},${pos.y}`);
+          showTempLine();
+        }
+        return;
+      }
 
       // Drawing shape preview
       if (drawing) {
@@ -2589,7 +2946,36 @@
     
     document.addEventListener('mouseup', (e) => {
       const pos = screenToCanvas(e.clientX, e.clientY);
-      
+
+      // Commit a connection endpoint re-route
+      if (connEndpointDrag) {
+        const conn = connections.find(c => c.id === connEndpointDrag.connId);
+        if (conn) {
+          const end = connEndpointDrag.end;
+          const otherId = end === 'from' ? conn.to : conn.from;
+          const target = nodeAt(pos.x, pos.y);
+          let attachNode;
+          if (target && target.id !== otherId) {
+            if (end === 'from') conn.from = target.id; else conn.to = target.id;
+            attachNode = target;
+          } else {
+            attachNode = nodes.find(n => n.id === (end === 'from' ? conn.from : conn.to));
+          }
+          if (attachNode) {
+            const side = getBestConnectorSide(attachNode, pos.x, pos.y);
+            if (end === 'from') { conn.fromSide = side; conn.fromSideLocked = true; }
+            else { conn.toSide = side; conn.toSideLocked = true; }
+            saveState();
+            render();
+          }
+        }
+        connEndpointDrag = null;
+        if (_snapTargetEl) { _snapTargetEl.classList.remove('snap-target'); _snapTargetEl = null; }
+        hideTempLine();
+        canvas.classList.remove('show-connectors');
+        return;
+      }
+
       // Finish drawing shape
       if (drawing) {
         if (drawing.type === 'line') {
@@ -2682,14 +3068,17 @@
                 arrow: '->>'
               });
             } else {
-              // Regular node to node connection
-              connections.push({ 
-                id: 'c' + Date.now(), 
-                from: connecting.from, 
+              // Regular node to node connection — honor the exact connectors
+              // the user dragged from and dropped on (don't auto-reroute them)
+              connections.push({
+                id: 'c' + Date.now(),
+                from: connecting.from,
                 fromSide: connecting.fromSide,
+                fromSideLocked: true,
                 fromIdx: connecting.fromIdx,
-                to: toId, 
+                to: toId,
                 toSide: target.dataset.side,
+                toSideLocked: true,
                 toIdx: parseInt(target.dataset.idx) || 1,
                 lineStyle: globalLineStyle
               });
@@ -2830,7 +3219,7 @@
     function downloadSVG() {
       const bounds = getContentBounds();
       if (!bounds) {
-        alert('Nothing to export!');
+        toast('Nothing to export yet — add a shape first', 'error');
         return;
       }
       
@@ -2924,7 +3313,7 @@
     function downloadPNG() {
       const bounds = getContentBounds();
       if (!bounds) {
-        alert('Nothing to export!');
+        toast('Nothing to export yet — add a shape first', 'error');
         return;
       }
       
@@ -3185,7 +3574,7 @@
     // Download animated GIF of flow animation
     async function downloadGIF() {
       const bounds = getContentBounds();
-      if (!bounds) { alert('Nothing to export!'); return; }
+      if (!bounds) { toast('Nothing to export yet — add a shape first', 'error'); return; }
       
       const padding = 40;
       const cropX = bounds.minX - padding;
@@ -4366,24 +4755,23 @@
       }
     }
     
-    function importMermaid() {
+    function importMermaid(force) {
       const editor = document.getElementById('mermaidEditor');
       const code = editor.value.trim();
       const errorDiv = document.getElementById('mermaidError');
-      
+
       if (!code || code === 'flowchart TD' || code === 'flowchart TD\n    %% Empty diagram') {
         errorDiv.textContent = 'No code to import';
         errorDiv.style.display = 'block';
         return;
       }
-      
-      // Confirm if diagram exists
-      if (nodes.length > 0) {
-        if (!confirm('This will replace your current diagram. Continue?')) {
-          return;
-        }
+
+      // Confirm if diagram exists (non-blocking dialog; re-runs with force=true)
+      if (!force && nodes.length > 0) {
+        confirmDialog('This will replace your current diagram. Continue?', () => importMermaid(true), { okLabel: 'Replace' });
+        return;
       }
-      
+
       try {
         const parsed = parseMermaid(code);
         
