@@ -733,6 +733,8 @@
     const tempLine = document.getElementById('tempLine');
     const tempPath = document.getElementById('tempPath');
     
+    // === SECTION: UI PRIMITIVES (toasts, confirm dialog, empty state, temp line) ===
+
     // Sync tempLine viewBox with canvas for proper coordinate mapping
     function showTempLine() {
       tempLine.setAttribute('viewBox', `${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`);
@@ -832,6 +834,8 @@
       importMermaid(true);
     }
     
+    // === SECTION: TOOLS, PICKERS & LIFECYCLE (init, history, persistence) ===
+
     // Tool management
     function setTool(tool) {
       currentTool = tool;
@@ -1148,6 +1152,8 @@
       return node;
     }
     
+    // === SECTION: GEOMETRY & ROUTING (node creation + orthogonal connection router) ===
+
     // Smart arrow routing - auto-picks best sides
     function getOptimalSides(from, to) {
       const fromCx = from.x + from.width / 2;
@@ -1285,6 +1291,8 @@
       return { points, fromSide, toSide, endX: p2.x, endY: p2.y, inDir: { x: -n2.x, y: -n2.y } };
     }
     
+    // === SECTION: RENDERING (render pipeline, layers, SVG generation) ===
+
     // Coalesce render calls to one per animation frame. Mouse events fire far
     // faster than the screen repaints, so an un-throttled render() in a drag
     // handler does many wasted full rebuilds per frame.
@@ -1922,6 +1930,8 @@
     }
 
     // Selection
+    // === SECTION: SELECTION & TOOLBARS (select/edit nodes & connections, styling) ===
+
     function selectNode(id) {
       selectedId = id;
       selectedConnId = null;
@@ -2305,6 +2315,8 @@
     }
     
     // Smart auto-arrange based on diagram type
+    // === SECTION: LAYOUT (auto-arrange algorithms per diagram type) ===
+
     function arrangeDiagram() {
       if (nodes.length === 0) return;
       
@@ -2638,6 +2650,8 @@
       }
     }
     
+    // === SECTION: INTERACTION (mouse & keyboard handlers, event-delegated) ===
+
     // Event handlers
     function onNodeMouseDown(e) {
       if (e.target.classList.contains('connector') || e.target.classList.contains('resize-handle') || e.target.classList.contains('lifeline-connector')) return;
@@ -3297,6 +3311,8 @@
       e.stopPropagation();
     });
     
+    // === SECTION: EXPORT (SVG / PNG / GIF) ===
+
     // Export
     function downloadSVG() {
       const bounds = getContentBounds();
@@ -3745,6 +3761,8 @@
     // ===== MERMAID INTEGRATION =====
     let mermaidSyncPaused = false;
     
+    // === SECTION: MERMAID (highlight, generate diagram->code, parse, layout, import) ===
+
     function toggleMermaidSidebar() {
       const sidebar = document.getElementById('mermaidSidebar');
       const toggle = document.getElementById('mermaidToggle');
