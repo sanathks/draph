@@ -190,6 +190,33 @@ group('Color palettes generated from CONFIG.palette');
 }
 
 // ---------------------------------------------------------------------------
+group('Press-near-end grabs the endpoint in one gesture');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 300, 300, 120, 60);
+  const b = win.createNode('rect', 700, 300, 120, 60);
+  E(`connections.push({id:'e',from:'${a.id}',to:'${b.id}'})`); win.render();
+  // start endpoint is A's right connector (420,330). Press there and DRAG to A's top.
+  const hit = doc.querySelector('.conn-hit[data-conn="e"]');
+  mouse(hit, 'mousedown', 420, 330);
+  mouse(doc, 'mousemove', 360, 305);   // toward A's top edge
+  mouse(doc, 'mouseup', 360, 305);
+  const e1 = E(`connections.find(c=>c.id==='e')`);
+  check('drag from near start re-routes the start side', e1.fromSide === 'top' && e1.fromSideLocked === true && e1.from === a.id, `fromSide=${e1.fromSide}`);
+
+  // a plain click near an endpoint selects but must NOT lock/change the side
+  const { win: w2, doc: d2, E: E2 } = boot();
+  const a2 = w2.createNode('rect', 300, 300, 120, 60);
+  const b2 = w2.createNode('rect', 700, 300, 120, 60);
+  E2(`connections.push({id:'e',from:'${a2.id}',to:'${b2.id}'})`); w2.render();
+  const hit2 = d2.querySelector('.conn-hit[data-conn="e"]');
+  mouse(hit2, 'mousedown', 420, 330);
+  mouse(d2, 'mouseup', 420, 330);      // no movement
+  const e2 = E2(`connections.find(c=>c.id==='e')`);
+  check('plain click selects without locking a side', E2(`selectedConnId`) === 'e' && !e2.fromSideLocked);
+}
+
+// ---------------------------------------------------------------------------
 group('Keyboard shortcuts (KEY_BINDINGS map)');
 {
   const { win, doc, E } = boot();

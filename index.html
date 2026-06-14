@@ -2619,21 +2619,37 @@
       return null;
     }
 
-    // Re-routing a connection by dragging one of its endpoint handles
+    // Re-routing a connection by dragging one of its endpoints. An endpoint drag
+    // can be started two ways: by grabbing the round handle on a selected
+    // connection, or by pressing near either end of the line and dragging (see
+    // onConnectionMouseDown). The side change is only committed if the pointer
+    // actually moves — a plain click just selects, it never silently re-routes.
     let connEndpointDrag = null;
     let _snapTargetEl = null;
+    function beginEndpointDrag(connId, end, fixedPoint, downPos) {
+      connEndpointDrag = { connId, end, fixed: fixedPoint || null, moved: false, downPos: downPos || null };
+      canvas.classList.add('show-connectors'); // reveal connector targets
+    }
     function startEndpointDrag(e, ep) {
       e.preventDefault();
       e.stopPropagation();
       const otherEnd = ep.dataset.end === 'from' ? 'to' : 'from';
       const otherEl = connHandlesGroup.querySelector(`.conn-endpoint[data-end="${otherEnd}"]`);
-      connEndpointDrag = {
-        connId: ep.dataset.conn,
-        end: ep.dataset.end,
-        fixed: otherEl ? { x: +otherEl.getAttribute('cx'), y: +otherEl.getAttribute('cy') } : null,
-      };
-      // Reveal connector targets on all nodes while re-routing
-      canvas.classList.add('show-connectors');
+      const fixed = otherEl ? { x: +otherEl.getAttribute('cx'), y: +otherEl.getAttribute('cy') } : null;
+      beginEndpointDrag(ep.dataset.conn, ep.dataset.end, fixed, screenToCanvas(e.clientX, e.clientY));
+    }
+
+    // Endpoint pixel positions for a connection, in canvas coords.
+    // { start, end } — start is the 'from' connector, end is the 'to' connector.
+    function connectionEndpoints(conn) {
+      const from = nodes.find(n => n.id === conn.from);
+      const to = nodes.find(n => n.id === conn.to);
+      if (!from || !to) return null;
+      const auto = getOptimalSides(from, to);
+      const fromSide = conn.fromSideLocked ? conn.fromSide : auto.fromSide;
+      const toSide = conn.toSideLocked ? conn.toSide : auto.toSide;
+      const g = routeConnection(from, to, fromSide, toSide);
+      return { start: g.points[0], end: { x: g.endX, y: g.endY } };
     }
 
     // Find best connector side for a point relative to a node
@@ -2729,7 +2745,7 @@
       const hit = e.target.closest('[data-conn]');
       const connId = hit && hit.dataset.conn;
       if (!connId) return;
-      
+
       // Select connection and show toolbar (toolbar has label input)
       selectedConnId = connId;
       selectedId = null;
@@ -2738,9 +2754,24 @@
       render();
       const conn = connections.find(c => c.id === connId);
       if (conn) showConnToolbar(conn);
-      
+
       e.stopPropagation();
       e.preventDefault();
+
+      // If the press is near one of the connection's ends, also grab that
+      // endpoint so you can re-route it in a single click-and-drag. The side
+      // only changes if you actually drag (see the mouseup handler).
+      if (conn && !conn.isSequenceMessage) {
+        const ends = connectionEndpoints(conn);
+        if (ends) {
+          const pos = screenToCanvas(e.clientX, e.clientY);
+          const R = 18 * (zoom || 1); // grab radius in canvas units (~18px on screen)
+          const dStart = Math.hypot(pos.x - ends.start.x, pos.y - ends.start.y);
+          const dEnd = Math.hypot(pos.x - ends.end.x, pos.y - ends.end.y);
+          if (dStart <= R && dStart <= dEnd) beginEndpointDrag(connId, 'from', ends.end, pos);
+          else if (dEnd <= R) beginEndpointDrag(connId, 'to', ends.start, pos);
+        }
+      }
     }
     
     function onConnectorMouseDown(e) {
@@ -2858,18 +2889,23 @@
       // Re-routing a connection endpoint: show a guide line + highlight the
       // connector we'd snap to so the target is obvious.
       if (connEndpointDrag) {
+        // Mark as a real drag once the pointer moves past a small threshold.
+        const dp = connEndpointDrag.downPos;
+        if (!dp || Math.hypot(pos.x - dp.x, pos.y - dp.y) > 3 * (zoom || 1)) connEndpointDrag.moved = true;
         if (_snapTargetEl) { _snapTargetEl.classList.remove('snap-target'); _snapTargetEl = null; }
-        const conn = connections.find(c => c.id === connEndpointDrag.connId);
-        const otherId = conn && (connEndpointDrag.end === 'from' ? conn.to : conn.from);
-        const target = nodeAt(pos.x, pos.y);
-        if (target && target.id !== otherId) {
-          const side = getBestConnectorSide(target, pos.x, pos.y);
-          const el = nodesGroup.querySelector(`.connector[data-node="${target.id}"][data-side="${side}"]`);
-          if (el) { el.classList.add('snap-target'); _snapTargetEl = el; }
-        }
-        if (connEndpointDrag.fixed) {
-          tempPath.setAttribute('d', `M${connEndpointDrag.fixed.x},${connEndpointDrag.fixed.y} L${pos.x},${pos.y}`);
-          showTempLine();
+        if (connEndpointDrag.moved) {
+          const conn = connections.find(c => c.id === connEndpointDrag.connId);
+          const otherId = conn && (connEndpointDrag.end === 'from' ? conn.to : conn.from);
+          const target = nodeAt(pos.x, pos.y);
+          if (target && target.id !== otherId) {
+            const side = getBestConnectorSide(target, pos.x, pos.y);
+            const el = nodesGroup.querySelector(`.connector[data-node="${target.id}"][data-side="${side}"]`);
+            if (el) { el.classList.add('snap-target'); _snapTargetEl = el; }
+          }
+          if (connEndpointDrag.fixed) {
+            tempPath.setAttribute('d', `M${connEndpointDrag.fixed.x},${connEndpointDrag.fixed.y} L${pos.x},${pos.y}`);
+            showTempLine();
+          }
         }
         return;
       }
@@ -3036,9 +3072,10 @@
     document.addEventListener('mouseup', (e) => {
       const pos = screenToCanvas(e.clientX, e.clientY);
 
-      // Commit a connection endpoint re-route
+      // Commit a connection endpoint re-route (only if the pointer actually
+      // moved — a plain click near an endpoint just selects, no silent re-route)
       if (connEndpointDrag) {
-        const conn = connections.find(c => c.id === connEndpointDrag.connId);
+        const conn = connEndpointDrag.moved ? connections.find(c => c.id === connEndpointDrag.connId) : null;
         if (conn) {
           const end = connEndpointDrag.end;
           const otherId = end === 'from' ? conn.to : conn.from;
