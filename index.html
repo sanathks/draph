@@ -9,31 +9,84 @@
   <link rel="icon" type="image/png" sizes="32x32" href="resources/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="resources/favicon-16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="resources/favicon-180.png">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            storm: {
-              bg: '#1a1b26',
-              bg2: '#24283b',
-              fg: '#a9b1d6',
-              accent: '#7aa2f7',
-              green: '#9ece6a',
-              red: '#f7768e',
-              yellow: '#e0af68',
-              purple: '#bb9af7',
-              cyan: '#7dcfff',
-              orange: '#ff9e64',
-            }
-          }
-        }
-      }
-    }
-  </script>
   <style>
+    /* --- Static utility layer (replaces the Tailwind CDN: no build step,
+       no render-blocking JIT compiler, works fully offline) --- */
     * { box-sizing: border-box; }
+    *, ::before, ::after { border: 0 solid; }
+    body { font-family: system-ui, -apple-system, sans-serif; color: #a9b1d6; }
+    button { font: inherit; color: inherit; background: none; padding: 0; margin: 0; cursor: pointer; }
+    input, textarea, select { font: inherit; color: inherit; }
+    h1, h2, h3, h4, p { margin: 0; }
+    svg { display: block; }
+
+    /* layout */
+    .flex { display: flex; }
+    .flex-1 { flex: 1 1 0%; }
+    .flex-col { flex-direction: column; }
+    .block { display: block; }
+    .items-center { align-items: center; }
+    .justify-center { justify-content: center; }
+    .overflow-hidden { overflow: hidden; }
+    .pointer-events-none { pointer-events: none; }
+    .backdrop-blur { backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+    .hidden { display: none; }
+    /* position */
+    .relative { position: relative; }
+    .absolute { position: absolute; }
+    .inset-0 { top: 0; right: 0; bottom: 0; left: 0; }
+    .top-0 { top: 0; }
+    .left-0 { left: 0; }
+    .right-0 { right: 0; }
+    .left-4 { left: 1rem; }
+    .right-4 { right: 1rem; }
+    .bottom-4 { bottom: 1rem; }
+    .z-10 { z-index: 10; }
+    .z-20 { z-index: 20; }
+    .z-30 { z-index: 30; }
+    .z-50 { z-index: 50; }
+    /* sizing */
+    .w-full { width: 100%; }
+    .h-full { height: 100%; }
+    .h-screen { height: 100vh; }
+    .h-14 { height: 3.5rem; }
+    /* spacing */
+    .p-1 { padding: 0.25rem; }
+    .px-1 { padding-left: 0.25rem; padding-right: 0.25rem; }
+    .px-2 { padding-left: 0.5rem; padding-right: 0.5rem; }
+    .px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
+    .px-4 { padding-left: 1rem; padding-right: 1rem; }
+    .py-0 { padding-top: 0; padding-bottom: 0; }
+    .py-0\.5 { padding-top: 0.125rem; padding-bottom: 0.125rem; }
+    .py-1 { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+    .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+    .gap-1 { gap: 0.25rem; }
+    .gap-2 { gap: 0.5rem; }
+    .gap-3 { gap: 0.75rem; }
+    .space-y-0\.5 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.125rem; }
+    /* text */
+    .text-left { text-align: left; }
+    .text-sm { font-size: 0.875rem; line-height: 1.25rem; }
+    .text-xs { font-size: 0.75rem; line-height: 1rem; }
+    .text-storm-fg { color: #a9b1d6; }
+    .text-storm-fg\/60 { color: rgba(169, 177, 214, 0.6); }
+    .text-storm-fg\/30 { color: rgba(169, 177, 214, 0.3); }
+    /* background */
+    .bg-storm-bg { background-color: #1a1b26; }
+    .bg-storm-bg2 { background-color: #24283b; }
+    .bg-storm-bg2\/80 { background-color: rgba(36, 40, 59, 0.8); }
+    /* border */
+    .border { border-width: 1px; border-style: solid; }
+    .border-storm-fg { border-color: #a9b1d6; }
+    .border-storm-fg\/20 { border-color: rgba(169, 177, 214, 0.2); }
+    /* radius / shadow */
+    .rounded { border-radius: 0.25rem; }
+    .rounded-lg { border-radius: 0.5rem; }
+    .shadow-lg { box-shadow: 0 10px 15px -3px rgba(0,0,0,0.35), 0 4px 6px -4px rgba(0,0,0,0.35); }
+    .shadow-xl { box-shadow: 0 20px 25px -5px rgba(0,0,0,0.4), 0 8px 10px -6px rgba(0,0,0,0.4); }
+    /* interaction */
+    .hover\:bg-storm-accent\/20:hover { background-color: rgba(122, 162, 247, 0.2); }
+
     body { background: #1a1b26; overflow: hidden; }
     .node { cursor: move; user-select: none; }
     .node:hover .node-border { stroke-width: 2.5; }
@@ -634,6 +687,7 @@
       const rect = canvas.getBoundingClientRect();
       viewBox = { x: 0, y: 0, w: rect.width, h: rect.height };
       updateViewBox();
+      bindCanvasEvents();
       loadFromUrl();
       saveState();
       render();
@@ -915,12 +969,51 @@
       return { points, fromSide, toSide, endX: x2, endY: y2 };
     }
     
+    // Coalesce render calls to one per animation frame. Mouse events fire far
+    // faster than the screen repaints, so an un-throttled render() in a drag
+    // handler does many wasted full rebuilds per frame.
+    let _renderQueued = false;
+    function scheduleRender() {
+      if (_renderQueued) return;
+      _renderQueued = true;
+      requestAnimationFrame(() => { _renderQueued = false; render(); });
+    }
+
     function render() {
+      renderConnections();
+      renderNodes();
+    }
+
+    // Fast path used while dragging nodes: instead of regenerating every node's
+    // SVG markup (patterns, wrapped text, clip paths, connectors) each frame,
+    // just translate the dragged node group(s) and redraw the cheap connection
+    // layer so lines keep following. A full render() runs on mouseup to bake the
+    // new coordinates into the markup and clear the transforms.
+    let _dragRenderQueued = false;
+    function scheduleDragRender() {
+      if (_dragRenderQueued) return;
+      _dragRenderQueued = true;
+      requestAnimationFrame(() => {
+        _dragRenderQueued = false;
+        if (!dragging) return;
+        const items = dragging.multiDrag ||
+          [{ node: dragging.node, startX: dragging.startX, startY: dragging.startY }];
+        items.forEach(({ node: n, startX, startY }) => {
+          const el = nodesGroup.querySelector(`.node[data-id="${n.id}"]`);
+          if (el) el.setAttribute('transform', `translate(${n.x - startX},${n.y - startY})`);
+        });
+        renderConnections();
+      });
+    }
+
+    function renderConnections() {
+      // Build an id -> node index once so per-connection lookups are O(1)
+      // instead of nodes.find() scanning the whole array for every endpoint.
+      const nodeById = new Map(nodes.map(n => [n.id, n]));
+
       // First, render lifelines for sequence participants (either imported or user-toggled)
       const sequenceParticipants = nodes.filter(n => n.isParticipant || n.hasLifeline);
-      const lifelineHeight = connections.some(c => c.isSequenceMessage) ? 
-        Math.max(...connections.filter(c => c.isSequenceMessage).map(c => c.messageY || 0)) + 80 : 300;
-      
+
       // Render sequence diagram frames (loop, alt, etc.)
       const messageSpacing = 50;
       // Calculate startY based on actual participant node positions
@@ -940,8 +1033,8 @@
         
         let minX = Infinity, maxX = -Infinity;
         frameMessages.forEach(msg => {
-          const from = nodes.find(n => n.id === msg.from);
-          const to = nodes.find(n => n.id === msg.to);
+          const from = nodeById.get(msg.from);
+          const to = nodeById.get(msg.to);
           if (from) { minX = Math.min(minX, from.x); maxX = Math.max(maxX, from.x + from.width); }
           if (to) { minX = Math.min(minX, to.x); maxX = Math.max(maxX, to.x + to.width); }
         });
@@ -982,8 +1075,8 @@
       
       // Connections
       connectionsGroup.innerHTML = framesSvg + connections.map(conn => {
-        const from = nodes.find(n => n.id === conn.from);
-        const to = nodes.find(n => n.id === conn.to);
+        const from = nodeById.get(conn.from);
+        const to = nodeById.get(conn.to);
         if (!from || !to) return '';
         
         // Sequence diagram message
@@ -1181,10 +1274,15 @@
         const connDashArray = conn.strokeStyle === 'dashed' ? '5,3' : 'none';
         return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" style="cursor:pointer">${hitArea}${arrowHit}<path class="connection" d="${path}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${connDashArray}" style="pointer-events:none"/><path d="${arrow}" fill="${strokeColor}" style="pointer-events:none"/>${labelEl}</g>`;
       }).join('');
-      
+    }
+
+    function renderNodes() {
+      const lifelineHeight = connections.some(c => c.isSequenceMessage) ?
+        Math.max(...connections.filter(c => c.isSequenceMessage).map(c => c.messageY || 0)) + 80 : 300;
+
       // Nodes
       const sorted = [...nodes].sort((a, b) => (a.type === 'container' ? 0 : 1) - (b.type === 'container' ? 0 : 1));
-      
+
       nodesGroup.innerHTML = sorted.map(node => {
         const isSelected = node.id === selectedId || selectedIds.includes(node.id);
         const strokeColor = node.outlineColor || COLORS.fg;
@@ -1408,18 +1506,25 @@
           ${resizeHandle}
         </g>`;
       }).join('');
-      
-      // Bind events
-      document.querySelectorAll('.node').forEach(el => {
-        el.addEventListener('mousedown', onNodeMouseDown);
-        el.addEventListener('dblclick', onNodeDblClick);
+    }
+
+    // Event delegation: listeners are attached ONCE to the persistent group
+    // elements (nodesGroup / connectionsGroup), so rebuilding their innerHTML
+    // on every render no longer re-binds hundreds of listeners. Dispatch runs
+    // most-specific-first so a click on a handle/connector wins over the node.
+    function bindCanvasEvents() {
+      nodesGroup.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.resize-handle')) return onResizeMouseDown(e);
+        if (e.target.closest('.line-handle')) return onLineHandleMouseDown(e);
+        if (e.target.closest('.lifeline-connector')) return onLifelineConnectorMouseDown(e);
+        if (e.target.closest('.connector')) return onConnectorMouseDown(e);
+        if (e.target.closest('.node')) return onNodeMouseDown(e);
       });
-      document.querySelectorAll('.connector').forEach(el => el.addEventListener('mousedown', onConnectorMouseDown));
-      document.querySelectorAll('.lifeline-connector').forEach(el => el.addEventListener('mousedown', onLifelineConnectorMouseDown));
-      document.querySelectorAll('.resize-handle').forEach(el => el.addEventListener('mousedown', onResizeMouseDown));
-      document.querySelectorAll('.line-handle').forEach(el => el.addEventListener('mousedown', onLineHandleMouseDown));
-      document.querySelectorAll('.conn-hit').forEach(el => {
-        el.addEventListener('mousedown', onConnectionMouseDown);
+      nodesGroup.addEventListener('dblclick', (e) => {
+        if (e.target.closest('.node')) onNodeDblClick(e);
+      });
+      connectionsGroup.addEventListener('mousedown', (e) => {
+        if (e.target.closest('[data-conn]')) onConnectionMouseDown(e);
       });
     }
     
@@ -2140,7 +2245,9 @@
         setTool('select');
       }
       
-      const id = e.currentTarget.dataset.id;
+      const nodeEl = e.target.closest('.node');
+      if (!nodeEl) return;
+      const id = nodeEl.dataset.id;
       let node = nodes.find(n => n.id === id);
       if (!node) return;
       
@@ -2185,14 +2292,14 @@
           startY: node.y
         };
       } else {
-        dragging = { node, offsetX: pos.x - node.x, offsetY: pos.y - node.y };
+        dragging = { node, offsetX: pos.x - node.x, offsetY: pos.y - node.y, startX: node.x, startY: node.y };
       }
       e.preventDefault();
     }
     
     function onNodeDblClick(e) {
       if (e.target.classList.contains('connector') || e.target.classList.contains('resize-handle')) return;
-      const id = e.currentTarget.dataset.id;
+      const id = e.target.closest('.node').dataset.id;
       e.stopPropagation();
       e.preventDefault();
       dragging = null;
@@ -2205,7 +2312,8 @@
     }
     
     function onConnectionMouseDown(e) {
-      const connId = e.target.dataset.conn || e.currentTarget.dataset.conn;
+      const hit = e.target.closest('[data-conn]');
+      const connId = hit && hit.dataset.conn;
       if (!connId) return;
       
       // Select connection and show toolbar (toolbar has label input)
@@ -2222,10 +2330,11 @@
     }
     
     function onConnectorMouseDown(e) {
-      connecting = { 
-        from: e.target.dataset.node, 
-        fromSide: e.target.dataset.side,
-        fromIdx: parseInt(e.target.dataset.idx) || 1
+      const el = e.target.closest('.connector');
+      connecting = {
+        from: el.dataset.node,
+        fromSide: el.dataset.side,
+        fromIdx: parseInt(el.dataset.idx) || 1
       };
       showTempLine();
       e.preventDefault();
@@ -2233,8 +2342,9 @@
     }
     
     function onLifelineConnectorMouseDown(e) {
-      const nodeId = e.target.dataset.node;
-      const lifelineY = parseFloat(e.target.dataset.lifelineY);
+      const el = e.target.closest('.lifeline-connector');
+      const nodeId = el.dataset.node;
+      const lifelineY = parseFloat(el.dataset.lifelineY);
       connecting = { 
         from: nodeId, 
         fromSide: 'bottom',
@@ -2374,16 +2484,16 @@
           dragging.node.y = newY;
         }
         if (selectedId === dragging.node.id) positionToolbar(dragging.node);
-        render();
+        scheduleDragRender();
       }
-      
+
       // Resizing
       if (resizing) {
         const dx = e.clientX - resizing.startX;
         const dy = e.clientY - resizing.startY;
         resizing.node.width = Math.max(60, snap(resizing.startW + dx / zoom));
         resizing.node.height = Math.max(40, snap(resizing.startH + dy / zoom));
-        render();
+        scheduleRender();
       }
       
       // Line handle resizing
@@ -2404,9 +2514,9 @@
           node.width = snap(pos.x) - node.x;
           node.height = snap(pos.y) - node.y;
         }
-        render();
+        scheduleRender();
       }
-      
+
       // Drawing connection
       if (connecting) {
         const fromNode = nodes.find(n => n.id === connecting.from);
@@ -2520,9 +2630,9 @@
         }
       }
       
-      if (dragging) { saveState(); dragging = null; }
-      if (resizing) { saveState(); resizing = null; }
-      if (lineResizing) { saveState(); lineResizing = null; }
+      if (dragging) { saveState(); dragging = null; render(); }
+      if (resizing) { saveState(); resizing = null; render(); }
+      if (lineResizing) { saveState(); lineResizing = null; render(); }
       
       // Finish connection
       if (connecting) {
