@@ -4,9 +4,13 @@
   "description": "OpenAI-style diagram generator",
   "scripts": {
     "dev": "npx serve .",
-    "build": "echo 'Static site, no build needed'"
+    "build": "echo 'Static site, no build needed'",
+    "test": "node test/regression.mjs"
   },
   "keywords": ["diagram", "svg", "sequence-diagram"],
   "author": "Sanath",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "jsdom": "^26.0.0"
+  }
 }
