@@ -3211,13 +3211,32 @@
             saveState();
             render();
           }
+        } else if (!connecting.isLifeline && nodeAt(pos.x, pos.y)) {
+          // Dropped anywhere on a target node (not precisely on a connector dot).
+          // Still connect — snap to that node's nearest side. This is what makes
+          // dropping "sticky" instead of the line vanishing when you miss the dot.
+          const toNode = nodeAt(pos.x, pos.y);
+          if (toNode.id !== connecting.from) {
+            connections.push({
+              id: 'c' + Date.now(),
+              from: connecting.from,
+              fromSide: connecting.fromSide,
+              fromSideLocked: true,
+              fromIdx: connecting.fromIdx,
+              to: toNode.id,
+              toSide: getBestConnectorSide(toNode, pos.x, pos.y),
+              toIdx: 1,
+              lineStyle: globalLineStyle
+            });
+            saveState();
+            render();
+          }
         } else if (!target?.closest('.node')) {
           // Released on empty canvas
           if (connecting.isLifeline) {
-            // For lifeline connections, just cancel - don't create a node
-            // Sequence messages should only connect lifelines
+            // Lifeline messages only connect to lifelines — just cancel
           } else {
-            // For regular connections, show node type picker
+            // Offer to create a new node here, connected from the source
             pendingConnection = {
               from: connecting.from,
               fromSide: connecting.fromSide,

@@ -51,6 +51,9 @@ export function boot() {
   });
   win.SVGElement.prototype.getBoundingClientRect = rect;
   win.HTMLElement.prototype.getBoundingClientRect = rect;
+  // jsdom has no hit-testing; return null so code that calls it (e.g. the
+  // connection-drop handler) falls back to geometry (nodeAt) instead of throwing.
+  if (typeof doc.elementFromPoint !== 'function') doc.elementFromPoint = () => null;
 
   const errors = [];
   win.addEventListener('error', (e) => errors.push(e.error?.stack || e.message));

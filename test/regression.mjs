@@ -190,6 +190,30 @@ group('Color palettes generated from CONFIG.palette');
 }
 
 // ---------------------------------------------------------------------------
+group('Dropping a drawn connection on a node body sticks (no vanishing)');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 100, 100, 120, 60);
+  const b = win.createNode('rect', 500, 400, 120, 60);
+  win.render();
+  // Simulate an in-progress draw from A's right connector, then drop on B's body.
+  E(`connecting = { from: '${a.id}', fromSide: 'right', fromIdx: 1 }`);
+  const before = E('connections.length');
+  mouse(doc, 'mouseup', 560, 430); // inside node B, not on a connector dot
+  check('drop on node body creates a connection', E('connections.length') === before + 1);
+  const c = E('connections[connections.length-1]');
+  check('connection goes from A to B', c.from === a.id && c.to === b.id);
+  check('toSide snapped to a valid side', ['top','bottom','left','right'].includes(c.toSide), c.toSide);
+  check('source side locked (user chose the start connector)', c.fromSideLocked === true);
+
+  // Dropping on empty canvas must NOT create a stray connection (offers picker instead)
+  E(`connecting = { from: '${a.id}', fromSide: 'right', fromIdx: 1 }`);
+  const n2 = E('connections.length');
+  mouse(doc, 'mouseup', 1000, 700); // empty canvas
+  check('drop on empty canvas creates no connection', E('connections.length') === n2);
+}
+
+// ---------------------------------------------------------------------------
 group('Draw preview matches the final routed shape');
 {
   const { win, E } = boot();
