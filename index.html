@@ -1263,10 +1263,19 @@
     function connectExits(e1, n1, e2, n2) {
       const h1 = n1.x !== 0, h2 = n2.x !== 0;
       if (h1 === h2) {
-        // same orientation -> a single jog across the middle of the gap (Z)
-        return h1
-          ? [{ x:(e1.x+e2.x)/2, y:e1.y }, { x:(e1.x+e2.x)/2, y:e2.y }]
-          : [{ x:e1.x, y:(e1.y+e2.y)/2 }, { x:e2.x, y:(e1.y+e2.y)/2 }];
+        const sameDir = n1.x === n2.x && n1.y === n2.y;
+        if (h1) {
+          // Both ends point the SAME horizontal way (e.g. both 'right'): the line
+          // has to wrap around, so run the cross-channel at the OUTERMOST x (past
+          // both nodes) instead of the midpoint, which would cut through a node.
+          // Opposite-facing ends (e.g. right->left) just jog at the midpoint.
+          const x = sameDir ? (n1.x > 0 ? Math.max(e1.x, e2.x) : Math.min(e1.x, e2.x))
+                            : (e1.x + e2.x) / 2;
+          return [{ x, y: e1.y }, { x, y: e2.y }];
+        }
+        const y = sameDir ? (n1.y > 0 ? Math.max(e1.y, e2.y) : Math.min(e1.y, e2.y))
+                          : (e1.y + e2.y) / 2;
+        return [{ x: e1.x, y }, { x: e2.x, y }];
       }
       // mixed orientation -> one corner, entering e2 perpendicular to n2
       return h2 ? [{ x:e2.x, y:e1.y }]   // n2 horizontal -> enter e2 vertically

@@ -190,6 +190,31 @@ group('Color palettes generated from CONFIG.palette');
 }
 
 // ---------------------------------------------------------------------------
+group('Route to a same-facing side goes around the node, not through it');
+{
+  const { win, E } = boot();
+  // Start above-left, Node below-right; connect both BOTTOM sides (the reported case)
+  const s = win.createNode('rect', 90, 15, 120, 50);
+  const n = win.createNode('rect', 300, 233, 120, 50);
+  const res = E(`routeConnection(nodes[0], nodes[1], 'bottom', 'bottom')`);
+  // Does any axis-aligned segment pass through the node's interior (inset 2px)?
+  const R = { left: n.x + 2, right: n.x + n.width - 2, top: n.y + 2, bottom: n.y + n.height - 2 };
+  const through = (a, b) => {
+    if (Math.abs(a.x - b.x) < 0.5) { // vertical segment at x=a.x
+      const x = a.x, y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+      return x > R.left && x < R.right && y1 > R.top && y0 < R.bottom;
+    } else { // horizontal segment at y=a.y
+      const y = a.y, x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x);
+      return y > R.top && y < R.bottom && x1 > R.left && x0 < R.right;
+    }
+  };
+  let crosses = false;
+  for (let i = 1; i < res.points.length; i++) if (through(res.points[i-1], res.points[i])) crosses = true;
+  check('route does not pass through the target node', !crosses);
+  check('route still ends on the bottom connector', Math.abs(res.endY - (n.y + n.height)) < 0.5 && res.inDir.y === -1);
+}
+
+// ---------------------------------------------------------------------------
 group('Dropping a drawn connection on a node body sticks (no vanishing)');
 {
   const { win, doc, E } = boot();
