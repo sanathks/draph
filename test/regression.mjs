@@ -190,6 +190,30 @@ group('Color palettes generated from CONFIG.palette');
 }
 
 // ---------------------------------------------------------------------------
+group('Draw preview matches the final routed shape');
+{
+  const { win, E } = boot();
+  const a = win.createNode('rect', 100, 100, 120, 60);
+  const b = win.createNode('rect', 500, 400, 120, 60);
+  // Cursor over node B -> preview must equal the final routeConnection path.
+  const bCx = 560, bCy = 430; // inside B
+  const fromSide = E(`getOptimalSides(nodes[0], nodes[1]).fromSide`);
+  const previewD = E(`pointsToPath(previewRoute(nodes[0], '${fromSide}', ${bCx}, ${bCy}).points, 'rounded')`);
+  const toSide = E(`getBestConnectorSide(nodes[1], ${bCx}, ${bCy})`);
+  const finalD = E(`pointsToPath(routeConnection(nodes[0], nodes[1], '${fromSide}', '${toSide}').points, 'rounded')`);
+  check('preview over a node equals the final orthogonal path', previewD === finalD);
+  // Over empty canvas the preview is orthogonal (contains only H/V segments).
+  const emptyPts = E(`JSON.stringify(previewRoute(nodes[0], '${fromSide}', 900, 110).points)`);
+  const pts = JSON.parse(emptyPts);
+  let ortho = true;
+  for (let i = 1; i < pts.length; i++) {
+    const dx = Math.abs(pts[i].x - pts[i-1].x), dy = Math.abs(pts[i].y - pts[i-1].y);
+    if (dx > 0.5 && dy > 0.5) ortho = false; // diagonal segment => not orthogonal
+  }
+  check('preview over empty canvas is orthogonal (no diagonal/bezier)', ortho);
+}
+
+// ---------------------------------------------------------------------------
 group('Press-near-end grabs the endpoint in one gesture');
 {
   const { win, doc, E } = boot();

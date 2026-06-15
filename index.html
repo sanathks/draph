@@ -1290,7 +1290,51 @@
       const points = simplifyPath([p1, e1, ...connectExits(e1, n1, e2, n2), e2, p2]);
       return { points, fromSide, toSide, endX: p2.x, endY: p2.y, inDir: { x: -n2.x, y: -n2.y } };
     }
-    
+
+    // Convert a routed polyline into an SVG path string. 'rounded' adds quadratic
+    // fillets at each corner; 'straight' is plain line segments. Shared by the
+    // renderer and the draw-preview so the blue preview matches the final line.
+    function pointsToPath(points, lineStyle = 'rounded') {
+      const r = lineStyle === 'rounded' ? 12 : 0;
+      if (lineStyle === 'rounded' && points.length >= 3) {
+        let path = `M${points[0].x},${points[0].y}`;
+        for (let i = 1; i < points.length - 1; i++) {
+          const prev = points[i - 1], curr = points[i], next = points[i + 1];
+          const dx1 = curr.x - prev.x, dy1 = curr.y - prev.y;
+          const dx2 = next.x - curr.x, dy2 = next.y - curr.y;
+          const len1 = Math.hypot(dx1, dy1), len2 = Math.hypot(dx2, dy2);
+          if (len1 > 0 && len2 > 0) {
+            const rr = Math.min(r, len1 / 2, len2 / 2);
+            const bx = curr.x - (dx1 / len1) * rr, by = curr.y - (dy1 / len1) * rr;
+            const ax = curr.x + (dx2 / len2) * rr, ay = curr.y + (dy2 / len2) * rr;
+            path += ` L${bx},${by} Q${curr.x},${curr.y} ${ax},${ay}`;
+          } else {
+            path += ` L${curr.x},${curr.y}`;
+          }
+        }
+        path += ` L${points[points.length - 1].x},${points[points.length - 1].y}`;
+        return path;
+      }
+      return points.map((p, i) => (i === 0 ? 'M' : 'L') + p.x + ',' + p.y).join(' ');
+    }
+
+    // Preview route while drawing a new connection from a connector to the cursor.
+    // If the cursor is over a node, this is the EXACT final shape (routeConnection);
+    // otherwise it's an orthogonal line that leaves the source connector
+    // perpendicular and bends once to reach the cursor.
+    function previewRoute(fromNode, fromSide, px, py) {
+      const hover = nodeAt(px, py);
+      if (hover && hover.id !== fromNode.id) {
+        return routeConnection(fromNode, hover, fromSide, getBestConnectorSide(hover, px, py));
+      }
+      const p1 = sidePoint(fromNode, fromSide);
+      const n1 = SIDE_NORMAL[fromSide] || { x: 0, y: 0 };
+      const e1 = { x: p1.x + n1.x * ROUTE_CFG.maxClear, y: p1.y + n1.y * ROUTE_CFG.maxClear };
+      const cursor = { x: px, y: py };
+      const mid = n1.x !== 0 ? { x: cursor.x, y: e1.y } : { x: e1.x, y: cursor.y };
+      return { points: simplifyPath([p1, e1, mid, cursor]) };
+    }
+
     // === SECTION: RENDERING (render pipeline, layers, SVG generation) ===
 
     // Coalesce render calls to one per animation frame. Mouse events fire far
@@ -1507,34 +1551,10 @@
         const baseX = tipX - ca * aLen, baseY = tipY - sa * aLen;
         points[points.length - 1] = { x: baseX, y: baseY };   // line ends at arrow base
 
-        // Rounded corners for 'rounded' style
-        const r = lineStyle === 'rounded' ? 12 : 0;
-        let path, midX, midY;
+        // Build the SVG path (shared with the draw-preview via pointsToPath)
+        let midX, midY;
+        const path = pointsToPath(points, lineStyle);
 
-        if (lineStyle === 'rounded' && points.length >= 3) {
-          path = `M${points[0].x},${points[0].y}`;
-          for (let i = 1; i < points.length - 1; i++) {
-            const prev = points[i - 1], curr = points[i], next = points[i + 1];
-            const dx1 = curr.x - prev.x, dy1 = curr.y - prev.y;
-            const dx2 = next.x - curr.x, dy2 = next.y - curr.y;
-            const len1 = Math.sqrt(dx1*dx1 + dy1*dy1);
-            const len2 = Math.sqrt(dx2*dx2 + dy2*dy2);
-            if (len1 > 0 && len2 > 0) {
-              const rr = Math.min(r, len1/2, len2/2);
-              const nx1 = dx1/len1, ny1 = dy1/len1;
-              const nx2 = dx2/len2, ny2 = dy2/len2;
-              const bx = curr.x - nx1 * rr, by = curr.y - ny1 * rr;
-              const ax = curr.x + nx2 * rr, ay = curr.y + ny2 * rr;
-              path += ` L${bx},${by} Q${curr.x},${curr.y} ${ax},${ay}`;
-            } else {
-              path += ` L${curr.x},${curr.y}`;
-            }
-          }
-          path += ` L${points[points.length-1].x},${points[points.length-1].y}`;
-        } else {
-          path = points.map((p, i) => (i === 0 ? 'M' : 'L') + p.x + ',' + p.y).join(' ');
-        }
-        
         // Calculate midpoint along the path (middle of middle segment)
         if (points.length >= 3) {
           const midIdx = Math.floor((points.length - 1) / 2);
@@ -1879,17 +1899,6 @@
       return sides.map(c => 
         `<circle class="connector" cx="${c.x}" cy="${c.y}" r="6" fill="${COLORS.accent}" stroke="${COLORS.fg}" stroke-width="1.5" data-node="${node.id}" data-side="${c.side}" data-idx="1"/>`
       ).join('');
-    }
-    
-    function getConnectorPos(node, side, idx = 1) {
-      const offsets = [0.25, 0.5, 0.75];
-      const off = offsets[idx] || 0.5;
-      switch(side) {
-        case 'top': return [node.x + node.width * off, node.y];
-        case 'bottom': return [node.x + node.width * off, node.y + node.height];
-        case 'left': return [node.x, node.y + node.height * off];
-        case 'right': return [node.x + node.width, node.y + node.height * off];
-      }
     }
     
     function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -3026,21 +3035,11 @@
             tempPath.setAttribute('d', path);
           }
         } else {
-          // Normal connector - curved path
-          [x1, y1] = getConnectorPos(fromNode, connecting.fromSide, connecting.fromIdx);
-          const dist = Math.sqrt(Math.pow(pos.x-x1, 2) + Math.pow(pos.y-y1, 2));
-          const curveFactor = Math.max(50, dist * 0.4);
-          const getOff = (side, f) => {
-            switch(side) {
-              case 'right': return { x: f, y: 0 };
-              case 'left': return { x: -f, y: 0 };
-              case 'bottom': return { x: 0, y: f };
-              case 'top': return { x: 0, y: -f };
-            }
-          };
-          const off = getOff(connecting.fromSide, curveFactor);
-          const path = `M${x1},${y1} C${x1 + off.x},${y1 + off.y} ${pos.x},${pos.y} ${pos.x},${pos.y}`;
-          tempPath.setAttribute('d', path);
+          // Normal connector: preview the EXACT orthogonal shape the final
+          // connection will have (routes to a hovered node's connector, or
+          // orthogonally to the cursor over empty canvas).
+          const { points } = previewRoute(fromNode, connecting.fromSide, pos.x, pos.y);
+          tempPath.setAttribute('d', pointsToPath(points, globalLineStyle));
         }
       }
       
