@@ -345,4 +345,36 @@ group('Pencil tool — freehand drawing');
   check('pencil is excluded from generated Mermaid', !/pencil/i.test(code));
 }
 
+// ---------------------------------------------------------------------------
+group('Toolbar: creation tools visible with shortcut badges, rest in More menu');
+{
+  const { win, doc, E } = boot();
+  // Creation tools stay visible, each with a shortcut badge
+  for (const [id, badge] of [['tool-select','V'],['tool-rect','1'],['tool-pill','2'],['tool-diamond','3'],
+                             ['tool-circle','4'],['tool-container','5'],['tool-text','T'],['tool-line','6'],['tool-pencil','P']]) {
+    const btn = doc.getElementById(id);
+    check(`${id} visible with badge ${badge}`, !!btn && btn.querySelector('.kbd-badge')?.textContent === badge);
+  }
+  // The More menu exists and holds the secondary actions
+  const more = doc.getElementById('moreDropdown');
+  check('More dropdown exists', !!more);
+  const menuText = more.querySelector('.dropdown-menu').textContent;
+  for (const label of ['Undo','Redo','Auto-arrange','Mermaid','Snap to grid','Animate flow','Export PNG','Export SVG','Export GIF','Copy share link','Clear canvas'])
+    check(`More menu contains "${label}"`, menuText.includes(label));
+  // Toggling the More dropdown open works
+  win.toggleDropdown('moreDropdown');
+  check('More dropdown opens', more.classList.contains('open'));
+  win.closeDropdowns();
+  // Grid/flow toggles (now menu items) still work without throwing
+  const grid0 = E('snapToGrid');
+  win.toggleGrid();
+  check('grid toggle still flips state from the menu', E('snapToGrid') === !grid0);
+  win.toggleFlow();
+  check('flow toggle runs without error', E('typeof flowActive') === 'boolean');
+  // Removed shortcuts (7/9 pointed at deleted dropdowns) no longer throw
+  let threw = false;
+  try { key(doc, '7'); key(doc, '9'); } catch { threw = true; }
+  check('pressing old 7/9 shortcuts does not throw', !threw);
+}
+
 process.exit(report() ? 0 : 1);
