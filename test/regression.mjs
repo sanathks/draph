@@ -309,4 +309,33 @@ group('Keyboard shortcuts (KEY_BINDINGS map)');
   check('Cmd+V pastes instead of selecting move tool', E('nodes.length') === before + 1 && E('currentTool') === 'select');
 }
 
+// ---------------------------------------------------------------------------
+group('Pencil tool — freehand drawing');
+{
+  const { win, doc, E } = boot();
+  win.setTool('pencil');
+  check("setTool('pencil') sets currentTool", E('currentTool') === 'pencil');
+  check('pencil keybinding selects it', (() => { E(`currentTool='select'`); key(doc, 'p'); return E('currentTool') === 'pencil'; })());
+  // Draw a stroke: mousedown on canvas, several moves, mouseup
+  const canvas = doc.getElementById('canvas');
+  mouse(canvas, 'mousedown', 100, 100);
+  mouse(doc, 'mousemove', 130, 140);
+  mouse(doc, 'mousemove', 170, 130);
+  mouse(doc, 'mousemove', 210, 180);
+  mouse(doc, 'mouseup', 210, 180);
+  check('a pencil node was created', E(`nodes.some(n => n.type === 'pencil')`));
+  const n = E(`JSON.parse(JSON.stringify(nodes.find(n => n.type === 'pencil')))`);
+  check('pencil node stores points', Array.isArray(n.points) && n.points.length >= 2);
+  check('points are relative to the bbox origin (start near 0,0)', Math.abs(n.points[0].x) < 1 && Math.abs(n.points[0].y) < 1);
+  check('bbox matches the drawn extent', n.x === 100 && n.y === 100 && n.width === 110 && n.height === 80, JSON.stringify({x:n.x,y:n.y,w:n.width,h:n.height}));
+  check('drawing switches back to select tool', E('currentTool') === 'select');
+  // It renders as a path and is selectable/movable like any node
+  win.render();
+  check('pencil renders inside #nodes as a .node', !!doc.querySelector(`#nodes .node[data-id="${n.id}"]`));
+  check('pencil has no connectors or resize handle', doc.querySelectorAll(`#nodes .node[data-id="${n.id}"] .connector, #nodes .node[data-id="${n.id}"] .resize-handle`).length === 0);
+  // It is excluded from Mermaid flowchart generation
+  const code = win.generateMermaid();
+  check('pencil is excluded from generated Mermaid', !/pencil/i.test(code));
+}
+
 process.exit(report() ? 0 : 1);

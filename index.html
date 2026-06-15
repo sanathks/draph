@@ -301,6 +301,11 @@
             <polyline points="12 5 19 5 19 12"/>
           </svg>
         </button>
+        <button class="tool-btn" id="tool-pencil" onclick="setTool('pencil')" title="Pencil — freehand draw (P)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/>
+          </svg>
+        </button>
         <div class="divider"></div>
         <!-- Line style -->
         <div class="dropdown" id="lineDropdown">
@@ -652,10 +657,11 @@
      * ── CORE DATA MODEL ────────────────────────────────────────────────────────
      * node = {
      *   id:        'n<number>'       unique, from generateId()
-     *   type:      'rect'|'pill'|'diamond'|'circle'|'container'|'text'|'line'
+     *   type:      'rect'|'pill'|'diamond'|'circle'|'container'|'text'|'line'|'pencil'
      *   x, y:      number            top-left in canvas coords (for 'line', the start point)
      *   width,height: number         size (for 'line', these are dx,dy of the end point; may be negative)
      *   label:     string
+     *   points?:   [{x,y}]           for 'pencil': freehand points RELATIVE to (x,y)
      *   color?:        string        fill color (hex) or '' for default
      *   outlineColor?: string        border/line color
      *   fillStyle?:    'outline'|'infill'|'stripe'|'grid'
@@ -711,6 +717,7 @@
     let selectedConnId = null;   // id of the selected connection (or null)
     let currentTool = 'select';  // 'select' | a SHAPE_TOOLS entry
     let drawing = null;          // in-progress shape draw: { startX, startY, type }
+    let penciling = null;        // in-progress freehand pencil stroke: { points: [{x,y}] } (absolute coords)
     let dragging = null;         // in-progress node drag: { node, offsetX, offsetY, startX, startY, multiDrag? }
     let connecting = null;       // in-progress connection draw from a connector
     let pendingConnection = null;// connection awaiting node-type pick: { from, fromSide, fromIdx, dropX, dropY }
@@ -844,7 +851,7 @@
       document.getElementById('tool-' + tool)?.classList.add('active');
       // Update cursor
       const container = document.getElementById('canvasContainer');
-      if (SHAPE_TOOLS.includes(tool)) {
+      if (SHAPE_TOOLS.includes(tool) || tool === 'pencil') {
         container.classList.add('canvas-draw');
       } else {
         container.classList.remove('canvas-draw');
@@ -1298,6 +1305,41 @@
 
       const points = simplifyPath([p1, e1, ...connectExits(e1, n1, e2, n2), e2, p2]);
       return { points, fromSide, toSide, endX: p2.x, endY: p2.y, inDir: { x: -n2.x, y: -n2.y } };
+    }
+
+    // Smooth SVG path through freehand points (quadratic curve through midpoints).
+    // Points are absolute canvas coords. Used for the pencil tool's strokes.
+    function freehandPath(pts) {
+      if (!pts || pts.length === 0) return '';
+      if (pts.length === 1) return `M${pts[0].x},${pts[0].y} L${pts[0].x + 0.1},${pts[0].y}`;
+      let d = `M${pts[0].x},${pts[0].y}`;
+      for (let i = 1; i < pts.length - 1; i++) {
+        const mx = (pts[i].x + pts[i + 1].x) / 2, my = (pts[i].y + pts[i + 1].y) / 2;
+        d += ` Q${pts[i].x},${pts[i].y} ${mx},${my}`;
+      }
+      const last = pts[pts.length - 1];
+      d += ` L${last.x},${last.y}`;
+      return d;
+    }
+
+    // Create a 'pencil' node from a freehand stroke. rawPoints are absolute canvas
+    // coords; we store them RELATIVE to the stroke's bounding-box origin so the
+    // node behaves like any other (drag moves x/y, the points ride along).
+    function createPencilNode(rawPoints) {
+      const xs = rawPoints.map(p => p.x), ys = rawPoints.map(p => p.y);
+      const minX = Math.min(...xs), minY = Math.min(...ys);
+      const maxX = Math.max(...xs), maxY = Math.max(...ys);
+      const node = {
+        id: generateId(),
+        type: 'pencil',
+        x: minX, y: minY,
+        width: Math.max(1, maxX - minX),
+        height: Math.max(1, maxY - minY),
+        label: '',
+        points: rawPoints.map(p => ({ x: p.x - minX, y: p.y - minY })),
+      };
+      nodes.push(node);
+      return node;
     }
 
     // Convert a routed polyline into an SVG path string. 'rounded' adds quadratic
@@ -1779,6 +1821,14 @@
             <path d="${arrow}" fill="${displayColor}"/>
             ${labelEl}
             ${handles}`;
+        } else if (node.type === 'pencil') {
+          // Freehand stroke. Points are stored relative to (x,y); draw absolute.
+          const abs = (node.points || []).map(p => ({ x: p.x + node.x, y: p.y + node.y }));
+          const d = freehandPath(abs);
+          const stroke = isSelected ? COLORS.accent : (node.outlineColor || COLORS.fg);
+          const w = isSelected ? 3 : 2;
+          shape = `<path d="${d}" fill="none" stroke="transparent" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="${d}" fill="none" stroke="${stroke}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" class="node-border"/>`;
         } else if (node.isClass) {
           // UML Class box with header, properties, methods
           const headerH = 28;
@@ -1857,11 +1907,12 @@
           }
         }
         
-        // Don't render connectors for line/arrow shapes or nodes with lifelines
+        // Don't render connectors for line/pencil shapes or nodes with lifelines
         const hasLifelineActive = node.isParticipant || node.hasLifeline;
-        const connectors = (node.type === 'line' || hasLifelineActive) ? '' : renderConnectors(node);
-        // Don't render resize handle for line shapes - they have endpoint handles
-        const resizeHandle = (isSelected && node.type !== 'line') ? 
+        const noConnectors = node.type === 'line' || node.type === 'pencil' || hasLifelineActive;
+        const connectors = noConnectors ? '' : renderConnectors(node);
+        // Don't render resize handle for line/pencil shapes
+        const resizeHandle = (isSelected && node.type !== 'line' && node.type !== 'pencil') ?
           `<rect class="resize-handle" x="${node.x + node.width - 8}" y="${node.y + node.height - 8}" width="8" height="8" fill="${COLORS.accent}" rx="2"/>` : '';
         
         return `<g class="node ${isSelected ? 'selected' : ''}" data-id="${node.id}">
@@ -1967,12 +2018,14 @@
         closeOutlineColorPalette();
         closeLineStyleDropdown();
         
-        // Show/hide controls based on node type
+        // Show/hide controls based on node type. 'line' and 'pencil' are strokes:
+        // no fill or lifeline; their color comes from the outline-color control.
         const isLine = node.type === 'line';
-        document.getElementById('fillStyleGroup').style.display = isLine ? 'none' : 'inline-block';
-        document.getElementById('fillColorGroup').style.display = isLine ? 'none' : 'inline-block';
+        const isStroke = isLine || node.type === 'pencil';
+        document.getElementById('fillStyleGroup').style.display = isStroke ? 'none' : 'inline-block';
+        document.getElementById('fillColorGroup').style.display = isStroke ? 'none' : 'inline-block';
         document.getElementById('lineStyleGroup').style.display = isLine ? 'inline-block' : 'none';
-        document.getElementById('lifelineToggle').style.display = isLine ? 'none' : 'flex';
+        document.getElementById('lifelineToggle').style.display = isStroke ? 'none' : 'flex';
         
         // Update line style button
         if (isLine) {
@@ -2445,8 +2498,8 @@
     
     // Arrange flowchart - layered layout based on connections
     function arrangeFlowchart() {
-      // Skip line/arrow shapes - they don't need arranging
-      const flowNodes = nodes.filter(n => n.type !== 'line');
+      // Skip line/arrow and freehand pencil shapes - they don't need arranging
+      const flowNodes = nodes.filter(n => n.type !== 'line' && n.type !== 'pencil');
       if (flowNodes.length === 0) return;
       
       // Build adjacency map
@@ -2531,7 +2584,7 @@
     function arrangeFlowchartSugiyama() {
       // Separate container nodes from regular nodes
       const containers = nodes.filter(n => n.type === 'container');
-      const flowNodes = nodes.filter(n => n.type !== 'container' && n.type !== 'line');
+      const flowNodes = nodes.filter(n => n.type !== 'container' && n.type !== 'line' && n.type !== 'pencil');
       const lineNodes = nodes.filter(n => n.type === 'line');
       
       if (flowNodes.length === 0) return;
@@ -2756,7 +2809,7 @@
       setTool('select');
       selectNode(id);
       const node = nodes.find(n => n.id === id);
-      if (node && node.type !== 'line') editNodeLabel(node);
+      if (node && node.type !== 'line' && node.type !== 'pencil') editNodeLabel(node);
     }
     
     function onConnectionMouseDown(e) {
@@ -2878,6 +2931,14 @@
         return;
       }
       
+      // Freehand pencil: start a stroke
+      if (currentTool === 'pencil') {
+        penciling = { points: [{ x: pos.x, y: pos.y }] };
+        tempPath.setAttribute('d', freehandPath(penciling.points));
+        showTempLine();
+        return;
+      }
+
       // Shape drawing mode
       if (SHAPE_TOOLS.includes(currentTool)) {
         drawing = { startX: pos.x, startY: pos.y, type: currentTool };
@@ -2903,6 +2964,16 @@
     
     document.addEventListener('mousemove', (e) => {
       const pos = screenToCanvas(e.clientX, e.clientY);
+
+      // Freehand pencil: append points (skip tiny moves) and preview live
+      if (penciling) {
+        const last = penciling.points[penciling.points.length - 1];
+        if (Math.hypot(pos.x - last.x, pos.y - last.y) >= 2) {
+          penciling.points.push({ x: pos.x, y: pos.y });
+          tempPath.setAttribute('d', freehandPath(penciling.points));
+        }
+        return;
+      }
 
       // Re-routing a connection endpoint: show a guide line + highlight the
       // connector we'd snap to so the target is obvious.
@@ -3107,6 +3178,21 @@
         if (_snapTargetEl) { _snapTargetEl.classList.remove('snap-target'); _snapTargetEl = null; }
         hideTempLine();
         canvas.classList.remove('show-connectors');
+        return;
+      }
+
+      // Finish a freehand pencil stroke
+      if (penciling) {
+        const pts = penciling.points;
+        penciling = null;
+        hideTempLine();
+        if (pts.length >= 2) {
+          const node = createPencilNode(pts);
+          saveState();
+          render();
+          selectNode(node.id);
+        }
+        setTool('select');
         return;
       }
 
@@ -3319,6 +3405,7 @@
       '5': () => setTool('container'),
       t: () => setTool('text'),
       '6': () => setTool('line'),
+      p: () => setTool('pencil'),
       '7': () => toggleDropdown('lineDropdown'),
       '8': () => toggleGrid(),
       f: () => toggleFlow(),
@@ -4161,8 +4248,8 @@
       let code = 'flowchart TD\n';
       const nodeIds = {};
       
-      // Filter out line/arrow shapes (they're not flowchart nodes)
-      const flowNodes = nodes.filter(n => n.type !== 'line');
+      // Filter out line/arrow and freehand pencil shapes (not flowchart nodes)
+      const flowNodes = nodes.filter(n => n.type !== 'line' && n.type !== 'pencil');
       
       // Generate node IDs (A, B, C, ...)
       flowNodes.forEach((n, i) => {
