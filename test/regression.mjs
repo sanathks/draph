@@ -328,7 +328,14 @@ group('Pencil tool — freehand drawing');
   check('pencil node stores points', Array.isArray(n.points) && n.points.length >= 2);
   check('points are relative to the bbox origin (start near 0,0)', Math.abs(n.points[0].x) < 1 && Math.abs(n.points[0].y) < 1);
   check('bbox matches the drawn extent', n.x === 100 && n.y === 100 && n.width === 110 && n.height === 80, JSON.stringify({x:n.x,y:n.y,w:n.width,h:n.height}));
-  check('drawing switches back to select tool', E('currentTool') === 'select');
+  // The tool STAYS active so you can keep drawing (no auto-switch to select)
+  check('pencil tool stays active after a stroke', E('currentTool') === 'pencil');
+  check('no node is auto-selected after drawing', E('selectedId') === null);
+  // A second stroke can be drawn without re-selecting the tool
+  mouse(canvas, 'mousedown', 300, 300);
+  mouse(doc, 'mousemove', 340, 320);
+  mouse(doc, 'mouseup', 360, 360);
+  check('a second stroke draws while the tool stays selected', E(`nodes.filter(n => n.type === 'pencil').length`) === 2);
   // It renders as a path and is selectable/movable like any node
   win.render();
   check('pencil renders inside #nodes as a .node', !!doc.querySelector(`#nodes .node[data-id="${n.id}"]`));

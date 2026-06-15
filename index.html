@@ -3181,58 +3181,52 @@
         return;
       }
 
-      // Finish a freehand pencil stroke
+      // Finish a freehand pencil stroke. The pencil tool stays active so you can
+      // keep sketching; press V or Esc to switch to the select tool to edit.
       if (penciling) {
         const pts = penciling.points;
         penciling = null;
         hideTempLine();
         if (pts.length >= 2) {
-          const node = createPencilNode(pts);
+          createPencilNode(pts);
           saveState();
           render();
-          selectNode(node.id);
         }
-        setTool('select');
         return;
       }
 
-      // Finish drawing shape
+      // Finish drawing a shape. The active draw tool stays selected so you can
+      // draw several in a row; press V or Esc to go back to the select tool.
       if (drawing) {
         if (drawing.type === 'line') {
           // Line uses start point + delta (width/height can be negative)
           const dx = pos.x - drawing.startX;
           const dy = pos.y - drawing.startY;
           const dist = Math.sqrt(dx * dx + dy * dy);
-          
+
           if (dist > 20) {
-            const node = createNode('line', drawing.startX, drawing.startY, dx, dy);
+            createNode('line', drawing.startX, drawing.startY, dx, dy);
             saveState();
             render();
-            selectNode(node.id);
           }
-          
+
           drawing = null;
           hideTempLine();
-          setTool('select');
         } else {
           const x = Math.min(drawing.startX, pos.x);
           const y = Math.min(drawing.startY, pos.y);
           const w = Math.abs(pos.x - drawing.startX);
           const h = Math.abs(pos.y - drawing.startY);
-          
+
           // Only create if dragged at least a little
           if (w > 10 || h > 10) {
-            const node = createNode(drawing.type, x, y, w, h);
+            createNode(drawing.type, x, y, w, h);
             saveState();
             render();
-            selectNode(node.id);
           }
-          
+
           drawing = null;
           drawPreview.style.display = 'none';
-          
-          // Switch to select mode after drawing
-          setTool('select');
         }
       }
       
