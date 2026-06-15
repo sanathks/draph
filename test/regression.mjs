@@ -377,4 +377,34 @@ group('Toolbar: creation tools visible with shortcut badges, rest in More menu')
   check('pressing old 7/9 shortcuts does not throw', !threw);
 }
 
+// ---------------------------------------------------------------------------
+group('Sticky note tool');
+{
+  const { win, doc, E } = boot();
+  check("setTool('note') works + keybinding", (() => { win.setTool('note'); const a = E('currentTool') === 'note'; E(`currentTool='select'`); key(doc, 'n'); return a && E('currentTool') === 'note'; })());
+  check("'note' is a SHAPE_TOOL (drag to draw)", E(`SHAPE_TOOLS.includes('note')`));
+  // Draw a note by dragging on the canvas
+  const canvas = doc.getElementById('canvas');
+  mouse(canvas, 'mousedown', 200, 200);
+  mouse(doc, 'mousemove', 360, 320);
+  mouse(doc, 'mouseup', 360, 320);
+  const n = E(`JSON.parse(JSON.stringify(nodes.find(x => x.type === 'note') || null))`);
+  check('a note node was created', !!n);
+  check('note has a default label', n && n.label === 'Note');
+  win.render();
+  const el = doc.querySelector(`#nodes .node[data-id="${n.id}"]`);
+  check('note renders as a .node', !!el);
+  check('note (no color) renders the default yellow', el.innerHTML.includes('#ffd95c'));
+  // Color is changeable via setNodeColor (the fill-color picker)
+  win.selectNode(n.id);
+  win.setNodeColor('#7aa2f7');
+  win.render();
+  const el2 = doc.querySelector(`#nodes .node[data-id="${n.id}"]`);
+  check('note color is changeable', E(`nodes.find(x=>x.type==='note').color`) === '#7aa2f7' && el2.innerHTML.includes('#7aa2f7'));
+  // Notes are annotations: excluded from Mermaid generation
+  check('note excluded from Mermaid', !/Note/.test(win.generateMermaid()) || win.generateMermaid().indexOf('Note') === -1);
+  // Note is selectable/draggable like a normal node (has a toolbar button)
+  check('note tool button exists with N badge', doc.getElementById('tool-note')?.querySelector('.kbd-badge')?.textContent === 'N');
+}
+
 process.exit(report() ? 0 : 1);

@@ -308,6 +308,12 @@
           </svg>
           <span class="kbd-badge">P</span>
         </button>
+        <button class="tool-btn" id="tool-note" onclick="setTool('note')" title="Sticky note (N)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 4h16v11l-5 5H4z"/><path d="M20 14h-5v5"/>
+          </svg>
+          <span class="kbd-badge">N</span>
+        </button>
         <div class="divider"></div>
         <!-- More: everything secondary lives here to keep the bar uncluttered -->
         <div class="dropdown" id="moreDropdown">
@@ -674,7 +680,8 @@
      * ── CORE DATA MODEL ────────────────────────────────────────────────────────
      * node = {
      *   id:        'n<number>'       unique, from generateId()
-     *   type:      'rect'|'pill'|'diamond'|'circle'|'container'|'text'|'line'|'pencil'
+     *   type:      'rect'|'pill'|'diamond'|'circle'|'container'|'text'|'line'|'pencil'|'note'
+     *              ('note' = sticky note; color comes from node.color, default yellow)
      *   x, y:      number            top-left in canvas coords (for 'line', the start point)
      *   width,height: number         size (for 'line', these are dx,dy of the end point; may be negative)
      *   label:     string
@@ -782,7 +789,7 @@
     // swatches are generated from it at init (see buildPalettes()).
     const COLORS = { bg: '#1a1b26', bg2: '#24283b', fg: '#a9b1d6', accent: '#7aa2f7', border: '#414868' };
     const GRID_SIZE = 20;
-    const SHAPE_TOOLS = ['rect', 'pill', 'diamond', 'circle', 'container', 'text', 'line'];
+    const SHAPE_TOOLS = ['rect', 'pill', 'diamond', 'circle', 'container', 'text', 'note', 'line'];
     const CONFIG = {
       palette: ['#7aa2f7', '#9ece6a', '#f7768e', '#e0af68', '#bb9af7', '#7dcfff', '#ff9e64'],
       arrow: { length: 8, width: 4 },     // arrowhead size (px)
@@ -1138,10 +1145,11 @@
         circle: { w: 80, h: 80 },
         container: { w: 280, h: 180 },
         text: { w: 100, h: 24 },
+        note: { w: 170, h: 120 },
         line: { w: 100, h: 0 }  // width = dx, height = dy from start
       };
       const def = defaults[type] || { w: 120, h: 44 };
-      
+
       const node = {
         id: generateId(),
         type,
@@ -1149,7 +1157,7 @@
         y: snap(y),
         width: Math.max(40, snap(width || def.w)),
         height: Math.max(20, snap(height || def.h)),
-        label: type === 'container' ? 'Group' : type === 'text' ? 'Text' : type === 'line' ? '' : 'Node',
+        label: type === 'container' ? 'Group' : type === 'text' ? 'Text' : type === 'note' ? 'Note' : type === 'line' ? '' : 'Node',
       };
       
       // For circle, ensure square
@@ -1839,6 +1847,23 @@
             <path d="${arrow}" fill="${displayColor}"/>
             ${labelEl}
             ${handles}`;
+        } else if (node.type === 'note') {
+          // Sticky note: solid colored card, dark text, a small folded corner.
+          // Color is node.color (changeable via the fill-color picker); default yellow.
+          const noteColor = node.color || '#ffd95c';
+          const fold = Math.min(18, node.width * 0.18, node.height * 0.3);
+          const fx = node.x + node.width, fy = node.y + node.height;
+          const pad = 12, fontSize = 13, lineH = 17;
+          const lines = wrapLabel(node.label || '', node.width - pad * 2, fontSize);
+          const tspans = lines.map((l, i) =>
+            `<text x="${node.x + pad}" y="${node.y + pad + 12 + i * lineH}" fill="#1a1b26" font-size="${fontSize}" font-family="system-ui, sans-serif">${esc(l)}</text>`
+          ).join('');
+          shape = `
+            <rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="3"
+              fill="${noteColor}" stroke="${isSelected ? COLORS.accent : 'rgba(0,0,0,0.15)'}" stroke-width="${isSelected ? 2 : 1}" class="node-border"
+              style="filter:drop-shadow(0 3px 5px rgba(0,0,0,0.35))"/>
+            <path d="M${fx - fold},${fy} L${fx},${fy - fold} L${fx},${fy} Z" fill="rgba(0,0,0,0.18)"/>
+            ${tspans}`;
         } else if (node.type === 'pencil') {
           // Freehand stroke. Points are stored relative to (x,y); draw absolute.
           const abs = (node.points || []).map(p => ({ x: p.x + node.x, y: p.y + node.y }));
@@ -2517,7 +2542,7 @@
     // Arrange flowchart - layered layout based on connections
     function arrangeFlowchart() {
       // Skip line/arrow and freehand pencil shapes - they don't need arranging
-      const flowNodes = nodes.filter(n => n.type !== 'line' && n.type !== 'pencil');
+      const flowNodes = nodes.filter(n => n.type !== 'line' && n.type !== 'pencil' && n.type !== 'note');
       if (flowNodes.length === 0) return;
       
       // Build adjacency map
@@ -2602,7 +2627,7 @@
     function arrangeFlowchartSugiyama() {
       // Separate container nodes from regular nodes
       const containers = nodes.filter(n => n.type === 'container');
-      const flowNodes = nodes.filter(n => n.type !== 'container' && n.type !== 'line' && n.type !== 'pencil');
+      const flowNodes = nodes.filter(n => n.type !== 'container' && n.type !== 'line' && n.type !== 'pencil' && n.type !== 'note');
       const lineNodes = nodes.filter(n => n.type === 'line');
       
       if (flowNodes.length === 0) return;
@@ -3418,6 +3443,7 @@
       t: () => setTool('text'),
       '6': () => setTool('line'),
       p: () => setTool('pencil'),
+      n: () => setTool('note'),
       '8': () => toggleGrid(),
       f: () => toggleFlow(),
       '0': () => shareDiagram(),
@@ -4260,7 +4286,7 @@
       const nodeIds = {};
       
       // Filter out line/arrow and freehand pencil shapes (not flowchart nodes)
-      const flowNodes = nodes.filter(n => n.type !== 'line' && n.type !== 'pencil');
+      const flowNodes = nodes.filter(n => n.type !== 'line' && n.type !== 'pencil' && n.type !== 'note');
       
       // Generate node IDs (A, B, C, ...)
       flowNodes.forEach((n, i) => {
