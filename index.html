@@ -2785,12 +2785,9 @@
     // Event handlers
     function onNodeMouseDown(e) {
       if (e.target.classList.contains('connector') || e.target.classList.contains('resize-handle') || e.target.classList.contains('lifeline-connector')) return;
-      
-      // Clicking on a node always switches to select mode and selects it
-      if (currentTool !== 'select') {
-        setTool('select');
-      }
-      
+
+      // Keep the active tool selected (don't force back to the select tool) so
+      // you can keep drawing; clicking a node still selects/moves it.
       const nodeEl = e.target.closest('.node');
       if (!nodeEl) return;
       const id = nodeEl.dataset.id;
@@ -2849,7 +2846,6 @@
       e.stopPropagation();
       e.preventDefault();
       dragging = null;
-      setTool('select');
       selectNode(id);
       const node = nodes.find(n => n.id === id);
       if (node && node.type !== 'line' && node.type !== 'pencil') editNodeLabel(node);
@@ -3261,12 +3257,18 @@
           const w = Math.abs(pos.x - drawing.startX);
           const h = Math.abs(pos.y - drawing.startY);
 
-          // Only create if dragged at least a little
           if (w > 10 || h > 10) {
+            // Dragged out a size
             createNode(drawing.type, x, y, w, h);
-            saveState();
-            render();
+          } else {
+            // Just a click: drop the shape at its standard size, centered on the
+            // click point. The user can resize it afterward.
+            const node = createNode(drawing.type, drawing.startX, drawing.startY);
+            node.x = snap(drawing.startX - node.width / 2);
+            node.y = snap(drawing.startY - node.height / 2);
           }
+          saveState();
+          render();
 
           drawing = null;
           drawPreview.style.display = 'none';

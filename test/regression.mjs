@@ -407,4 +407,27 @@ group('Sticky note tool');
   check('note tool button exists with N badge', doc.getElementById('tool-note')?.querySelector('.kbd-badge')?.textContent === 'N');
 }
 
+// ---------------------------------------------------------------------------
+group('Click-to-create at standard size + tool stays active');
+{
+  const { win, doc, E } = boot();
+  const canvas = doc.getElementById('canvas');
+  win.setTool('rect');
+  // A plain click (no drag) drops a default-size rect centered on the click
+  mouse(canvas, 'mousedown', 500, 500);
+  mouse(doc, 'mouseup', 500, 500);
+  const r = E(`JSON.parse(JSON.stringify(nodes[nodes.length-1]))`);
+  check('click creates a node', E('nodes.length') === 1 && r.type === 'rect');
+  check('node has its standard size (grid-snapped)', r.width === 120 && r.height === 40, `${r.width}x${r.height}`);
+  check('node is centered on the click point', Math.abs((r.x + r.width/2) - 500) <= 10 && Math.abs((r.y + r.height/2) - 500) <= 10);
+  check('tool stays active after click-create', E('currentTool') === 'rect');
+  // Clicking an existing node while a draw tool is active must NOT revert to select
+  win.setTool('note');
+  win.render();
+  const nodeEl = doc.querySelector(`#nodes .node[data-id="${r.id}"]`);
+  mouse(nodeEl, 'mousedown', r.x + 5, r.y + 5);
+  mouse(doc, 'mouseup', r.x + 5, r.y + 5);
+  check('clicking a node keeps the draw tool active (no revert to arrow)', E('currentTool') === 'note');
+}
+
 process.exit(report() ? 0 : 1);
