@@ -1200,7 +1200,12 @@
       const hGap = Math.max(gapRight, gapLeft);
       const vGap = Math.max(gapBelow, gapAbove);
 
-      if (vGap >= hGap) {
+      // Bias toward vertical (top-down) routing: only go sideways when the
+      // horizontal separation CLEARLY beats the vertical one. This keeps the
+      // natural flowchart flow and avoids a side-entry "L" when a node sits both
+      // below and a little beside its parent.
+      const VERTICAL_BIAS = 40;
+      if (vGap >= hGap - VERTICAL_BIAS) {
         return gapBelow >= gapAbove
           ? { fromSide: 'bottom', toSide: 'top' }
           : { fromSide: 'top', toSide: 'bottom' };

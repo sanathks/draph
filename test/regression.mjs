@@ -520,6 +520,14 @@ group('getOptimalSides uses box separation (no hooky left/right for stacked node
   E(`nodes[1].x = 230; nodes[1].y = -150`);
   const s3 = E(`(()=>{const r=getOptimalSides(nodes[0],nodes[1]);return r.fromSide+'>'+r.toSide})()`);
   check('target above routes top->bottom', s3 === 'top>bottom', s3);
+  // Below-AND-slightly-beside (gaps nearly tied) should prefer top-down, not side entry
+  E(`nodes[0].x=175; nodes[0].y=40; nodes[0].width=100; nodes[0].height=70`);
+  E(`nodes[1].x=0; nodes[1].y=120; nodes[1].width=160; nodes[1].height=70`);
+  const s4 = E(`(()=>{const r=getOptimalSides(nodes[0],nodes[1]);return r.fromSide+'>'+r.toSide})()`);
+  check('below-and-beside prefers bottom->top (top-down bias)', s4 === 'bottom>top', s4);
+  // restore for the hook check below
+  E(`nodes[0].x=220; nodes[0].y=40; nodes[0].width=100; nodes[0].height=70`);
+  E(`nodes[1].x=80; nodes[1].y=150; nodes[1].width=120; nodes[1].height=50`);
   // And the resulting route has no direction reversal (no hook) for the diagonal case
   E(`nodes[1].x = 80; nodes[1].y = 150`);
   const r = E(`(()=>{const o=getOptimalSides(nodes[0],nodes[1]);return routeConnection(nodes[0],nodes[1],o.fromSide,o.toSide)})()`);
