@@ -2696,14 +2696,23 @@
         });
       }
       
-      // Update connection sides for better routing
+      // Reset routing to match the fresh top-down layout. Arrange is an explicit
+      // "clean this up" action, so we clear any manual side locks and route
+      // forward edges from the parent's BOTTOM into the child's TOP (a clean
+      // tree). Edges within the same band fall back to nearest-side routing.
       connections.filter(c => !c.isSequenceMessage).forEach(c => {
         const fromNode = nodes.find(n => n.id === c.from);
         const toNode = nodes.find(n => n.id === c.to);
-        if (fromNode && toNode) {
+        if (!fromNode || !toNode) return;
+        c.fromSideLocked = false;
+        c.toSideLocked = false;
+        if (fromNode.y + fromNode.height <= toNode.y + 1) {
+          c.fromSide = 'bottom'; c.toSide = 'top';          // parent above child
+        } else if (toNode.y + toNode.height <= fromNode.y + 1) {
+          c.fromSide = 'top'; c.toSide = 'bottom';          // back-edge (child above)
+        } else {
           const { fromSide, toSide } = getOptimalSides(fromNode, toNode);
-          if (!c.fromSideLocked) c.fromSide = fromSide;
-          if (!c.toSideLocked) c.toSide = toSide;
+          c.fromSide = fromSide; c.toSide = toSide;         // same band: nearest sides
         }
       });
       

@@ -458,6 +458,12 @@ group('Auto-arrange: clean layered layout (no overlap, parents centered)');
   const childMid = ((ns.ld.x + ns.ld.w / 2) + (ns.sl.x + ns.sl.w / 2)) / 2;
   check('Authenticated is centered over its two children', Math.abs(authC - childMid) < 20, `auth=${authC.toFixed(0)} mid=${childMid.toFixed(0)}`);
   check('Done is under Load dashboard', Math.abs((ns.done.x + ns.done.w/2) - (ns.ld.x + ns.ld.w/2)) < 30);
+  // Routing: forward edges run parent-bottom -> child-top, and locks are cleared
+  const edge = (f, t) => E(`(()=>{const c=connections.find(c=>c.from==='${f}'&&c.to==='${t}');return {fromSide:c.fromSide,toSide:c.toSide,fl:!!c.fromSideLocked,tl:!!c.toSideLocked}})()`);
+  const e1 = edge(auth.id, ld.id), e2 = edge(auth.id, sl.id);
+  check('Authenticated->Load dashboard routes bottom->top', e1.fromSide === 'bottom' && e1.toSide === 'top');
+  check('Authenticated->Show login routes bottom->top', e2.fromSide === 'bottom' && e2.toSide === 'top');
+  check('arrange clears manual side locks', !e1.fl && !e1.tl && !e2.fl && !e2.tl);
 }
 
 process.exit(report() ? 0 : 1);
