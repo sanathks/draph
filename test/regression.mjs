@@ -430,4 +430,34 @@ group('Click-to-create at standard size + tool stays active');
   check('clicking a node keeps the draw tool active (no revert to arrow)', E('currentTool') === 'note');
 }
 
+// ---------------------------------------------------------------------------
+group('Auto-arrange: clean layered layout (no overlap, parents centered)');
+{
+  const { win, E } = boot();
+  const mk = (type, w, h, label) => { const n = win.createNode(type, 0, 0, w, h); n.label = label; return n; };
+  const ur = mk('rect', 140, 50, 'User request');
+  const auth = mk('diamond', 150, 70, 'Authenticated?');
+  const ld = mk('rect', 170, 50, 'Load dashboard');
+  const sl = mk('rect', 150, 50, 'Show login');
+  const done = mk('pill', 150, 50, '[Done]');
+  const sub = mk('rect', 150, 60, 'Submit credentials');
+  const link = (a, b) => E(`connections.push({from:'${a.id}',to:'${b.id}'})`);
+  link(ur, auth); link(auth, ld); link(auth, sl); link(ld, done); link(sl, sub);
+  win.arrangeDiagram();
+  const N = (id) => E(`(()=>{const n=nodes.find(x=>x.id==='${id}');return {x:n.x,y:n.y,w:n.width,h:n.height}})()`);
+  const ns = { ur: N(ur.id), auth: N(auth.id), ld: N(ld.id), sl: N(sl.id), done: N(done.id), sub: N(sub.id) };
+  const overlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const arr = Object.values(ns);
+  let bad = false;
+  for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) if (overlap(arr[i], arr[j])) bad = true;
+  check('no two arranged nodes overlap', !bad);
+  check('User request sits above Authenticated', ns.ur.y + ns.ur.h <= ns.auth.y + 1);
+  check('Authenticated sits above its children', ns.auth.y + ns.auth.h <= ns.ld.y + 1 && ns.auth.y + ns.auth.h <= ns.sl.y + 1);
+  check('children share a layer (same y)', Math.abs(ns.ld.y - ns.sl.y) < 1);
+  const authC = ns.auth.x + ns.auth.w / 2;
+  const childMid = ((ns.ld.x + ns.ld.w / 2) + (ns.sl.x + ns.sl.w / 2)) / 2;
+  check('Authenticated is centered over its two children', Math.abs(authC - childMid) < 20, `auth=${authC.toFixed(0)} mid=${childMid.toFixed(0)}`);
+  check('Done is under Load dashboard', Math.abs((ns.done.x + ns.done.w/2) - (ns.ld.x + ns.ld.w/2)) < 30);
+}
+
 process.exit(report() ? 0 : 1);

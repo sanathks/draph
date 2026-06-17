@@ -2638,7 +2638,9 @@
         label: n.label,
         type: n.isClass ? 'class' : (n.isParticipant ? 'participant' : 'rect'),
         properties: n.properties,
-        methods: n.methods
+        methods: n.methods,
+        width: n.width,   // pass real sizes so the layout can space nodes apart
+        height: n.height
       }));
       
       const parsedConnections = connections
@@ -5011,24 +5013,70 @@
         return result;
       }
       
-      // No subgraphs: position by layer
-      const pos = {};
+      // No subgraphs: width-aware layered placement. Nodes are spaced by their
+      // actual width (no overlap), and a few barycenter sweeps pull each node
+      // toward the average of its neighbors so parents sit centered over their
+      // children — giving a clean tree instead of a cramped, tangled block.
+      const estW = (n) => (n && n.width) || Math.max(90, ((n && n.label) || '').length * 8 + 30);
+      const estH = (n) => (n && n.height) || 50;
+      const HGAP = 55;   // min horizontal gap between nodes in a layer
+      const VGAP = 80;   // vertical gap between layers (room for edge labels)
+
+      // Y per layer from the tallest node in that layer
+      const layerY = {};
+      let yCur = startY;
       for (let l = 0; l <= maxLayer; l++) {
-        if (!layerNodes[l]) continue;
-        const layerW = layerNodes[l].length * spacingX;
-        const offsetX = -layerW / 2;
-        layerNodes[l].forEach((id, idx) => {
-          pos[id] = { 
-            x: startX + 300 + offsetX + idx * spacingX, 
-            y: startY + l * spacingY 
-          };
-        });
+        layerY[l] = yCur;
+        const hs = (layerNodes[l] || []).map(id => estH(nodeById[id]));
+        yCur += (hs.length ? Math.max(...hs) : 50) + VGAP;
       }
-      
+
+      // Initial X: lay each layer left-to-right by width, centered around 0
+      const cx = {};
+      for (let l = 0; l <= maxLayer; l++) {
+        const arr = layerNodes[l] || [];
+        const ws = arr.map(id => estW(nodeById[id]));
+        const total = ws.reduce((s, w) => s + w, 0) + HGAP * Math.max(0, arr.length - 1);
+        let cur = -total / 2;
+        arr.forEach((id, i) => { cx[id] = cur + ws[i] / 2; cur += ws[i] + HGAP; });
+      }
+
+      // Keep a layer's nodes from overlapping after we nudge their x positions
+      const resolveOverlap = (arr) => {
+        const ordered = [...arr].sort((a, b) => cx[a] - cx[b]);
+        for (let i = 1; i < ordered.length; i++) {
+          const a = ordered[i - 1], b = ordered[i];
+          const min = estW(nodeById[a]) / 2 + estW(nodeById[b]) / 2 + HGAP;
+          if (cx[b] - cx[a] < min) cx[b] = cx[a] + min;
+        }
+      };
+
+      // Barycenter: align each node to the mean of its parents (top-down) and
+      // its children (bottom-up), resolving overlaps after each pass.
+      for (let sweep = 0; sweep < 6; sweep++) {
+        for (let l = 1; l <= maxLayer; l++) {
+          (layerNodes[l] || []).forEach(id => {
+            const ps = inEdges[id];
+            if (ps.length) cx[id] = ps.reduce((s, p) => s + cx[p], 0) / ps.length;
+          });
+          resolveOverlap(layerNodes[l] || []);
+        }
+        for (let l = maxLayer - 1; l >= 0; l--) {
+          (layerNodes[l] || []).forEach(id => {
+            const cs = outEdges[id];
+            if (cs.length) cx[id] = cs.reduce((s, c) => s + cx[c], 0) / cs.length;
+          });
+          resolveOverlap(layerNodes[l] || []);
+        }
+      }
+
+      // Convert centers to top-left and shift so the diagram starts at startX
+      const minLeft = Math.min(...ids.map(id => cx[id] - estW(nodeById[id]) / 2));
+      const shift = startX - (isFinite(minLeft) ? minLeft : 0);
       return parsedNodes.map(n => ({
         ...n,
-        x: pos[n.id]?.x || startX,
-        y: pos[n.id]?.y || startY
+        x: cx[n.id] - estW(n) / 2 + shift,
+        y: layerY[layer[n.id]] ?? startY
       }));
     }
     
