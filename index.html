@@ -1199,9 +1199,13 @@
       const charW = fs * 0.62;
       const longestWord = label.split(/\s+/).reduce((m, w) => Math.max(m, w.length), 0);
       const singleLineW = label.length * charW;
-      const cap = 240; // beyond this, let the label wrap instead of making a huge node
-      const textW = Math.min(Math.max(longestWord * charW, singleLineW), cap);
-      const numLines = Math.max(1, Math.round(singleLineW / textW));
+      // Preferred max text width: past this, a multi-word label WRAPS to new
+      // lines (node grows taller) instead of stretching into one very wide node.
+      // A single unbreakable word still forces the width so it never overflows.
+      // 'text' and 'container' render their label on a single line, so they don't wrap.
+      const prefMax = (node.type === 'text' || node.type === 'container') ? Infinity : 140;
+      const textW = Math.max(longestWord * charW, Math.min(singleLineW, prefMax));
+      const numLines = Math.max(1, Math.ceil(singleLineW / textW));
       const textH = numLines * (fs + 3);
 
       let ratio = 1, padX = 22, padY = 18; // text area as a fraction of the box + padding

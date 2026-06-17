@@ -562,6 +562,17 @@ group('Nodes grow to fit their label (label-aware sizing)');
   const c = win.createNode('circle', 0, 0, 80, 80); c.label = 'A longish circle label';
   win.fitNodeToLabel(c);
   check('circle stays square after fit', E(`(()=>{const n=nodes.find(x=>x.id==='${c.id}');return n.width===n.height})()`));
+  // A long multi-word label WRAPS (node stays moderate width, grows taller)
+  const m = win.createNode('rect', 0, 0, 120, 44);
+  m.label = 'This is a fairly long multi word label that should wrap';
+  win.fitNodeToLabel(m);
+  check('long multi-word label wraps (width stays moderate)', m.width <= 200, `w=${m.width}`);
+  check('wrapped label makes the node taller', m.height > 44);
+  // ...while a single unbreakable word still forces the node wider than the cap
+  const w1 = win.createNode('rect', 0, 0, 120, 44);
+  w1.label = 'Supercalifragilisticexpialidocious';
+  win.fitNodeToLabel(w1);
+  check('single long word forces a wider node', w1.width > 200);
 }
 
 process.exit(report() ? 0 : 1);
