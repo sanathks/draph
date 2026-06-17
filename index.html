@@ -1184,7 +1184,36 @@
       nodes.push(node);
       return node;
     }
-    
+
+    // Grow a node so its label fits inside the shape (never shrinks below the
+    // user's size). Called whenever a label changes or a shape type changes, so
+    // long labels like "Authenticated?" stop spilling out of the node. Diamonds
+    // and circles only use ~60% of their box for text, so they grow more.
+    function fitNodeToLabel(node) {
+      if (!node || node.type === 'line' || node.type === 'pencil') return;
+      const label = (node.label || '').trim();
+      if (!label) return;
+      const fs = node.type === 'text' ? 14
+        : node.type === 'container' ? 13
+        : (node.type === 'diamond' || node.type === 'circle') ? 11 : 12;
+      const charW = fs * 0.62;
+      const longestWord = label.split(/\s+/).reduce((m, w) => Math.max(m, w.length), 0);
+      const singleLineW = label.length * charW;
+      const cap = 240; // beyond this, let the label wrap instead of making a huge node
+      const textW = Math.min(Math.max(longestWord * charW, singleLineW), cap);
+      const numLines = Math.max(1, Math.round(singleLineW / textW));
+      const textH = numLines * (fs + 3);
+
+      let ratio = 1, padX = 22, padY = 18; // text area as a fraction of the box + padding
+      if (node.type === 'diamond' || node.type === 'circle') { ratio = 0.6; padX = 16; padY = 16; }
+      else if (node.type === 'note') { padX = 22; padY = 22; }
+      else if (node.type === 'container') { padX = 24; padY = 14; }
+
+      node.width = Math.max(node.width, Math.ceil(textW / ratio) + padX);
+      node.height = Math.max(node.height, Math.ceil(textH / ratio) + padY);
+      if (node.type === 'circle') { const s = Math.max(node.width, node.height); node.width = s; node.height = s; }
+    }
+
     // === SECTION: GEOMETRY & ROUTING (node creation + orthogonal connection router) ===
 
     // Auto-pick which sides an edge should attach to. We compare how far the two
@@ -2137,7 +2166,7 @@
       const commit = (save) => {
         if (done) return;
         done = true;
-        if (save) { node.label = inp.value.trim(); saveState(); render(); }
+        if (save) { node.label = inp.value.trim(); fitNodeToLabel(node); saveState(); render(); }
         inp.remove();
         labelEditor = null;
       };
@@ -2327,6 +2356,7 @@
           node.width = 280;
           node.height = 180;
         }
+        fitNodeToLabel(node);   // new shape may need more room for the same label
         updateShapeButton(node);
         saveState();
         render();
@@ -3504,7 +3534,7 @@
     // Toolbar label editing
     toolbarLabel.addEventListener('input', (e) => {
       const node = nodes.find(n => n.id === selectedId);
-      if (node) { node.label = e.target.value; render(); }
+      if (node) { node.label = e.target.value; fitNodeToLabel(node); render(); }
     });
     toolbarLabel.addEventListener('change', saveState);
     toolbarLabel.addEventListener('keydown', (e) => {
@@ -5187,7 +5217,11 @@
             node.hasLifeline = true;  // Enable lifeline for UI
             node.isActor = n.type === 'actor';
           }
-          
+
+          // Grow regular shapes to fit their imported label (class/participant
+          // nodes size themselves separately)
+          if (!isClass && !isParticipant) fitNodeToLabel(node);
+
           idMap[n.id] = node.id;
         });
         

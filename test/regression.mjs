@@ -536,4 +536,32 @@ group('getOptimalSides uses box separation (no hooky left/right for stacked node
   check('diagonal edge has no y-reversal/hook', !hook);
 }
 
+// ---------------------------------------------------------------------------
+group('Nodes grow to fit their label (label-aware sizing)');
+{
+  const { win, doc, E } = boot();
+  E('snapToGrid = false');
+  // A diamond with a long single word must widen enough to contain it
+  const d = win.createNode('diamond', 100, 100, 90, 60);
+  d.label = 'Authenticated?';
+  win.fitNodeToLabel(d);
+  const textW = 'Authenticated?'.length * (11 * 0.62);
+  check('diamond widened to fit a long label', d.width >= textW / 0.6, `w=${d.width} need~${Math.ceil(textW/0.6)}`);
+  check('diamond grew from its default', d.width > 90);
+  // fit never shrinks below the user's larger size
+  const big = win.createNode('rect', 0, 0, 400, 200); big.label = 'Hi';
+  win.fitNodeToLabel(big);
+  check('fit does not shrink a manually-large node', big.width === 400 && big.height === 200);
+  // typing in the toolbar grows the selected node live
+  const r = win.createNode('rect', 0, 0, 120, 44); r.label = 'x'; win.render(); win.selectNode(r.id);
+  const inp = doc.getElementById('toolbarLabel');
+  inp.value = 'A very long label that should widen the node a lot';
+  inp.dispatchEvent(new win.Event('input', { bubbles: true }));
+  check('typing a long label grows the node', E(`nodes.find(n=>n.id==='${r.id}').width`) > 120);
+  // circle stays square after fitting
+  const c = win.createNode('circle', 0, 0, 80, 80); c.label = 'A longish circle label';
+  win.fitNodeToLabel(c);
+  check('circle stays square after fit', E(`(()=>{const n=nodes.find(x=>x.id==='${c.id}');return n.width===n.height})()`));
+}
+
 process.exit(report() ? 0 : 1);
