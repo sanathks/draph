@@ -1235,7 +1235,7 @@
     //  All tunables live in ROUTE_CFG so future tweaks are one-liners.
     // =====================================================================
     const SIDE_NORMAL = { top: {x:0,y:-1}, bottom: {x:0,y:1}, left: {x:-1,y:0}, right: {x:1,y:0} };
-    const ROUTE_CFG = { minClear: 14, maxClear: 24 };
+    const ROUTE_CFG = { maxClear: 24 }; // max perpendicular stub off a node connector
 
     // Point on a node's side at a fractional position along it (0..1).
     function sidePoint(node, side, frac = 0.5) {
@@ -1323,9 +1323,13 @@
       const n1 = SIDE_NORMAL[fromSide] || { x:0, y:0 };
       const n2 = SIDE_NORMAL[toSide]  || { x:0, y:0 };
 
-      // clearance off each node, adaptive so close nodes get a smaller stub
+      // Perpendicular stub off each node. It's never longer than HALF the gap
+      // between the two connectors, so the two stubs can't overshoot past each
+      // other when the nodes are close — which is what turned the curve into a
+      // strange hook/loop. As nodes approach, the stub shrinks to ~0 and the
+      // edge becomes a clean short line.
       const gap = Math.abs(p2.x - p1.x) + Math.abs(p2.y - p1.y);
-      const clear = Math.max(ROUTE_CFG.minClear, Math.min(ROUTE_CFG.maxClear, gap / 3));
+      const clear = Math.max(1, Math.min(ROUTE_CFG.maxClear, gap / 2));
       const e1 = { x: p1.x + n1.x * clear, y: p1.y + n1.y * clear };
       const e2 = { x: p2.x + n2.x * clear, y: p2.y + n2.y * clear };
 

@@ -466,4 +466,39 @@ group('Auto-arrange: clean layered layout (no overlap, parents centered)');
   check('arrange clears manual side locks', !e1.fl && !e1.tl && !e2.fl && !e2.tl);
 }
 
+// ---------------------------------------------------------------------------
+group('Edge stays clean (no overshoot/hook) when nodes are close');
+{
+  const { win, E } = boot();
+  E('snapToGrid = false'); // test exact geometry, not grid-snapped positions
+  const a = win.createNode('rect', 200, 200, 120, 50);
+  const b = win.createNode('rect', 200, 260, 120, 50); // directly below, 10px gap
+  // Monotonic check: a vertical bottom->top route must not reverse direction
+  // (an overshoot would make the y go down-then-up = a hook).
+  const monotonic = (f, t) => {
+    const res = E(`routeConnection(nodes[0], nodes[1], '${f}', '${t}')`);
+    const ys = res.points.map(p => p.y);
+    let dir = 0;
+    for (let i = 1; i < ys.length; i++) {
+      const d = Math.sign(ys[i] - ys[i-1]);
+      if (d === 0) continue;
+      if (dir && d !== dir) return false; // reversed => hook/overshoot
+      dir = d;
+    }
+    return true;
+  };
+  check('close vertical edge has no y-reversal (no hook)', monotonic('bottom', 'top'));
+  // Bring them almost touching
+  E(`nodes[1].y = 252`);
+  check('nearly-touching edge still has no hook', monotonic('bottom', 'top'));
+  // Far apart still fine
+  E(`nodes[1].y = 600`);
+  check('far edge still clean', monotonic('bottom', 'top'));
+  // Vertically-aligned close nodes should give a straight edge, no x-wiggle
+  E(`nodes[1].y = 260`);
+  const r = E(`routeConnection(nodes[0], nodes[1], 'bottom', 'top')`);
+  const xs = r.points.map(p => p.x);
+  check('aligned close nodes give a straight edge (no wiggle)', Math.max(...xs) - Math.min(...xs) < 0.5);
+}
+
 process.exit(report() ? 0 : 1);
