@@ -501,4 +501,31 @@ group('Edge stays clean (no overshoot/hook) when nodes are close');
   check('aligned close nodes give a straight edge (no wiggle)', Math.max(...xs) - Math.min(...xs) < 0.5);
 }
 
+// ---------------------------------------------------------------------------
+group('getOptimalSides uses box separation (no hooky left/right for stacked nodes)');
+{
+  const { win, E } = boot();
+  E('snapToGrid = false');
+  // Diamond up-right, target down-left and only slightly offset horizontally but
+  // well separated vertically -> should route bottom->top, not left->right.
+  const a = win.createNode('diamond', 220, 40, 100, 70);
+  const b = win.createNode('rect', 80, 150, 120, 50);
+  const s1 = E(`(()=>{const r=getOptimalSides(nodes[0],nodes[1]);return r.fromSide+'>'+r.toSide})()`);
+  check('stacked-ish nodes route bottom->top', s1 === 'bottom>top', s1);
+  // Side-by-side at the same height -> right->left
+  E(`nodes[1].x = 460; nodes[1].y = 50`);
+  const s2 = E(`(()=>{const r=getOptimalSides(nodes[0],nodes[1]);return r.fromSide+'>'+r.toSide})()`);
+  check('side-by-side nodes route right->left', s2 === 'right>left', s2);
+  // Target above -> top->bottom
+  E(`nodes[1].x = 230; nodes[1].y = -150`);
+  const s3 = E(`(()=>{const r=getOptimalSides(nodes[0],nodes[1]);return r.fromSide+'>'+r.toSide})()`);
+  check('target above routes top->bottom', s3 === 'top>bottom', s3);
+  // And the resulting route has no direction reversal (no hook) for the diagonal case
+  E(`nodes[1].x = 80; nodes[1].y = 150`);
+  const r = E(`(()=>{const o=getOptimalSides(nodes[0],nodes[1]);return routeConnection(nodes[0],nodes[1],o.fromSide,o.toSide)})()`);
+  const ys = r.points.map(p => p.y); let dir = 0, hook = false;
+  for (let i = 1; i < ys.length; i++) { const d = Math.sign(ys[i]-ys[i-1]); if (!d) continue; if (dir && d !== dir) hook = true; dir = d; }
+  check('diagonal edge has no y-reversal/hook', !hook);
+}
+
 process.exit(report() ? 0 : 1);

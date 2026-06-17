@@ -1187,40 +1187,27 @@
     
     // === SECTION: GEOMETRY & ROUTING (node creation + orthogonal connection router) ===
 
-    // Smart arrow routing - auto-picks best sides
+    // Auto-pick which sides an edge should attach to. We compare how far the two
+    // boxes are SEPARATED on each axis (edge-to-edge gap) and route along the
+    // axis with the most clearance, attaching to facing sides. Using box gaps
+    // (not center direction) avoids picking left/right for nodes that are really
+    // stacked vertically — which forced the router to fold back into a hook.
     function getOptimalSides(from, to) {
-      const fromCx = from.x + from.width / 2;
-      const fromCy = from.y + from.height / 2;
-      const toCx = to.x + to.width / 2;
-      const toCy = to.y + to.height / 2;
-      
-      const dx = toCx - fromCx;
-      const dy = toCy - fromCy;
-      
-      let fromSide, toSide;
-      
-      // Determine best sides based on relative position
-      if (Math.abs(dx) > Math.abs(dy)) {
-        // Horizontal relationship
-        if (dx > 0) {
-          fromSide = 'right';
-          toSide = 'left';
-        } else {
-          fromSide = 'left';
-          toSide = 'right';
-        }
-      } else {
-        // Vertical relationship
-        if (dy > 0) {
-          fromSide = 'bottom';
-          toSide = 'top';
-        } else {
-          fromSide = 'top';
-          toSide = 'bottom';
-        }
+      const gapRight = to.x - (from.x + from.width);   // 'to' sits to the right
+      const gapLeft  = from.x - (to.x + to.width);     // 'to' sits to the left
+      const gapBelow = to.y - (from.y + from.height);  // 'to' sits below
+      const gapAbove = from.y - (to.y + to.height);    // 'to' sits above
+      const hGap = Math.max(gapRight, gapLeft);
+      const vGap = Math.max(gapBelow, gapAbove);
+
+      if (vGap >= hGap) {
+        return gapBelow >= gapAbove
+          ? { fromSide: 'bottom', toSide: 'top' }
+          : { fromSide: 'top', toSide: 'bottom' };
       }
-      
-      return { fromSide, toSide };
+      return gapRight >= gapLeft
+        ? { fromSide: 'right', toSide: 'left' }
+        : { fromSide: 'left', toSide: 'right' };
     }
     
     // =====================================================================
@@ -1323,13 +1310,17 @@
       const n1 = SIDE_NORMAL[fromSide] || { x:0, y:0 };
       const n2 = SIDE_NORMAL[toSide]  || { x:0, y:0 };
 
-      // Perpendicular stub off each node. It's never longer than HALF the gap
-      // between the two connectors, so the two stubs can't overshoot past each
-      // other when the nodes are close — which is what turned the curve into a
-      // strange hook/loop. As nodes approach, the stub shrinks to ~0 and the
-      // edge becomes a clean short line.
-      const gap = Math.abs(p2.x - p1.x) + Math.abs(p2.y - p1.y);
-      const clear = Math.max(1, Math.min(ROUTE_CFG.maxClear, gap / 2));
+      // Perpendicular stub off each node, capped so the two stubs can never
+      // overshoot past each other (which is what produced the strange hook).
+      // When both stubs run along the SAME axis (e.g. bottom->top), the limit is
+      // half the gap on THAT axis; for an L-shaped (mixed) route it's the smaller
+      // of the two axis gaps. As nodes approach, the stub shrinks toward a clean
+      // short/straight line.
+      let limit;
+      if (n1.y !== 0 && n2.y !== 0) limit = Math.abs(p2.y - p1.y) / 2;        // both vertical
+      else if (n1.x !== 0 && n2.x !== 0) limit = Math.abs(p2.x - p1.x) / 2;   // both horizontal
+      else limit = Math.min(Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y));    // mixed (L)
+      const clear = Math.max(1, Math.min(ROUTE_CFG.maxClear, limit));
       const e1 = { x: p1.x + n1.x * clear, y: p1.y + n1.y * clear };
       const e2 = { x: p2.x + n2.x * clear, y: p2.y + n2.y * clear };
 
