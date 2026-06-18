@@ -2330,16 +2330,37 @@
       saveState(); render();
     }
 
-    // duplicate selected node(s), offset slightly, and select the copies
+    // duplicate selected node(s), offset slightly, and select the copies.
+    // Copies of a group get a fresh shared groupId (so they don't merge with the
+    // originals' group).
     function duplicateSelected(ids = selectedNodeIds()) {
       if (!ids.length) return;
-      const copies = ids.map(id => nodes.find(n => n.id === id)).filter(Boolean)
-        .map(n => ({ ...JSON.parse(JSON.stringify(n)), id: generateId(), x: n.x + 20, y: n.y + 20 }));
+      const gidMap = {};
+      const copies = ids.map(id => nodes.find(n => n.id === id)).filter(Boolean).map(n => {
+        const c = { ...JSON.parse(JSON.stringify(n)), id: generateId(), x: n.x + 20, y: n.y + 20 };
+        if (c.groupId) { gidMap[c.groupId] = gidMap[c.groupId] || ('g' + (++idCounter)); c.groupId = gidMap[c.groupId]; }
+        return c;
+      });
       nodes.push(...copies);
       selectedId = copies.length === 1 ? copies[0].id : null;
       selectedIds = copies.length > 1 ? copies.map(c => c.id) : [];
       saveState(); render();
       if (copies.length === 1) selectNode(copies[0].id);
+    }
+
+    // Grouping: grouped nodes select & move together (see onNodeMouseDown).
+    function groupSelected(ids = selectedNodeIds()) {
+      if (ids.length < 2) return;
+      const gid = 'g' + (++idCounter);
+      ids.forEach(id => { const n = nodes.find(x => x.id === id); if (n) n.groupId = gid; });
+      selectedIds = ids.slice(); selectedId = null;
+      floatingToolbar.classList.add('hidden');
+      saveState(); render();
+    }
+    function ungroupSelected(ids = selectedNodeIds()) {
+      let changed = false;
+      ids.forEach(id => { const n = nodes.find(x => x.id === id); if (n && n.groupId) { delete n.groupId; changed = true; } });
+      if (changed) { saveState(); render(); }
     }
 
     function selectAllNodes() {
@@ -2361,6 +2382,8 @@
       delete: () => deleteSelected(),
       addshape: () => addShapeAtCenter(),
       selectall: () => selectAllNodes(),
+      group: () => groupSelected(),
+      ungroup: () => ungroupSelected(),
     };
     function showContextMenu(clientX, clientY, items) {
       contextMenu.innerHTML = items.map(it => it.sep
@@ -2382,16 +2405,28 @@
       const nodeEl = e.target.closest('.node');
       if (nodeEl) {
         const id = nodeEl.dataset.id;
-        if (selectedId !== id && !selectedIds.includes(id)) selectNode(id);
-        showContextMenu(e.clientX, e.clientY, [
+        const n = nodes.find(x => x.id === id);
+        // Right-clicking a grouped node selects its whole group
+        if (n && n.groupId && !selectedIds.includes(id)) {
+          selectedIds = nodes.filter(x => x.groupId === n.groupId).map(x => x.id);
+          selectedId = null; floatingToolbar.classList.add('hidden'); render();
+        } else if (selectedId !== id && !selectedIds.includes(id)) {
+          selectNode(id);
+        }
+        const items = [
           { act: 'edit', label: 'Edit label' },
           { act: 'duplicate', label: 'Duplicate', kbd: '⌘D' },
+        ];
+        if (selectedIds.length > 1) items.push({ act: 'group', label: 'Group', kbd: '⌘G' });
+        if (n && n.groupId) items.push({ act: 'ungroup', label: 'Ungroup', kbd: '⌘⇧G' });
+        items.push(
           { sep: true },
           { act: 'front', label: 'Bring to front' },
           { act: 'back', label: 'Send to back' },
           { sep: true },
           { act: 'delete', label: 'Delete', danger: true, kbd: '⌫' },
-        ]);
+        );
+        showContextMenu(e.clientX, e.clientY, items);
       } else {
         showContextMenu(e.clientX, e.clientY, [
           { act: 'addshape', label: 'Add a shape here' },
@@ -3085,8 +3120,16 @@
         }
         render();
       } else if (!selectedIds.includes(node.id)) {
-        // Normal click on node not in multi-selection: single-select
-        selectNode(node.id);
+        if (node.groupId) {
+          // Clicking any group member selects the whole group (move together)
+          selectedIds = nodes.filter(n => n.groupId === node.groupId).map(n => n.id);
+          selectedId = null;
+          floatingToolbar.classList.add('hidden');
+          render();
+        } else {
+          // Normal click on node not in multi-selection: single-select
+          selectNode(node.id);
+        }
       }
       
       const pos = screenToCanvas(e.clientX, e.clientY);
@@ -3759,6 +3802,8 @@
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 'd') { e.preventDefault(); duplicateSelected(); }
       if ((e.metaKey || e.ctrlKey) && e.key === 'a') { e.preventDefault(); selectAllNodes(); }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'g' && !e.shiftKey) { e.preventDefault(); groupSelected(); }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'g' && e.shiftKey) { e.preventDefault(); ungroupSelected(); }
     });
     
     document.addEventListener('keyup', (e) => {

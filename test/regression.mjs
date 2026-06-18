@@ -680,4 +680,52 @@ group('v2: alignment snapping & guides');
   check('clearGuides removes the guides', doc.querySelectorAll('#alignGuides line').length === 0);
 }
 
+// ---------------------------------------------------------------------------
+group('v2: grouping (group / select-together / move-together / ungroup)');
+{
+  const { win, doc, E } = boot();
+  E('snapToGrid = false');
+  const a = win.createNode('rect', 100, 100, 120, 60);
+  const b = win.createNode('rect', 300, 100, 120, 60);
+  const c = win.createNode('rect', 500, 100, 120, 60);
+  // group A + B
+  E(`selectedIds = ['${a.id}','${b.id}']; selectedId = null;`);
+  win.groupSelected();
+  const gid = E(`nodes.find(n=>n.id==='${a.id}').groupId`);
+  check('groupSelected assigns a shared groupId', !!gid && E(`nodes.find(n=>n.id==='${b.id}').groupId`) === gid);
+  check('ungrouped node keeps no groupId', !E(`nodes.find(n=>n.id==='${c.id}').groupId`));
+  // clicking one member selects the whole group
+  win.render();
+  const elB = doc.querySelector(`#nodes .node[data-id="${b.id}"]`);
+  mouse(elB, 'mousedown', 360, 130);
+  mouse(doc, 'mouseup', 360, 130);
+  const sel = E('selectedIds.slice().sort()');
+  check('clicking a group member selects all members', sel.includes(a.id) && sel.includes(b.id) && !sel.includes(c.id), JSON.stringify(sel));
+  // dragging one member moves the whole group together
+  const ax0 = E(`nodes.find(n=>n.id==='${a.id}').x`);
+  const bx0 = E(`nodes.find(n=>n.id==='${b.id}').x`);
+  win.render();
+  const elB2 = doc.querySelector(`#nodes .node[data-id="${b.id}"]`);
+  mouse(elB2, 'mousedown', 360, 130);
+  mouse(doc, 'mousemove', 410, 130);
+  mouse(doc, 'mouseup', 410, 130);
+  const ax1 = E(`nodes.find(n=>n.id==='${a.id}').x`);
+  const bx1 = E(`nodes.find(n=>n.id==='${b.id}').x`);
+  check('dragging a member moves the whole group by the same delta', Math.abs((ax1 - ax0) - (bx1 - bx0)) < 0.5 && Math.abs(ax1 - ax0) > 5, `dA=${ax1-ax0} dB=${bx1-bx0}`);
+  // ungroup
+  E(`selectedIds = ['${a.id}','${b.id}']; selectedId = null;`);
+  win.ungroupSelected();
+  check('ungroupSelected clears groupId from members', !E(`nodes.find(n=>n.id==='${a.id}').groupId`) && !E(`nodes.find(n=>n.id==='${b.id}').groupId`));
+  // duplicating a group yields a fresh groupId (copies don't merge with originals)
+  E(`selectedIds = ['${a.id}','${b.id}']; selectedId = null;`);
+  win.groupSelected();
+  const gid2 = E(`nodes.find(n=>n.id==='${a.id}').groupId`);
+  const nBefore = E('nodes.length');
+  E(`selectedIds = ['${a.id}','${b.id}']; selectedId = null;`);
+  win.duplicateSelected();
+  check('duplicating a group adds copies', E('nodes.length') === nBefore + 2);
+  const copyGids = E(`nodes.slice(-2).map(n=>n.groupId)`);
+  check('duplicated group gets a single fresh shared groupId', copyGids[0] === copyGids[1] && copyGids[0] !== gid2 && !!copyGids[0], JSON.stringify(copyGids));
+}
+
 process.exit(report() ? 0 : 1);
