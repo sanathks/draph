@@ -154,8 +154,9 @@ group('Empty state, double-click create, in-place label edit');
   el.dispatchEvent(new win.MouseEvent('dblclick', { bubbles: true, clientX: 260, clientY: 230 }));
   const inp = doc.querySelector('.node-label-editor');
   check('double-click node opens label editor', !!inp && inp.value === 'Old');
-  if (inp) { inp.value = 'New'; inp.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); }
-  check('Enter commits the new label', n.label === 'New');
+  // editor is multi-line now: Cmd+Enter (or blur) commits, plain Enter = newline
+  if (inp) { inp.value = 'New'; inp.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true })); }
+  check('Cmd+Enter commits the new label', n.label === 'New');
 }
 
 // ---------------------------------------------------------------------------
@@ -573,6 +574,54 @@ group('Nodes grow to fit their label (label-aware sizing)');
   w1.label = 'Supercalifragilisticexpialidocious';
   win.fitNodeToLabel(w1);
   check('single long word forces a wider node', w1.width > 200);
+}
+
+// ---------------------------------------------------------------------------
+group('v2: multi-line labels (explicit \\n)');
+{
+  const { win, doc, E } = boot();
+  E('snapToGrid = false');
+  // wrapLabel honors explicit newlines as hard breaks
+  const lines = E(`JSON.stringify(wrapLabel('First line\\nSecond line', 400, 12))`);
+  check('wrapLabel splits on \\n', JSON.parse(lines).length === 2, lines);
+  // a node with a \n label renders multiple tspans
+  const r = win.createNode('rect', 100, 100, 160, 40); r.label = 'Line A\nLine B\nLine C';
+  win.fitNodeToLabel(r); win.render();
+  const tspans = doc.querySelectorAll(`#nodes .node[data-id="${r.id}"] tspan`).length;
+  check('node renders one tspan per explicit line', tspans >= 3, `tspans=${tspans}`);
+  check('explicit newlines grow node height', r.height > 40, `h=${r.height}`);
+  // the in-place editor is now a textarea; plain Enter inserts a newline (not commit)
+  win.selectNode(r.id);
+  const el = doc.querySelector(`#nodes .node[data-id="${r.id}"]`);
+  el.dispatchEvent(new win.MouseEvent('dblclick', { bubbles: true, clientX: 180, clientY: 140 }));
+  const ed = doc.querySelector('.node-label-editor');
+  check('in-place editor is a textarea', ed && ed.tagName === 'TEXTAREA');
+  ed.value = 'one\ntwo';
+  ed.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true })); // Cmd+Enter commits
+  check('Cmd+Enter commits a multi-line label', E(`nodes.find(n=>n.id==='${r.id}').label`) === 'one\ntwo');
+  // round-trips through the URL hash (save/load)
+  win.updateUrlHash(); E('nodes.length = 0; connections.length = 0;'); win.loadFromUrl();
+  check('\\n label survives save/load round-trip', E(`nodes.find(n=>n.label && n.label.includes('\\n')) ? true : false`) === true);
+}
+
+// ---------------------------------------------------------------------------
+group('v2: local autosave & restore');
+{
+  const { win, E } = boot();
+  win.createNode('rect', 100, 100, 120, 44);
+  win.saveState(); // triggers updateUrlHash -> autosave
+  const stored = E(`localStorage.getItem(AUTOSAVE_KEY)`);
+  check('saving writes an autosave to localStorage', !!stored && stored.includes('"n"'));
+  // restoreAutosave repopulates an empty canvas from storage
+  E('nodes.length = 0; connections.length = 0;');
+  const ok = E('restoreAutosave()');
+  check('restoreAutosave returns true and repopulates', ok === true && E('nodes.length') === 1);
+  // clearing to empty removes the autosave
+  E('nodes.length = 0; connections.length = 0;');
+  win.updateUrlHash();
+  check('emptying the canvas clears the autosave', E(`localStorage.getItem(AUTOSAVE_KEY)`) === null);
+  // loadFromUrl now reports whether it loaded (init uses this to fall back)
+  check('loadFromUrl returns false with no hash', E(`loadFromUrl()`) === false);
 }
 
 process.exit(report() ? 0 : 1);
