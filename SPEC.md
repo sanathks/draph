@@ -19,7 +19,7 @@ improvement**, **Acceptance criteria** (how we know it's done), and **Effort/Ris
 
 ## Improvement log
 
-### #1 — Multi-line label editing · 2026-06-18 · status: PROPOSED
+### #1 — Multi-line label editing · 2026-06-18 · status: DONE (commit e631246)
 - **Area:** UX / editing
 - **Problem:** The in-place label editor (`editNodeLabel`) creates a single-line
   `<input>`. Labels render wrapped (and sticky notes are multi-line by nature),
@@ -50,9 +50,9 @@ and, when ready, implement + verify with `npm test`:
   recomputed on Auto-Arrange, not on every render — so a hand-drawn edge can look
   stale (sideways/hooky) until re-arranged even after nodes move. Recompute auto
   (non-locked) sides in `computeConnectionGeometry` each render.
-- **Subgraph layout parity:** `layoutNodes`' subgraph branch still uses fixed
-  `spacingX`/`spacingY`; it never got the width-aware + barycenter upgrade the
-  no-subgraph path received. Containers with children can overlap/cram.
+- ~~**Subgraph layout parity:**~~ DONE (commit 57ac846) — the subgraph branch now
+  shares the width-aware `estW/estH/HGAP/VGAP` sizing and preserves barycenter
+  ordering inside each container; children no longer overlap on long labels.
 - **`fitNodeToLabel` shrink-to-fit (opt-in):** currently grow-only, so deleting
   text leaves nodes oversized. Consider shrinking toward content unless the user
   manually resized (needs a `manuallyResized` flag).
