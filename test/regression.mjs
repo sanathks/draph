@@ -788,4 +788,26 @@ group('v2: export helpers & .draph file round-trip');
   check('restored node geometry matches saved', win2.eval('nodes[0].x') === 120 && win2.eval('nodes[0].width') === 120);
 }
 
+// ---------------------------------------------------------------------------
+group('v2: light/dark theme toggle');
+{
+  const { win, doc, E } = boot();
+  // defaults to dark
+  check('default theme is dark', E('currentTheme') === 'dark');
+  check('COLORS.bg starts at dark bg', E('COLORS.bg') === '#1a1b26');
+  // toggle to light
+  win.toggleTheme();
+  check('toggleTheme switches to light', E('currentTheme') === 'light');
+  check('html data-theme set to light', doc.documentElement.dataset.theme === 'light');
+  check('COLORS swap to light palette', E('COLORS.bg') === E('THEMES.light.bg') && E('COLORS.bg') !== '#1a1b26');
+  check('light theme persisted to localStorage', win.localStorage.getItem('draph:theme') === 'light');
+  check('menu label flips to "Dark theme"', doc.getElementById('themeToggleLabel').textContent === 'Dark theme');
+  // toggle back
+  win.toggleTheme();
+  check('toggleTheme switches back to dark', E('currentTheme') === 'dark' && E('COLORS.bg') === '#1a1b26');
+  // applyTheme restores a persisted choice without persisting again
+  win.applyTheme('light', false);
+  check('applyTheme(light,false) applies light', E('currentTheme') === 'light' && doc.documentElement.dataset.theme === 'light');
+}
+
 process.exit(report() ? 0 : 1);

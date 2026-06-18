@@ -10,11 +10,53 @@
   <link rel="icon" type="image/png" sizes="16x16" href="resources/favicon-16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="resources/favicon-180.png">
   <style>
+    /* --- Theme tokens -----------------------------------------------------
+       All chrome colors resolve through these CSS variables. The default
+       :root values are the Tokyo Night dark palette (unchanged look); the
+       [data-theme="light"] block overrides them. Canvas colors that are set
+       from JS (node fills, connection strokes, PNG background) live in the
+       THEMES map in the script and are swapped by applyTheme(). */
+    :root {
+      --bg: #1a1b26;            /* app + canvas background */
+      --bg2: #24283b;           /* panels, menus, default node fill */
+      --bg0: #1e2030;           /* recessed surfaces (editor gutter) */
+      --border: #414868;
+      --fg: #a9b1d6;            /* primary text */
+      --fg-bright: #c0caf5;
+      --fg-dim: #565f89;        /* muted text / placeholders */
+      --accent: #7aa2f7;
+      --accent-bright: #8fb3ff;
+      --danger: #f7768e;
+      --danger-bright: #ff8aa0;
+      --overlay: rgba(15, 16, 25, 0.55);   /* modal backdrop */
+    }
+    :root[data-theme="light"] {
+      --bg: #f3f4fa;
+      --bg2: #ffffff;
+      --bg0: #e9ebf3;
+      --border: #ccd0e0;
+      --fg: #3a4060;
+      --fg-bright: #1a1b26;
+      --fg-dim: #8a90b0;
+      --accent: #3d59a1;
+      --accent-bright: #2e4583;
+      --danger: #c14a5e;
+      --danger-bright: #a83a4e;
+      --overlay: rgba(40, 44, 66, 0.32);
+    }
+    /* SVG presentation attributes can't read var(), so theme these by CSS
+       (CSS wins over the element's fill/stroke attribute). */
+    #grid circle { fill: var(--border); }
+    #stripe line, #grid-fill circle { stroke: var(--fg); fill: var(--fg); }
+    #selectBox, #drawPreview { fill: color-mix(in srgb, var(--accent) 10%, transparent); stroke: var(--accent); }
+    #tempPath { stroke: var(--accent); }
+    .line-preview { stroke: var(--fg); }
+
     /* --- Static utility layer (replaces the Tailwind CDN: no build step,
        no render-blocking JIT compiler, works fully offline) --- */
     * { box-sizing: border-box; }
     *, ::before, ::after { border: 0 solid; }
-    body { font-family: system-ui, -apple-system, sans-serif; color: #a9b1d6; }
+    body { font-family: system-ui, -apple-system, sans-serif; color: var(--fg); }
     button { font: inherit; color: inherit; background: none; padding: 0; margin: 0; cursor: pointer; }
     input, textarea, select { font: inherit; color: inherit; }
     h1, h2, h3, h4, p { margin: 0; }
@@ -68,35 +110,35 @@
     .text-left { text-align: left; }
     .text-sm { font-size: 0.875rem; line-height: 1.25rem; }
     .text-xs { font-size: 0.75rem; line-height: 1rem; }
-    .text-storm-fg { color: #a9b1d6; }
-    .text-storm-fg\/60 { color: rgba(169, 177, 214, 0.6); }
-    .text-storm-fg\/30 { color: rgba(169, 177, 214, 0.3); }
+    .text-storm-fg { color: var(--fg); }
+    .text-storm-fg\/60 { color: color-mix(in srgb, var(--fg) 60%, transparent); }
+    .text-storm-fg\/30 { color: color-mix(in srgb, var(--fg) 30%, transparent); }
     /* background */
-    .bg-storm-bg { background-color: #1a1b26; }
-    .bg-storm-bg2 { background-color: #24283b; }
-    .bg-storm-bg2\/80 { background-color: rgba(36, 40, 59, 0.8); }
+    .bg-storm-bg { background-color: var(--bg); }
+    .bg-storm-bg2 { background-color: var(--bg2); }
+    .bg-storm-bg2\/80 { background-color: color-mix(in srgb, var(--bg2) 80%, transparent); }
     /* border */
     .border { border-width: 1px; border-style: solid; }
-    .border-storm-fg { border-color: #a9b1d6; }
-    .border-storm-fg\/20 { border-color: rgba(169, 177, 214, 0.2); }
+    .border-storm-fg { border-color: var(--fg); }
+    .border-storm-fg\/20 { border-color: color-mix(in srgb, var(--fg) 20%, transparent); }
     /* radius / shadow */
     .rounded { border-radius: 0.25rem; }
     .rounded-lg { border-radius: 0.5rem; }
     .shadow-lg { box-shadow: 0 10px 15px -3px rgba(0,0,0,0.35), 0 4px 6px -4px rgba(0,0,0,0.35); }
     .shadow-xl { box-shadow: 0 20px 25px -5px rgba(0,0,0,0.4), 0 8px 10px -6px rgba(0,0,0,0.4); }
     /* interaction */
-    .hover\:bg-storm-accent\/20:hover { background-color: rgba(122, 162, 247, 0.2); }
+    .hover\:bg-storm-accent\/20:hover { background-color: color-mix(in srgb, var(--accent) 20%, transparent); }
 
-    body { background: #1a1b26; overflow: hidden; }
+    body { background: var(--bg); overflow: hidden; }
     .node { cursor: move; user-select: none; }
     .node:hover .node-border { stroke-width: 2.5; }
-    .node.selected .node-border { stroke: #7aa2f7; stroke-width: 2.5; }
+    .node.selected .node-border { stroke: var(--accent); stroke-width: 2.5; }
     .connector { cursor: crosshair; opacity: 0; pointer-events: none; transition: opacity 0.15s, r 0.1s; }
     .connector.active-connector { opacity: 0.7; pointer-events: auto; }
     .node:hover .connector { opacity: 0.5; pointer-events: auto; }
     .show-connectors .connector { opacity: 0.5; pointer-events: auto; }
     .show-connectors .lifeline-connector { opacity: 0.6; pointer-events: auto; }
-    .connector:hover, .connector.active-connector:hover { opacity: 1; fill: #7aa2f7 !important; }
+    .connector:hover, .connector.active-connector:hover { opacity: 1; fill: var(--accent) !important; }
     /* connector we'd snap an endpoint to while re-routing */
     .connector.snap-target { opacity: 1 !important; fill: #9ece6a !important; stroke: #9ece6a !important; r: 8; }
     .lifeline-connector { opacity: 0; transition: opacity 0.15s, transform 0.15s; pointer-events: auto; }
@@ -109,7 +151,7 @@
     .flow-active .connection-group path.conn-hit { animation: none !important; }
     .conn-hit { pointer-events: stroke; cursor: pointer; }
     .connection-group:hover path.connection { stroke-width: 2.5 !important; }
-    .connection-group.selected path.connection { stroke-width: 3; stroke: #7aa2f7 !important; }
+    .connection-group.selected path.connection { stroke-width: 3; stroke: var(--accent) !important; }
     .container-fill { pointer-events: none; }
     .resize-handle { cursor: se-resize; opacity: 0; }
     .node.selected .resize-handle { opacity: 1; }
@@ -119,88 +161,88 @@
       width: 36px; height: 36px;
       display: flex; align-items: center; justify-content: center;
       background: transparent; border: none; border-radius: 8px;
-      color: #a9b1d6; cursor: pointer; transition: all 0.15s;
+      color: var(--fg); cursor: pointer; transition: all 0.15s;
     }
-    .tool-btn:hover { background: rgba(122, 162, 247, 0.15); color: #c0caf5; }
+    .tool-btn:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--fg-bright); }
     .tool-btn:active { transform: scale(0.92); }
-    .tool-btn:focus-visible { outline: 2px solid #7aa2f7; outline-offset: 1px; }
-    .tool-btn.active { background: #7aa2f7; color: #1a1b26; box-shadow: 0 2px 6px rgba(122,162,247,0.35); }
+    .tool-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .tool-btn.active { background: var(--accent); color: var(--bg); box-shadow: 0 2px 6px color-mix(in srgb, var(--accent) 35%, transparent); }
     .tool-btn svg { width: 20px; height: 20px; }
     /* keyboard-shortcut badge in the corner of a tool button */
     .kbd-badge {
       position: absolute; bottom: 1px; right: 3px;
       font-size: 8px; line-height: 1; font-weight: 700; pointer-events: none;
-      color: #565f89; font-family: 'JetBrains Mono', Consolas, monospace;
+      color: var(--fg-dim); font-family: 'JetBrains Mono', Consolas, monospace;
     }
-    .tool-btn:hover .kbd-badge { color: #7aa2f7; }
-    .tool-btn.active .kbd-badge { color: rgba(26, 27, 38, 0.6); }
-    .divider { width: 1px; height: 22px; background: #414868; margin: 0 6px; opacity: 0.8; }
+    .tool-btn:hover .kbd-badge { color: var(--accent); }
+    .tool-btn.active .kbd-badge { color: color-mix(in srgb, var(--bg) 60%, transparent); }
+    .divider { width: 1px; height: 22px; background: var(--border); margin: 0 6px; opacity: 0.8; }
     .dropdown { position: relative; }
     .dropdown-menu { 
       position: absolute; top: 44px; left: 50%; transform: translateX(-50%);
-      background: #24283b; border: 1px solid #414868; border-radius: 8px;
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
       padding: 6px; min-width: 120px; z-index: 100; display: none;
     }
     .dropdown.open .dropdown-menu { display: block; }
     .dropdown-item {
       display: flex; align-items: center; gap: 8px; padding: 8px 12px;
-      border-radius: 6px; cursor: pointer; color: #a9b1d6; font-size: 13px;
+      border-radius: 6px; cursor: pointer; color: var(--fg); font-size: 13px;
       white-space: nowrap;
     }
-    .dropdown-item:hover { background: rgba(122, 162, 247, 0.15); }
+    .dropdown-item:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
     .dropdown-item svg { width: 15px; height: 15px; flex-shrink: 0; }
     .dropdown-item kbd {
-      margin-left: auto; font-size: 10px; color: #565f89; background: #1a1b26;
-      border: 1px solid #414868; border-radius: 3px; padding: 0 5px;
+      margin-left: auto; font-size: 10px; color: var(--fg-dim); background: var(--bg);
+      border: 1px solid var(--border); border-radius: 3px; padding: 0 5px;
       font-family: 'JetBrains Mono', Consolas, monospace;
     }
-    .dropdown-item.active { color: #7aa2f7; }
-    .dropdown-item.danger { color: #f7768e; }
-    .dropdown-item.danger:hover { background: rgba(247, 118, 142, 0.15); }
-    .menu-sep { height: 1px; background: #414868; margin: 5px 6px; }
+    .dropdown-item.active { color: var(--accent); }
+    .dropdown-item.danger { color: var(--danger); }
+    .dropdown-item.danger:hover { background: color-mix(in srgb, var(--danger) 15%, transparent); }
+    .menu-sep { height: 1px; background: var(--border); margin: 5px 6px; }
 
     /* Right-click context menu */
     #contextMenu {
       position: fixed; z-index: 300; min-width: 170px; padding: 6px;
-      background: #24283b; border: 1px solid #414868; border-radius: 8px;
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
       box-shadow: 0 8px 28px rgba(0,0,0,0.5);
     }
     #contextMenu.hidden { display: none; }
     .ctx-item {
       display: flex; align-items: center; gap: 8px; padding: 7px 10px;
-      border-radius: 6px; cursor: pointer; color: #a9b1d6; font-size: 13px; white-space: nowrap;
+      border-radius: 6px; cursor: pointer; color: var(--fg); font-size: 13px; white-space: nowrap;
     }
-    .ctx-item:hover { background: rgba(122,162,247,0.15); color: #c0caf5; }
-    .ctx-item.danger { color: #f7768e; }
-    .ctx-item.danger:hover { background: rgba(247,118,142,0.15); }
-    .ctx-item kbd { margin-left: auto; font-size: 10px; color: #565f89;
-      background: #1a1b26; border: 1px solid #414868; border-radius: 3px; padding: 0 5px;
+    .ctx-item:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--fg-bright); }
+    .ctx-item.danger { color: var(--danger); }
+    .ctx-item.danger:hover { background: color-mix(in srgb, var(--danger) 15%, transparent); }
+    .ctx-item kbd { margin-left: auto; font-size: 10px; color: var(--fg-dim);
+      background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 0 5px;
       font-family: 'JetBrains Mono', Consolas, monospace; }
-    .ctx-sep { height: 1px; background: #414868; margin: 4px 6px; }
+    .ctx-sep { height: 1px; background: var(--border); margin: 4px 6px; }
 
     /* Keyboard shortcuts cheat-sheet */
     #cheatsheetOverlay {
       position: fixed; inset: 0; z-index: 400; display: flex; align-items: center; justify-content: center;
-      background: rgba(15,16,25,0.55); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+      background: var(--overlay); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
     }
     #cheatsheetOverlay.hidden { display: none; }
     #cheatsheetCard {
-      background: #24283b; border: 1px solid #414868; border-radius: 12px;
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
       padding: 18px 20px; width: 420px; max-width: 90vw; max-height: 80vh; overflow: auto;
       box-shadow: 0 16px 48px rgba(0,0,0,0.55);
     }
     .cheatsheet-head { display: flex; align-items: center; justify-content: space-between;
-      font-size: 15px; font-weight: 600; color: #c0caf5; margin-bottom: 14px; }
-    .cheatsheet-close { background: #1a1b26; border: 1px solid #414868; border-radius: 6px;
-      width: 26px; height: 26px; color: #a9b1d6; cursor: pointer; }
+      font-size: 15px; font-weight: 600; color: var(--fg-bright); margin-bottom: 14px; }
+    .cheatsheet-close { background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+      width: 26px; height: 26px; color: var(--fg); cursor: pointer; }
     #cheatsheetBody { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 22px; }
     #cheatsheetBody .row { display: flex; align-items: center; justify-content: space-between;
-      font-size: 12.5px; color: #a9b1d6; padding: 2px 0; }
-    #cheatsheetBody kbd { font-size: 11px; color: #c0caf5; background: #1a1b26;
-      border: 1px solid #414868; border-radius: 4px; padding: 1px 6px;
+      font-size: 12.5px; color: var(--fg); padding: 2px 0; }
+    #cheatsheetBody kbd { font-size: 11px; color: var(--fg-bright); background: var(--bg);
+      border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px;
       font-family: 'JetBrains Mono', Consolas, monospace; }
     #cheatsheetBody .grouphead { grid-column: 1 / -1; font-size: 11px; text-transform: uppercase;
-      letter-spacing: 0.05em; color: #565f89; margin-top: 8px; }
+      letter-spacing: 0.05em; color: var(--fg-dim); margin-top: 8px; }
 
     /* Cursor styles for drawing modes */
     .canvas-draw { cursor: crosshair; }
@@ -208,8 +250,8 @@
     /* In-place node label editor (double-click a node) */
     .node-label-editor {
       position: absolute; z-index: 20; box-sizing: border-box;
-      background: #24283b; color: #c0caf5;
-      border: 2px solid #7aa2f7; border-radius: 6px;
+      background: var(--bg2); color: var(--fg-bright);
+      border: 2px solid var(--accent); border-radius: 6px;
       padding: 4px 6px; margin: 0;
       font-family: system-ui, -apple-system, sans-serif; font-size: 12px;
       line-height: 1.3; text-align: center; outline: none;
@@ -225,45 +267,45 @@
     }
     .toast {
       display: flex; align-items: center; gap: 8px;
-      background: #24283b; border: 1px solid #414868; color: #c0caf5;
+      background: var(--bg2); border: 1px solid var(--border); color: var(--fg-bright);
       padding: 10px 16px; border-radius: 8px; font-size: 13px;
       box-shadow: 0 8px 24px rgba(0,0,0,0.45); pointer-events: auto;
       opacity: 0; transform: translateY(-8px); transition: opacity .18s ease, transform .18s ease;
     }
     .toast.show { opacity: 1; transform: translateY(0); }
     .toast.success { border-color: #9ece6a; }
-    .toast.error { border-color: #f7768e; }
+    .toast.error { border-color: var(--danger); }
     .toast svg { width: 15px; height: 15px; flex-shrink: 0; }
     .toast.success svg { color: #9ece6a; }
-    .toast.error svg { color: #f7768e; }
-    .toast.info svg { color: #7aa2f7; }
+    .toast.error svg { color: var(--danger); }
+    .toast.info svg { color: var(--accent); }
 
     /* --- Confirm dialog --- */
     #confirmOverlay {
       position: fixed; inset: 0; z-index: 400; display: flex;
       align-items: center; justify-content: center;
-      background: rgba(15, 16, 25, 0.55); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+      background: var(--overlay); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
       opacity: 0; visibility: hidden; pointer-events: none;
       transition: opacity .15s ease, visibility .15s ease;
     }
     #confirmOverlay.show { opacity: 1; visibility: visible; pointer-events: auto; }
     #confirmCard {
-      background: #24283b; border: 1px solid #414868; border-radius: 12px;
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
       padding: 20px; width: 320px; box-shadow: 0 16px 48px rgba(0,0,0,0.55);
       transform: scale(0.96); transition: transform .15s ease;
     }
     #confirmOverlay.show #confirmCard { transform: scale(1); }
-    #confirmMessage { font-size: 14px; line-height: 1.4; color: #c0caf5; margin-bottom: 18px; }
+    #confirmMessage { font-size: 14px; line-height: 1.4; color: var(--fg-bright); margin-bottom: 18px; }
     .confirm-btn {
       padding: 7px 14px; border-radius: 7px; font-size: 13px; font-weight: 600;
-      border: 1px solid #414868; background: #1a1b26; color: #a9b1d6; cursor: pointer;
+      border: 1px solid var(--border); background: var(--bg); color: var(--fg); cursor: pointer;
       transition: background .12s ease, border-color .12s ease;
     }
-    .confirm-btn:hover { background: rgba(122,162,247,0.12); }
-    .confirm-btn.primary { background: #7aa2f7; border-color: #7aa2f7; color: #1a1b26; }
-    .confirm-btn.primary:hover { background: #8fb3ff; }
-    .confirm-btn.danger { background: #f7768e; border-color: #f7768e; color: #1a1b26; }
-    .confirm-btn.danger:hover { background: #ff8aa0; }
+    .confirm-btn:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+    .confirm-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+    .confirm-btn.primary:hover { background: var(--accent-bright); }
+    .confirm-btn.danger { background: var(--danger); border-color: var(--danger); color: var(--bg); }
+    .confirm-btn.danger:hover { background: var(--danger-bright); }
 
     /* --- Empty state --- */
     #emptyState {
@@ -272,8 +314,8 @@
       pointer-events: none; text-align: center; padding: 24px;
     }
     #emptyState .es-card { max-width: 420px; pointer-events: none; }
-    #emptyState h2 { font-size: 20px; font-weight: 600; color: #c0caf5; margin-bottom: 8px; }
-    #emptyState p { font-size: 13px; color: #565f89; margin-bottom: 22px; line-height: 1.5; }
+    #emptyState h2 { font-size: 20px; font-weight: 600; color: var(--fg-bright); margin-bottom: 8px; }
+    #emptyState p { font-size: 13px; color: var(--fg-dim); margin-bottom: 22px; line-height: 1.5; }
     #emptyState .es-actions { display: flex; gap: 10px; justify-content: center; margin-bottom: 26px; pointer-events: auto; }
     .es-btn {
       display: inline-flex; align-items: center; gap: 7px;
@@ -282,16 +324,16 @@
     }
     .es-btn:active { transform: translateY(1px); }
     .es-btn svg { width: 15px; height: 15px; }
-    .es-btn.primary { background: #7aa2f7; border: 1px solid #7aa2f7; color: #1a1b26; }
-    .es-btn.primary:hover { background: #8fb3ff; }
-    .es-btn.ghost { background: transparent; border: 1px solid #414868; color: #a9b1d6; }
-    .es-btn.ghost:hover { background: rgba(122,162,247,0.1); border-color: #7aa2f7; }
-    #emptyState .es-tips { display: grid; gap: 8px; font-size: 12px; color: #565f89; }
+    .es-btn.primary { background: var(--accent); border: 1px solid var(--accent); color: var(--bg); }
+    .es-btn.primary:hover { background: var(--accent-bright); }
+    .es-btn.ghost { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+    .es-btn.ghost:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); border-color: var(--accent); }
+    #emptyState .es-tips { display: grid; gap: 8px; font-size: 12px; color: var(--fg-dim); }
     #emptyState .es-tips .row { display: flex; align-items: center; justify-content: center; gap: 8px; }
     .es-key {
       display: inline-flex; align-items: center; justify-content: center; min-width: 18px;
-      padding: 1px 6px; background: #24283b; border: 1px solid #414868; border-radius: 4px;
-      font-size: 11px; color: #a9b1d6; font-family: 'JetBrains Mono', Consolas, monospace;
+      padding: 1px 6px; background: var(--bg2); border: 1px solid var(--border); border-radius: 4px;
+      font-size: 11px; color: var(--fg); font-family: 'JetBrains Mono', Consolas, monospace;
     }
   </style>
 </head>
@@ -305,7 +347,7 @@
     
     <!-- Center: All Tools -->
     <div class="flex-1 flex justify-center" style="pointer-events:auto">
-      <div class="flex items-center gap-1 bg-storm-bg2 rounded-lg p-1 shadow-lg" style="border:1px solid rgba(255,255,255,0.1)">
+      <div class="flex items-center gap-1 bg-storm-bg2 rounded-lg p-1 shadow-lg" style="border:1px solid color-mix(in srgb, var(--fg-bright) 10%, transparent)">
         <!-- Select -->
         <button class="tool-btn active" id="tool-select" onclick="setTool('select')" title="Select (V)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -391,6 +433,10 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
               Animate flow <kbd>F</kbd>
             </div>
+            <div class="dropdown-item" id="themeTool" onclick="toggleTheme();closeDropdowns()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+              <span id="themeToggleLabel">Light theme</span>
+            </div>
             <div class="dropdown-item" data-line="rounded" onclick="setGlobalLineStyle('rounded')">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12 C8 12, 8 6, 12 6 C16 6, 16 12, 20 12"/></svg>
               Rounded lines
@@ -460,29 +506,29 @@
   <!-- Main container with sidebar + canvas -->
   <main class="flex-1 flex overflow-hidden">
     <!-- Mermaid Code Sidebar (Left) -->
-    <div id="mermaidSidebar" class="hidden" style="width:320px;background:#1a1b26;border-right:1px solid #414868;display:none;flex-direction:column;padding-top:56px">
-      <div style="padding:10px 12px;border-bottom:1px solid #414868;display:flex;align-items:center;justify-content:space-between">
+    <div id="mermaidSidebar" class="hidden" style="width:320px;background:var(--bg);border-right:1px solid var(--border);display:none;flex-direction:column;padding-top:56px">
+      <div style="padding:10px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
         <div style="display:flex;align-items:center;gap:10px;min-width:100px">
           <img src="resources/favicon-32.png" alt="Draph" style="width:18px;height:18px;flex-shrink:0">
-          <span style="font-size:12px;font-weight:600;color:#a9b1d6">Mermaid</span>
+          <span style="font-size:12px;font-weight:600;color:var(--fg)">Mermaid</span>
         </div>
         <div style="display:flex;gap:4px;align-items:center">
-          <button onclick="exportMermaid()" style="padding:3px 6px;background:#24283b;border:1px solid #414868;border-radius:4px;font-size:10px;font-weight:600;color:#a9b1d6;cursor:pointer" title="Export diagram to code">Export</button>
-          <button onclick="importMermaid()" style="padding:3px 6px;background:#7aa2f7;border:none;border-radius:4px;font-size:10px;font-weight:600;color:#1a1b26;cursor:pointer" title="Import code to diagram (Ctrl+Enter)">Import</button>
-          <button onclick="toggleMermaidSidebar()" title="Close (M)" style="width:24px;height:24px;background:transparent;border:1px solid #414868;border-radius:4px;font-size:12px;color:#a9b1d6;cursor:pointer">✕</button>
+          <button onclick="exportMermaid()" style="padding:3px 6px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;font-size:10px;font-weight:600;color:var(--fg);cursor:pointer" title="Export diagram to code">Export</button>
+          <button onclick="importMermaid()" style="padding:3px 6px;background:var(--accent);border:none;border-radius:4px;font-size:10px;font-weight:600;color:var(--bg);cursor:pointer" title="Import code to diagram (Ctrl+Enter)">Import</button>
+          <button onclick="toggleMermaidSidebar()" title="Close (M)" style="width:24px;height:24px;background:transparent;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--fg);cursor:pointer">✕</button>
         </div>
       </div>
-      <div id="editorContainer" style="flex:1;display:flex;overflow:hidden;background:#24283b">
+      <div id="editorContainer" style="flex:1;display:flex;overflow:hidden;background:var(--bg2)">
         <!-- Line numbers -->
-        <div id="lineNumbers" style="padding:12px 0;padding-right:8px;padding-left:8px;background:#1e2030;color:#565f89;font-family:'JetBrains Mono',Consolas,monospace;font-size:12px;line-height:1.5;text-align:right;user-select:none;overflow:hidden;min-width:32px;border-right:1px solid #414868">1</div>
+        <div id="lineNumbers" style="padding:12px 0;padding-right:8px;padding-left:8px;background:var(--bg0);color:var(--fg-dim);font-family:'JetBrains Mono',Consolas,monospace;font-size:12px;line-height:1.5;text-align:right;user-select:none;overflow:hidden;min-width:32px;border-right:1px solid var(--border)">1</div>
         <!-- Editor wrapper with highlight overlay -->
         <div style="flex:1;position:relative;overflow:auto" id="editorScroll">
-          <pre id="editorHighlight" aria-hidden="true" style="position:absolute;top:0;left:0;right:0;margin:0;padding:12px;font-family:'JetBrains Mono',Consolas,monospace;font-size:12px;line-height:1.5;color:#a9b1d6;white-space:pre-wrap;word-wrap:break-word;pointer-events:none;overflow:hidden"></pre>
-          <textarea id="mermaidEditor" spellcheck="false" placeholder="flowchart TD&#10;    A[Start] --> B{Decision}&#10;    B -->|Yes| C[Action]&#10;    B -->|No| D[End]" style="position:relative;width:100%;height:100%;background:transparent;color:transparent;caret-color:#a9b1d6;border:none;padding:12px;font-family:'JetBrains Mono',Consolas,monospace;font-size:12px;line-height:1.5;resize:none;outline:none;white-space:pre-wrap;word-wrap:break-word;z-index:1"></textarea>
+          <pre id="editorHighlight" aria-hidden="true" style="position:absolute;top:0;left:0;right:0;margin:0;padding:12px;font-family:'JetBrains Mono',Consolas,monospace;font-size:12px;line-height:1.5;color:var(--fg);white-space:pre-wrap;word-wrap:break-word;pointer-events:none;overflow:hidden"></pre>
+          <textarea id="mermaidEditor" spellcheck="false" placeholder="flowchart TD&#10;    A[Start] --> B{Decision}&#10;    B -->|Yes| C[Action]&#10;    B -->|No| D[End]" style="position:relative;width:100%;height:100%;background:transparent;color:transparent;caret-color:var(--fg);border:none;padding:12px;font-family:'JetBrains Mono',Consolas,monospace;font-size:12px;line-height:1.5;resize:none;outline:none;white-space:pre-wrap;word-wrap:break-word;z-index:1"></textarea>
         </div>
       </div>
-      <div id="mermaidError" style="display:none;padding:8px 12px;background:rgba(247,118,142,0.1);border-top:1px solid #f7768e;font-size:11px;color:#f7768e"></div>
-      <div style="padding:8px 12px;border-top:1px solid #414868;font-size:10px;color:#565f89">
+      <div id="mermaidError" style="display:none;padding:8px 12px;background:color-mix(in srgb, var(--danger) 10%, transparent);border-top:1px solid var(--danger);font-size:11px;color:var(--danger)"></div>
+      <div style="padding:8px 12px;border-top:1px solid var(--border);font-size:10px;color:var(--fg-dim)">
         <strong>Shapes:</strong> [rect] (pill) {diamond} ((circle))<br>
         <strong>Connect:</strong> A --> B or A -->|label| B
       </div>
@@ -490,7 +536,7 @@
     
     <!-- Canvas area -->
     <div id="canvasContainer" class="flex-1 relative overflow-hidden">
-    <svg id="canvas" class="w-full h-full" style="background: #1a1b26;">
+    <svg id="canvas" class="w-full h-full" style="background: var(--bg);">
       <defs>
         <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
           <circle cx="10" cy="10" r="0.5" fill="#414868" opacity="0.5"/>
@@ -561,7 +607,7 @@
         
         <!-- Shape changer dropdown -->
         <div class="relative" style="display:inline-block">
-          <button id="shapeBtn" onclick="toggleShapeDropdown()" class="flex items-center justify-center" style="width:28px;height:28px;background:#1a1b26;border:1px solid #414868;border-radius:4px;color:#a9b1d6" title="Change Shape">
+          <button id="shapeBtn" onclick="toggleShapeDropdown()" class="flex items-center justify-center" style="width:28px;height:28px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg)" title="Change Shape">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
           </button>
           <div id="shapeDropdown" class="hidden absolute bg-storm-bg2 border border-storm-fg/20 rounded shadow-lg z-50" style="top:32px;left:0;padding:4px;min-width:90px">
@@ -591,7 +637,7 @@
         
         <!-- Fill style dropdown (hidden for line nodes) -->
         <div id="fillStyleGroup" class="relative" style="display:inline-block">
-          <button id="fillStyleBtn" onclick="toggleFillDropdown()" class="flex items-center justify-center" style="width:28px;height:28px;background:#1a1b26;border:1px solid #414868;border-radius:4px;font-size:16px;color:#a9b1d6" title="Fill Style">●</button>
+          <button id="fillStyleBtn" onclick="toggleFillDropdown()" class="flex items-center justify-center" style="width:28px;height:28px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:16px;color:var(--fg)" title="Fill Style">●</button>
           <div id="fillDropdown" class="hidden absolute bg-storm-bg2 border border-storm-fg/20 rounded shadow-lg z-50" style="top:32px;left:0;padding:4px">
             <button onclick="setFillStyle('outline');closeFillDropdown()" class="fill-style-btn block w-full text-left text-xs text-storm-fg hover:bg-storm-accent/20 rounded" style="padding:4px 8px" data-style="outline">○ Outline</button>
             <button onclick="setFillStyle('infill');closeFillDropdown()" class="fill-style-btn block w-full text-left text-xs text-storm-fg hover:bg-storm-accent/20 rounded" style="padding:4px 8px" data-style="infill">● Infill</button>
@@ -602,7 +648,7 @@
         
         <!-- Fill color (hidden for line nodes) -->
         <div id="fillColorGroup" class="relative" style="display:inline-block">
-          <button id="fillColorBtn" onclick="toggleFillColorPalette()" title="Fill Color" style="width:24px;height:24px;border-radius:50%;background:#24283b;border:2px solid #414868"></button>
+          <button id="fillColorBtn" onclick="toggleFillColorPalette()" title="Fill Color" style="width:24px;height:24px;border-radius:50%;background:var(--bg2);border:2px solid var(--border)"></button>
           <div id="fillColorPalette" class="hidden absolute bg-storm-bg2 border border-storm-fg/20 rounded shadow-lg z-50" style="top:32px;left:50%;transform:translateX(-50%);padding:8px">
             <!-- swatches generated from CONFIG.palette by buildPalettes() -->
             <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px"></div>
@@ -611,7 +657,7 @@
         
         <!-- Line style dropdown (only for line nodes) -->
         <div id="lineStyleGroup" class="relative hidden" style="display:none">
-          <button id="lineStyleBtn" onclick="toggleLineStyleDropdown()" class="flex items-center justify-center" style="width:28px;height:28px;background:#1a1b26;border:1px solid #414868;border-radius:4px;color:#a9b1d6" title="Line Style">
+          <button id="lineStyleBtn" onclick="toggleLineStyleDropdown()" class="flex items-center justify-center" style="width:28px;height:28px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg)" title="Line Style">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="4" y1="12" x2="20" y2="12"/></svg>
           </button>
           <div id="lineStyleDropdown" class="hidden absolute bg-storm-bg2 border border-storm-fg/20 rounded shadow-lg z-50" style="top:32px;left:0;padding:4px;min-width:80px">
@@ -626,7 +672,7 @@
         
         <!-- Outline color -->
         <div class="relative" style="display:inline-block">
-          <button id="outlineColorBtn" onclick="toggleOutlineColorPalette()" title="Outline Color" style="width:24px;height:24px;border-radius:50%;background:transparent;border:3px solid #a9b1d6"></button>
+          <button id="outlineColorBtn" onclick="toggleOutlineColorPalette()" title="Outline Color" style="width:24px;height:24px;border-radius:50%;background:transparent;border:3px solid var(--fg)"></button>
           <div id="outlineColorPalette" class="hidden absolute bg-storm-bg2 border border-storm-fg/20 rounded shadow-lg z-50" style="top:32px;left:50%;transform:translateX(-50%);padding:8px">
             <!-- swatches generated from CONFIG.palette by buildPalettes() -->
             <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px"></div>
@@ -634,19 +680,19 @@
         </div>
         
         <!-- Lifeline toggle (for sequence diagrams) -->
-        <button id="lifelineToggle" onclick="toggleLifeline()" title="Toggle Lifeline (Sequence Diagram)" style="width:28px;height:28px;background:#1a1b26;border:1px solid #414868;border-radius:4px;color:#a9b1d6;display:flex;align-items:center;justify-content:center">
+        <button id="lifelineToggle" onclick="toggleLifeline()" title="Toggle Lifeline (Sequence Diagram)" style="width:28px;height:28px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);display:flex;align-items:center;justify-content:center">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px">
             <rect x="6" y="2" width="12" height="6" rx="1"/>
             <line x1="12" y1="8" x2="12" y2="22" stroke-dasharray="3,2"/>
           </svg>
         </button>
         
-        <button onclick="deleteSelected()" title="Delete" style="width:28px;height:28px;background:rgba(247,118,142,0.2);border:none;border-radius:4px;color:#f7768e;display:flex;align-items:center;justify-content:center">
+        <button onclick="deleteSelected()" title="Delete" style="width:28px;height:28px;background:color-mix(in srgb, var(--danger) 20%, transparent);border:none;border-radius:4px;color:var(--danger);display:flex;align-items:center;justify-content:center">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px">
             <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
           </svg>
         </button>
-        <button onclick="deselectAll()" title="Close" style="width:28px;height:28px;background:#1a1b26;border:1px solid #414868;border-radius:4px;font-size:14px;color:#a9b1d6;cursor:pointer">✕</button>
+        <button onclick="deselectAll()" title="Close" style="width:28px;height:28px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:14px;color:var(--fg);cursor:pointer">✕</button>
       </div>
     </div>
     
@@ -658,7 +704,7 @@
         
         <!-- Line color -->
         <div class="relative" style="display:inline-block">
-          <button id="connColorBtn" onclick="toggleConnColorPalette()" title="Line Color" style="width:24px;height:24px;border-radius:50%;background:transparent;border:3px solid #a9b1d6"></button>
+          <button id="connColorBtn" onclick="toggleConnColorPalette()" title="Line Color" style="width:24px;height:24px;border-radius:50%;background:transparent;border:3px solid var(--fg)"></button>
           <div id="connColorPalette" class="hidden absolute bg-storm-bg2 border border-storm-fg/20 rounded shadow-lg z-50" style="top:32px;left:50%;transform:translateX(-50%);padding:8px">
             <!-- swatches generated from CONFIG.palette by buildPalettes() -->
             <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px"></div>
@@ -667,26 +713,26 @@
         
         <!-- Line style: solid/dotted -->
         <div class="flex items-center gap-1">
-          <button id="connSolidBtn" onclick="setConnLineStyle('solid')" title="Solid line" style="width:28px;height:28px;background:#1a1b26;border:2px solid transparent;border-radius:4px;display:flex;align-items:center;justify-content:center">
-            <svg viewBox="0 0 24 6" style="width:20px;height:6px"><line x1="2" y1="3" x2="22" y2="3" stroke="#a9b1d6" stroke-width="2"/></svg>
+          <button id="connSolidBtn" onclick="setConnLineStyle('solid')" title="Solid line" style="width:28px;height:28px;background:var(--bg);border:2px solid transparent;border-radius:4px;display:flex;align-items:center;justify-content:center">
+            <svg viewBox="0 0 24 6" style="width:20px;height:6px"><line x1="2" y1="3" x2="22" y2="3" class="line-preview" stroke-width="2"/></svg>
           </button>
-          <button id="connDottedBtn" onclick="setConnLineStyle('dashed')" title="Dotted line" style="width:28px;height:28px;background:#1a1b26;border:2px solid transparent;border-radius:4px;display:flex;align-items:center;justify-content:center">
-            <svg viewBox="0 0 24 6" style="width:20px;height:6px"><line x1="2" y1="3" x2="22" y2="3" stroke="#a9b1d6" stroke-width="2" stroke-dasharray="4,3"/></svg>
+          <button id="connDottedBtn" onclick="setConnLineStyle('dashed')" title="Dotted line" style="width:28px;height:28px;background:var(--bg);border:2px solid transparent;border-radius:4px;display:flex;align-items:center;justify-content:center">
+            <svg viewBox="0 0 24 6" style="width:20px;height:6px"><line x1="2" y1="3" x2="22" y2="3" class="line-preview" stroke-width="2" stroke-dasharray="4,3"/></svg>
           </button>
         </div>
         
-        <button onclick="deleteSelectedConn()" title="Delete" style="width:28px;height:28px;background:rgba(247,118,142,0.2);border:none;border-radius:4px;color:#f7768e;display:flex;align-items:center;justify-content:center">
+        <button onclick="deleteSelectedConn()" title="Delete" style="width:28px;height:28px;background:color-mix(in srgb, var(--danger) 20%, transparent);border:none;border-radius:4px;color:var(--danger);display:flex;align-items:center;justify-content:center">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px">
             <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
           </svg>
         </button>
-        <button onclick="deselectConn()" title="Close" style="width:28px;height:28px;background:#1a1b26;border:1px solid #414868;border-radius:4px;font-size:14px;color:#a9b1d6;cursor:pointer">✕</button>
+        <button onclick="deselectConn()" title="Close" style="width:28px;height:28px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:14px;color:var(--fg);cursor:pointer">✕</button>
       </div>
     </div>
     </div><!-- end canvasContainer -->
     
     <!-- Node type picker (shown when dropping connection on empty canvas) -->
-    <div id="nodeTypePicker" class="hidden" style="position:fixed;z-index:200;background:#24283b;border:1px solid #414868;border-radius:8px;padding:6px;box-shadow:0 4px 12px rgba(0,0,0,0.4)">
+    <div id="nodeTypePicker" class="hidden" style="position:fixed;z-index:200;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:6px;box-shadow:0 4px 12px rgba(0,0,0,0.4)">
       <button onclick="createNodeFromPicker('rect')" class="flex items-center gap-2 w-full text-left text-xs text-storm-fg hover:bg-storm-accent/20 rounded" style="padding:8px 12px">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><rect x="3" y="3" width="18" height="18" rx="2"/></svg> Rectangle
       </button>
@@ -889,7 +935,28 @@
     // the user-pickable swatch set (fill / outline / connection colors). Add a
     // color to the picker by appending one hex to CONFIG.palette — the toolbar
     // swatches are generated from it at init (see buildPalettes()).
-    const COLORS = { bg: '#1a1b26', bg2: '#24283b', fg: '#a9b1d6', accent: '#7aa2f7', border: '#414868' };
+    // Canvas (SVG) colors are set from JS, so they can't use CSS variables.
+    // THEMES holds the canvas palette per theme; applyTheme() copies the active
+    // one into COLORS (kept as a stable object reference used across rendering).
+    const THEMES = {
+      dark:  { bg: '#1a1b26', bg2: '#24283b', fg: '#a9b1d6', accent: '#7aa2f7', border: '#414868' },
+      light: { bg: '#f3f4fa', bg2: '#ffffff', fg: '#3a4060', accent: '#3d59a1', border: '#ccd0e0' },
+    };
+    const COLORS = { ...THEMES.dark };
+    const THEME_KEY = 'draph:theme';
+    let currentTheme = 'dark';
+    // Switch theme: update the <html> data attribute (drives all CSS vars),
+    // swap the canvas palette, persist, and re-render so canvas colors refresh.
+    function applyTheme(theme, persist = true) {
+      currentTheme = (theme === 'light') ? 'light' : 'dark';
+      document.documentElement.dataset.theme = currentTheme;
+      Object.assign(COLORS, THEMES[currentTheme]);
+      if (persist) { try { localStorage.setItem(THEME_KEY, currentTheme); } catch (e) {} }
+      const btn = document.getElementById('themeToggleLabel');
+      if (btn) btn.textContent = currentTheme === 'light' ? 'Dark theme' : 'Light theme';
+      if (typeof render === 'function' && nodes) render();
+    }
+    function toggleTheme() { applyTheme(currentTheme === 'light' ? 'dark' : 'light'); }
     const GRID_SIZE = 20;
     const SHAPE_TOOLS = ['rect', 'pill', 'diamond', 'circle', 'container', 'text', 'note', 'line'];
     const CONFIG = {
@@ -1106,6 +1173,10 @@
       const rect = canvas.getBoundingClientRect();
       viewBox = { x: 0, y: 0, w: rect.width, h: rect.height };
       updateViewBox();
+      // Restore the saved theme before the first render (no persist write).
+      let savedTheme = 'dark';
+      try { savedTheme = localStorage.getItem(THEME_KEY) || 'dark'; } catch (e) {}
+      applyTheme(savedTheme, false);
       buildPalettes();
       bindCanvasEvents();
       // Share-link hash wins; otherwise restore the last autosaved diagram.

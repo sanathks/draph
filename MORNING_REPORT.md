@@ -19,6 +19,7 @@ everything is verified." Done. **Shipped & live at https://draph.sanath.dev.**
 | **Export: hi-res PNG** | `Export PNG @3×` alongside the default 2× | ✔ |
 | **Local file save/open** | `Save to file (.draph)` downloads JSON; `Open file` restores via picker — no backend | ✔ |
 | **Subgraph layout parity** | Mermaid subgraph children now spaced by actual width (no overlap on long labels), rows centered, container sized to content | ✔ |
+| **Light/dark theme** | full CSS-variable theming + canvas palette swap; toggle in ⋯ menu, persisted; dark unchanged, light verified in-browser | ✔ |
 
 **Verification:**
 - `npm test` — **179/179 green** (logic regression; was 160 before this batch).
@@ -32,12 +33,11 @@ everything is verified." Done. **Shipped & live at https://draph.sanath.dev.**
 
 ## ⏸ Postponed (with reason)
 
-- **Dark/light theme toggle** — the one item I judged unsafe to ship unattended.
-  Theme colors are hardcoded (~113 hex occurrences across CSS classes, dozens of
-  inline styles, the JS `COLORS` object, node palettes). A real toggle needs a
-  full CSS-variable refactor touching the whole file — high visual-break risk, and
-  the light variant can't be confidently verified to your "deploy once verified"
-  bar without you eyeballing it. Best as a focused session with you reviewing.
+- **Dark/light theme toggle** — ✅ now shipped (added on request after the
+  overnight run). The whole chrome was converted to CSS variables with a
+  `[data-theme="light"]` block, the JS canvas palette swaps via `applyTheme()`,
+  and the choice persists. Dark is byte-for-byte the same look; light verified
+  in-browser in both themes with zero console errors.
 - **Backend-dependent items** (as instructed): real-time collaboration, hosted
   short-link service, AI authoring via a backend.
 - **Larger/riskier UI items** deferred for a focused pass: obstacle-aware routing,
