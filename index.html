@@ -493,6 +493,8 @@
         <g id="nodes"></g>
         <!-- Connection endpoint drag-handles, kept above nodes so they're grabbable -->
         <g id="connHandles"></g>
+        <!-- Transient alignment guides shown while dragging -->
+        <g id="alignGuides" style="pointer-events:none"></g>
       </g>
     </svg>
     
@@ -819,6 +821,31 @@
     const nodesGroup = document.getElementById('nodes');
     const connectionsGroup = document.getElementById('connections');
     const connHandlesGroup = document.getElementById('connHandles');
+    const alignGuidesEl = document.getElementById('alignGuides');
+
+    // Alignment snapping while dragging: snap the dragged node's edges/center to
+    // another node's edges/center and draw a guide line. Returns adjusted {x,y}.
+    const ALIGN_SNAP = 6; // screen px tolerance
+    function clearGuides() { if (alignGuidesEl) alignGuidesEl.innerHTML = ''; }
+    function applyAlignSnap(node, x, y) {
+      const T = ALIGN_SNAP * (zoom || 1);
+      const w = node.width, h = node.height;
+      let snapX = null, snapY = null, gx = 0, gy = 0, bestDX = T, bestDY = T;
+      const myX = [x, x + w / 2, x + w];
+      const myY = [y, y + h / 2, y + h];
+      for (const o of nodes) {
+        if (o.id === node.id || o.type === 'line' || o.type === 'pencil') continue;
+        const oX = [o.x, o.x + o.width / 2, o.x + o.width];
+        const oY = [o.y, o.y + o.height / 2, o.y + o.height];
+        for (const mx of myX) for (const ox of oX) { const d = Math.abs(mx - ox); if (d < bestDX) { bestDX = d; snapX = ox - (mx - x); gx = ox; } }
+        for (const my of myY) for (const oy of oY) { const d = Math.abs(my - oy); if (d < bestDY) { bestDY = d; snapY = oy - (my - y); gy = oy; } }
+      }
+      const g = [];
+      if (snapX !== null) { x = snapX; g.push(`<line x1="${gx}" y1="${viewBox.y}" x2="${gx}" y2="${viewBox.y + viewBox.h}" stroke="${COLORS.accent}" stroke-width="1" stroke-dasharray="4 3" opacity="0.8"/>`); }
+      if (snapY !== null) { y = snapY; g.push(`<line x1="${viewBox.x}" y1="${gy}" x2="${viewBox.x + viewBox.w}" y2="${gy}" stroke="${COLORS.accent}" stroke-width="1" stroke-dasharray="4 3" opacity="0.8"/>`); }
+      if (alignGuidesEl) alignGuidesEl.innerHTML = g.join('');
+      return { x, y };
+    }
     const tempLine = document.getElementById('tempLine');
     const tempPath = document.getElementById('tempPath');
     
@@ -3330,9 +3357,12 @@
             n.x = snap(startX + dx);
             n.y = snap(startY + dy);
           });
+          clearGuides();
         } else {
-          dragging.node.x = newX;
-          dragging.node.y = newY;
+          // Single drag: snap to alignment with other nodes and show guides
+          const snapped = applyAlignSnap(dragging.node, newX, newY);
+          dragging.node.x = snapped.x;
+          dragging.node.y = snapped.y;
         }
         if (selectedId === dragging.node.id) positionToolbar(dragging.node);
         scheduleDragRender();
@@ -3516,7 +3546,7 @@
         }
       }
       
-      if (dragging) { saveState(); dragging = null; render(); }
+      if (dragging) { saveState(); dragging = null; clearGuides(); render(); }
       if (resizing) { saveState(); resizing = null; render(); }
       if (lineResizing) { saveState(); lineResizing = null; render(); }
       

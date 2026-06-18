@@ -662,4 +662,22 @@ group('v2: z-order, duplicate, select-all, context menu, cheat-sheet');
   check('Escape closes the cheat-sheet', doc.getElementById('cheatsheetOverlay').classList.contains('hidden'));
 }
 
+// ---------------------------------------------------------------------------
+group('v2: alignment snapping & guides');
+{
+  const { win, doc, E } = boot();
+  E('snapToGrid = false');
+  win.createNode('rect', 100, 100, 120, 60);          // anchor at x=100
+  const b = win.createNode('rect', 250, 300, 120, 60); // will be dragged near x=103
+  // snap b's left edge (currently would land at 103) to anchor's left (100)
+  const snapped = E(`applyAlignSnap(nodes[1], 103, 300)`);
+  check('left edges snap together when close', Math.abs(snapped.x - 100) < 0.5, `x=${snapped.x}`);
+  check('a vertical guide line is drawn', doc.querySelectorAll('#alignGuides line').length >= 1);
+  // out of tolerance: no snap
+  const far = E(`applyAlignSnap(nodes[1], 160, 300)`);
+  check('no snap when edges are far apart', Math.abs(far.x - 160) < 0.5);
+  win.eval('clearGuides()');
+  check('clearGuides removes the guides', doc.querySelectorAll('#alignGuides line').length === 0);
+}
+
 process.exit(report() ? 0 : 1);
