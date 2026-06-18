@@ -41,17 +41,18 @@ The agent drives a real Chrome tab via the MCP:
 
 ### A1 — Click-to-create at standard size
 - **Do:** pick Rectangle (or press `1`), single-click empty canvas.
-- **Expect:** a default-size rectangle appears centered on the click; the
-  Rectangle tool stays selected (does not revert to the arrow).
-- **Fail:** nothing appears (needs drag); tool flips to select.
+- **Expect:** a default-size rectangle appears centered on the click; the tool
+  reverts to the arrow (select) and the new node is selected, ready to edit.
+- **Fail:** nothing appears (needs drag); tool stays on Rectangle.
 
 ### A2 — Drag-to-create custom size
 - **Do:** with a shape tool, click-drag a box.
-- **Expect:** shape matches the dragged size.
+- **Expect:** shape matches the dragged size; tool reverts to the arrow after.
 
-### A3 — Tool stays active for repeated drawing
-- **Do:** draw 3 notes (press `N`) in a row without re-picking the tool.
-- **Expect:** all 3 created; tool stays on Note until you press `V`/`Esc`.
+### A3 — Tools revert to arrow after one shape (pencil is the exception)
+- **Do:** draw a note (`N`); then draw a pencil stroke (`P`).
+- **Expect:** after the note, the tool returns to the arrow (re-pick `N` for the
+  next note); the **pencil stays active** so you can keep sketching until `V`/`Esc`.
 
 ### A4 — Pencil freehand
 - **Do:** press `P`, draw a squiggle.

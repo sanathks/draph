@@ -3684,9 +3684,11 @@
         return;
       }
 
-      // Finish drawing a shape. The active draw tool stays selected so you can
-      // draw several in a row; press V or Esc to go back to the select tool.
+      // Finish drawing a shape. After creating, revert to the select tool and
+      // select the new node so it's ready to move/resize/edit (pencil is the
+      // exception — it stays active, handled above, for continuous sketching).
       if (drawing) {
+        let created = null;
         if (drawing.type === 'line') {
           // Line uses start point + delta (width/height can be negative)
           const dx = pos.x - drawing.startX;
@@ -3694,9 +3696,8 @@
           const dist = Math.sqrt(dx * dx + dy * dy);
 
           if (dist > 20) {
-            createNode('line', drawing.startX, drawing.startY, dx, dy);
+            created = createNode('line', drawing.startX, drawing.startY, dx, dy);
             saveState();
-            render();
           }
 
           drawing = null;
@@ -3709,20 +3710,23 @@
 
           if (w > 10 || h > 10) {
             // Dragged out a size
-            createNode(drawing.type, x, y, w, h);
+            created = createNode(drawing.type, x, y, w, h);
           } else {
             // Just a click: drop the shape at its standard size, centered on the
             // click point. The user can resize it afterward.
-            const node = createNode(drawing.type, drawing.startX, drawing.startY);
-            node.x = snap(drawing.startX - node.width / 2);
-            node.y = snap(drawing.startY - node.height / 2);
+            created = createNode(drawing.type, drawing.startX, drawing.startY);
+            created.x = snap(drawing.startX - created.width / 2);
+            created.y = snap(drawing.startY - created.height / 2);
           }
           saveState();
-          render();
 
           drawing = null;
           drawPreview.style.display = 'none';
         }
+        // Back to the arrow; select the new node for immediate editing.
+        setTool('select');
+        if (created) selectNode(created.id);
+        render();
       }
       
       if (dragging) { saveState(); dragging = null; clearGuides(); render(); }
