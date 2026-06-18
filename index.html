@@ -51,6 +51,10 @@
     #selectBox, #drawPreview { fill: color-mix(in srgb, var(--accent) 10%, transparent); stroke: var(--accent); }
     #tempPath { stroke: var(--accent); }
     .line-preview { stroke: var(--fg); }
+    /* Theme toggle: show the sun in dark mode, the moon in light mode. */
+    #themeToggleBtn .icon-moon { display: none; }
+    :root[data-theme="light"] #themeToggleBtn .icon-sun { display: none; }
+    :root[data-theme="light"] #themeToggleBtn .icon-moon { display: block; }
 
     /* --- Static utility layer (replaces the Tailwind CDN: no build step,
        no render-blocking JIT compiler, works fully offline) --- */
@@ -433,10 +437,6 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
               Animate flow <kbd>F</kbd>
             </div>
-            <div class="dropdown-item" id="themeTool" onclick="toggleTheme();closeDropdowns()">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-              <span id="themeToggleLabel">Light theme</span>
-            </div>
             <div class="dropdown-item" data-line="rounded" onclick="setGlobalLineStyle('rounded')">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12 C8 12, 8 6, 12 6 C16 6, 16 12, 20 12"/></svg>
               Rounded lines
@@ -489,8 +489,14 @@
       </div>
     </div>
     
-    <!-- Right: Docs link -->
-    <div class="flex items-center" style="pointer-events:auto">
+    <!-- Right: theme toggle + Docs link -->
+    <div class="flex items-center gap-1" style="pointer-events:auto">
+      <button id="themeToggleBtn" onclick="toggleTheme()" class="tool-btn" title="Toggle light/dark theme">
+        <!-- shown in dark mode (click → light) -->
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <!-- shown in light mode (click → dark) -->
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
       <a href="/docs/" target="_blank" class="tool-btn" title="Documentation" style="text-decoration:none">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -952,8 +958,8 @@
       document.documentElement.dataset.theme = currentTheme;
       Object.assign(COLORS, THEMES[currentTheme]);
       if (persist) { try { localStorage.setItem(THEME_KEY, currentTheme); } catch (e) {} }
-      const btn = document.getElementById('themeToggleLabel');
-      if (btn) btn.textContent = currentTheme === 'light' ? 'Dark theme' : 'Light theme';
+      const tbtn = document.getElementById('themeToggleBtn');
+      if (tbtn) tbtn.title = currentTheme === 'light' ? 'Switch to dark theme' : 'Switch to light theme';
       if (typeof render === 'function' && nodes) render();
     }
     function toggleTheme() { applyTheme(currentTheme === 'light' ? 'dark' : 'light'); }

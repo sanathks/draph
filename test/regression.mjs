@@ -808,7 +808,8 @@ group('v2: light/dark theme toggle');
   check('html data-theme set to light', doc.documentElement.dataset.theme === 'light');
   check('COLORS swap to light palette', E('COLORS.bg') === E('THEMES.light.bg') && E('COLORS.bg') !== '#1a1b26');
   check('light theme persisted to localStorage', win.localStorage.getItem('draph:theme') === 'light');
-  check('menu label flips to "Dark theme"', doc.getElementById('themeToggleLabel').textContent === 'Dark theme');
+  check('top-right toggle button exists', !!doc.getElementById('themeToggleBtn'));
+  check('toggle tooltip reflects next action', /dark/i.test(doc.getElementById('themeToggleBtn').title));
   // toggle back
   win.toggleTheme();
   check('toggleTheme switches back to dark', E('currentTheme') === 'dark' && E('COLORS.bg') === '#1a1b26');
