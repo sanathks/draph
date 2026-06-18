@@ -400,9 +400,17 @@
               Straight lines
             </div>
             <div class="menu-sep"></div>
-            <div class="dropdown-item" onclick="downloadPNG();closeDropdowns()">
+            <div class="dropdown-item" onclick="copyPNG();closeDropdowns()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Copy image
+            </div>
+            <div class="dropdown-item" onclick="downloadPNG(2);closeDropdowns()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               Export PNG
+            </div>
+            <div class="dropdown-item" onclick="downloadPNG(3);closeDropdowns()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Export PNG @3× <kbd>hi-res</kbd>
             </div>
             <div class="dropdown-item" onclick="downloadSVG();closeDropdowns()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -415,6 +423,15 @@
             <div class="dropdown-item" onclick="shareDiagram();closeDropdowns()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
               Copy share link
+            </div>
+            <div class="menu-sep"></div>
+            <div class="dropdown-item" onclick="saveDiagramFile();closeDropdowns()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              Save to file <kbd>.draph</kbd>
+            </div>
+            <div class="dropdown-item" onclick="openDiagramFile();closeDropdowns()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              Open file
             </div>
             <div class="menu-sep"></div>
             <div class="dropdown-item danger" onclick="clearCanvas();closeDropdowns()">
@@ -1223,6 +1240,54 @@
       }).catch(() => {
         toast('Could not copy link', 'error');
       });
+    }
+
+    // ===== LOCAL FILE SAVE / OPEN (.draph) =====
+    // No backend: save downloads a JSON file; open reads one via a file picker.
+    // The .draph payload is the same {n, c, v} shape as the share-link/autosave.
+    function saveDiagramFile() {
+      if (nodes.length === 0 && connections.length === 0) {
+        toast('Nothing to save yet — add a shape first', 'error');
+        return;
+      }
+      const data = { n: nodes, c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom }, app: 'draph', version: 2 };
+      const json = JSON.stringify(data, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'diagram.draph';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast('Diagram saved to diagram.draph', 'success');
+    }
+
+    function openDiagramFile() {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.draph,application/json,.json';
+      input.onchange = () => {
+        const file = input.files && input.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            // Accept either a bare {n,c,v} payload or one wrapped with app/version.
+            if (loadDiagramJson(String(reader.result))) {
+              saveState();
+              render();
+              updateUrlHash();
+              toast('Diagram opened', 'success');
+            } else {
+              toast('That file has no diagram in it', 'error');
+            }
+          } catch (e) {
+            toast('Could not read that file — is it a .draph diagram?', 'error');
+          }
+        };
+        reader.readAsText(file);
+      };
+      input.click();
     }
     
     function updateViewBox() {
@@ -3920,42 +3985,44 @@
       return { minX, minY, maxX, maxY };
     }
     
-    function downloadPNG() {
+    // Rasterize the current diagram (cropped to content) to a <canvas> at the
+    // given pixel scale, then hand it to `cb`. Shared by PNG download / copy /
+    // scaled-export. `scale` is the device-pixel multiplier (2 = retina-sharp).
+    function rasterizeDiagram(scale, cb) {
       const bounds = getContentBounds();
       if (!bounds) {
         toast('Nothing to export yet — add a shape first', 'error');
-        return;
+        return false;
       }
-      
+
       const padding = 40;
       const cropX = bounds.minX - padding;
       const cropY = bounds.minY - padding;
       const cropW = (bounds.maxX - bounds.minX) + padding * 2;
       const cropH = (bounds.maxY - bounds.minY) + padding * 2;
-      
+
       const clone = canvas.cloneNode(true);
       clone.querySelectorAll('.connector, .resize-handle, #selectBox, #drawPreview, .lifeline-connector, .line-handle, .conn-hit').forEach(el => el.remove());
       clone.querySelector('#gridBg')?.remove();
-      
+
       // Set viewBox and dimensions to cropped area
       clone.setAttribute('viewBox', `${cropX} ${cropY} ${cropW} ${cropH}`);
       clone.setAttribute('width', cropW);
       clone.setAttribute('height', cropH);
-      
+
       // Embed font style for consistent rendering
       const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
       style.textContent = `text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }`;
       clone.insertBefore(style, clone.firstChild);
-      
+
       // Also set font-family on all text elements directly
       clone.querySelectorAll('text').forEach(t => {
         t.setAttribute('font-family', '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif');
       });
-      
+
       const svgData = new XMLSerializer().serializeToString(clone);
       const img = new Image();
       img.onload = () => {
-        const scale = 2; // 2x for retina
         const c = document.createElement('canvas');
         c.width = cropW * scale;
         c.height = cropH * scale;
@@ -3963,12 +4030,37 @@
         ctx.fillStyle = COLORS.bg;
         ctx.fillRect(0, 0, c.width, c.height);
         ctx.drawImage(img, 0, 0, c.width, c.height);
-        const a = document.createElement('a');
-        a.href = c.toDataURL('image/png');
-        a.download = 'diagram.png';
-        a.click();
+        cb(c);
       };
       img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+      return true;
+    }
+
+    // Download a PNG at the given scale (1/2/3×). Default 2× for retina sharpness.
+    function downloadPNG(scale = 2) {
+      rasterizeDiagram(scale, (c) => {
+        const a = document.createElement('a');
+        a.href = c.toDataURL('image/png');
+        a.download = scale === 2 ? 'diagram.png' : `diagram@${scale}x.png`;
+        a.click();
+        if (scale !== 2) toast(`PNG exported at ${scale}×`, 'success');
+      });
+    }
+
+    // Copy a 2× PNG of the diagram to the system clipboard (where supported).
+    function copyPNG() {
+      if (!navigator.clipboard || typeof window.ClipboardItem === 'undefined') {
+        toast('Clipboard image copy not supported here — use Export PNG', 'error');
+        return;
+      }
+      rasterizeDiagram(2, (c) => {
+        c.toBlob((blob) => {
+          if (!blob) { toast('Could not copy image', 'error'); return; }
+          navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blob })])
+            .then(() => toast('Diagram image copied to clipboard', 'success'))
+            .catch(() => toast('Clipboard copy blocked by the browser', 'error'));
+        }, 'image/png');
+      });
     }
     
     window.addEventListener('resize', () => {

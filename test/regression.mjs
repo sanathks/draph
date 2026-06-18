@@ -728,4 +728,30 @@ group('v2: grouping (group / select-together / move-together / ungroup)');
   check('duplicated group gets a single fresh shared groupId', copyGids[0] === copyGids[1] && copyGids[0] !== gid2 && !!copyGids[0], JSON.stringify(copyGids));
 }
 
+// ---------------------------------------------------------------------------
+group('v2: export helpers & .draph file round-trip');
+{
+  const { win, doc, E } = boot();
+  // helpers exist
+  check('rasterizeDiagram is defined', typeof win.rasterizeDiagram === 'function');
+  check('downloadPNG accepts a scale arg', win.downloadPNG.length >= 0 && typeof win.downloadPNG === 'function');
+  check('copyPNG is defined', typeof win.copyPNG === 'function');
+  check('saveDiagramFile is defined', typeof win.saveDiagramFile === 'function');
+  check('openDiagramFile is defined', typeof win.openDiagramFile === 'function');
+  // rasterize on empty canvas returns false (no crash, friendly path)
+  check('rasterizeDiagram returns false on empty canvas', win.rasterizeDiagram(2, () => {}) === false);
+  // .draph payload (app/version wrapper) round-trips through loadDiagramJson
+  win.createNode('rect', 120, 140, 120, 60);
+  win.render();
+  const payload = JSON.stringify({
+    n: E('nodes'), c: E('connections'),
+    v: { x: 0, y: 0, z: 1 }, app: 'draph', version: 2,
+  });
+  const { win: win2 } = boot();
+  const ok = win2.loadDiagramJson(payload);
+  check('loadDiagramJson accepts a .draph (wrapped) payload', ok === true);
+  check('restored node count matches saved', win2.eval('nodes.length') === 1);
+  check('restored node geometry matches saved', win2.eval('nodes[0].x') === 120 && win2.eval('nodes[0].width') === 120);
+}
+
 process.exit(report() ? 0 : 1);
