@@ -5312,7 +5312,15 @@
       const containerPadY = 25;
       const containerHeaderH = 35;
       const containerGap = 50;
-      
+
+      // Width-aware sizing helpers (shared by both the subgraph and no-subgraph
+      // paths) so wide labels never overlap. estW/estH fall back to a label-based
+      // estimate when a parsed node has no measured size yet.
+      const estW = (n) => (n && n.width) || Math.max(90, ((n && n.label) || '').length * 8 + 30);
+      const estH = (n) => (n && n.height) || 50;
+      const HGAP = 55;   // min horizontal gap between nodes in a layer
+      const VGAP = 80;   // vertical gap between layers (room for edge labels)
+
       // If we have subgraphs, layout children within each subgraph container
       if (subgraphs && subgraphs.length > 0) {
         const result = [];
@@ -5350,7 +5358,8 @@
             const { sg, childIds } = sm;
             if (childIds.length === 0) return;
             
-            // Group children by their layer (relative to subgraph's min layer)
+            // Group children by their layer (relative to subgraph's min layer),
+            // preserving the global barycenter ordering computed above.
             const localMinL = Math.min(...childIds.map(c => layer[c]));
             const localLayers = {};
             let localMaxL = 0;
@@ -5360,34 +5369,46 @@
               localLayers[ll].push(cid);
               localMaxL = Math.max(localMaxL, ll);
             });
-            
-            // Calculate dimensions
-            let maxCols = 1;
             for (let ll = 0; ll <= localMaxL; ll++) {
-              maxCols = Math.max(maxCols, (localLayers[ll] || []).length);
+              const order = layerNodes[ll + localMinL] || [];
+              (localLayers[ll] || []).sort((a, b) => order.indexOf(a) - order.indexOf(b));
             }
-            
-            const innerW = maxCols * spacingX;
-            const innerH = (localMaxL + 1) * spacingY;
-            
-            // Position children inside this container
+
+            // Width-aware dimensions: each layer's width is the sum of its
+            // children's actual widths (+ gaps); the container is as wide as its
+            // widest layer. Each layer's Y advances by the tallest node in it.
+            const layerW = {};   // ll -> total pixel width of that layer's row
+            let innerW = spacingX;
             for (let ll = 0; ll <= localMaxL; ll++) {
               const lnodes = localLayers[ll] || [];
-              const layerW = lnodes.length * spacingX;
-              const offsetX = (innerW - layerW) / 2;
-              
-              lnodes.forEach((cid, idx) => {
+              const w = lnodes.reduce((s, c) => s + estW(nodeById[c]), 0) + HGAP * Math.max(0, lnodes.length - 1);
+              layerW[ll] = w;
+              innerW = Math.max(innerW, w);
+            }
+
+            // Position children inside this container, centering each row.
+            let localY = 0;
+            for (let ll = 0; ll <= localMaxL; ll++) {
+              const lnodes = localLayers[ll] || [];
+              let cur = (innerW - layerW[ll]) / 2;   // left edge of this centered row
+              let rowH = 0;
+              lnodes.forEach((cid) => {
+                const w = estW(nodeById[cid]);
                 result.push({
                   ...nodeById[cid],
-                  x: rowX + containerPadX + offsetX + idx * spacingX,
-                  y: globalY + containerPadY + containerHeaderH + ll * spacingY
+                  x: rowX + containerPadX + cur,   // node.x is the left edge
+                  y: globalY + containerPadY + containerHeaderH + localY
                 });
+                cur += w + HGAP;
+                rowH = Math.max(rowH, estH(nodeById[cid]));
                 positioned.add(cid);
               });
+              localY += rowH + VGAP;
             }
-            
+            const innerH = Math.max(localY - VGAP, estH(nodeById[childIds[0]]));
+
             // Store container dimensions on the subgraph object
-            const cW = Math.max(innerW, spacingX) + containerPadX * 2;
+            const cW = innerW + containerPadX * 2;
             const cH = innerH + containerPadY * 2 + containerHeaderH;
             sg._containerX = rowX;
             sg._containerY = globalY;
@@ -5429,10 +5450,7 @@
       // actual width (no overlap), and a few barycenter sweeps pull each node
       // toward the average of its neighbors so parents sit centered over their
       // children — giving a clean tree instead of a cramped, tangled block.
-      const estW = (n) => (n && n.width) || Math.max(90, ((n && n.label) || '').length * 8 + 30);
-      const estH = (n) => (n && n.height) || 50;
-      const HGAP = 55;   // min horizontal gap between nodes in a layer
-      const VGAP = 80;   // vertical gap between layers (room for edge labels)
+      // (estW/estH/HGAP/VGAP are defined above, shared with the subgraph path.)
 
       // Y per layer from the tallest node in that layer
       const layerY = {};

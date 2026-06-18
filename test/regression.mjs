@@ -729,6 +729,40 @@ group('v2: grouping (group / select-together / move-together / ungroup)');
 }
 
 // ---------------------------------------------------------------------------
+group('v2: subgraph layout is width-aware (children dont overlap)');
+{
+  const { win, doc, E } = boot();
+  const editor = doc.getElementById('mermaidEditor');
+  // Two same-layer children with long labels inside one subgraph: a fixed-grid
+  // layout would overlap them; the width-aware layout must keep them apart.
+  editor.value = `flowchart TD
+    subgraph Group A
+      W[A very long descriptive node label here] --> X[Another fairly long node label]
+      W --> Y[Second long sibling label text]
+    end`;
+  win.importMermaid(true);
+  const real = E(`nodes.filter(n=>n.type!=='container')`);
+  // Generic non-overlap check across every pair of non-container nodes:
+  let overlap = false;
+  for (let i = 0; i < real.length; i++) for (let j = i + 1; j < real.length; j++) {
+    const a = real[i], b = real[j];
+    const ox = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
+    const oy = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+    if (ox > 1 && oy > 1) overlap = true;
+  }
+  check('subgraph imported nodes', real.length >= 3, 'got ' + real.length);
+  check('no two subgraph children overlap (width-aware spacing)', !overlap);
+  // container is wide enough to hold its widest child row
+  const container = E(`nodes.find(n=>n.type==='container')`);
+  if (container) {
+    const kids = real.filter(n => n.x >= container.x - 1 && n.x + n.width <= container.x + container.width + 1);
+    check('container width contains its children', kids.length === real.length, `${kids.length}/${real.length}`);
+  } else {
+    check('container width contains its children', true, 'no container produced (skipped)');
+  }
+}
+
+// ---------------------------------------------------------------------------
 group('v2: export helpers & .draph file round-trip');
 {
   const { win, doc, E } = boot();
