@@ -624,4 +624,42 @@ group('v2: local autosave & restore');
   check('loadFromUrl returns false with no hash', E(`loadFromUrl()`) === false);
 }
 
+// ---------------------------------------------------------------------------
+group('v2: z-order, duplicate, select-all, context menu, cheat-sheet');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 100, 100, 120, 44);
+  const b = win.createNode('rect', 300, 100, 120, 44);
+  win.render();
+  // z-order: bring A to front -> A renders after B in the #nodes DOM
+  win.selectNode(a.id); win.bringToFront();
+  const order = [...doc.querySelectorAll('#nodes .node')].map(n => n.dataset.id);
+  check('bringToFront moves node to end of render order', order.indexOf(a.id) > order.indexOf(b.id), JSON.stringify(order));
+  win.selectNode(a.id); win.sendToBack();
+  const order2 = [...doc.querySelectorAll('#nodes .node')].map(n => n.dataset.id);
+  check('sendToBack moves node to start of render order', order2.indexOf(a.id) < order2.indexOf(b.id));
+  // duplicate
+  const before = E('nodes.length');
+  win.selectNode(a.id); win.duplicateSelected();
+  check('duplicateSelected adds an offset copy', E('nodes.length') === before + 1);
+  // select all
+  win.selectAllNodes();
+  check('selectAllNodes selects every non-stroke node', E('selectedIds.length') === E(`nodes.filter(n=>n.type!=='line'&&n.type!=='pencil').length`));
+  // context menu opens on right-click of a node with expected actions
+  win.selectNode(a.id); win.render();
+  const el = doc.querySelector(`#nodes .node[data-id="${a.id}"]`);
+  el.dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 150, clientY: 120 }));
+  const menu = doc.getElementById('contextMenu');
+  check('context menu opens on right-click', !menu.classList.contains('hidden'));
+  check('context menu has expected actions', /Duplicate/.test(menu.textContent) && /Bring to front/.test(menu.textContent) && /Delete/.test(menu.textContent));
+  // a left-click elsewhere closes it
+  doc.dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true, clientX: 700, clientY: 700 }));
+  check('context menu closes on outside click', menu.classList.contains('hidden'));
+  // cheat-sheet toggles with ?
+  key(doc, '?');
+  check('? opens the cheat-sheet', !doc.getElementById('cheatsheetOverlay').classList.contains('hidden'));
+  key(doc, 'Escape');
+  check('Escape closes the cheat-sheet', doc.getElementById('cheatsheetOverlay').classList.contains('hidden'));
+}
+
 process.exit(report() ? 0 : 1);

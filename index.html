@@ -159,6 +159,49 @@
     .dropdown-item.danger:hover { background: rgba(247, 118, 142, 0.15); }
     .menu-sep { height: 1px; background: #414868; margin: 5px 6px; }
 
+    /* Right-click context menu */
+    #contextMenu {
+      position: fixed; z-index: 300; min-width: 170px; padding: 6px;
+      background: #24283b; border: 1px solid #414868; border-radius: 8px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+    }
+    #contextMenu.hidden { display: none; }
+    .ctx-item {
+      display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+      border-radius: 6px; cursor: pointer; color: #a9b1d6; font-size: 13px; white-space: nowrap;
+    }
+    .ctx-item:hover { background: rgba(122,162,247,0.15); color: #c0caf5; }
+    .ctx-item.danger { color: #f7768e; }
+    .ctx-item.danger:hover { background: rgba(247,118,142,0.15); }
+    .ctx-item kbd { margin-left: auto; font-size: 10px; color: #565f89;
+      background: #1a1b26; border: 1px solid #414868; border-radius: 3px; padding: 0 5px;
+      font-family: 'JetBrains Mono', Consolas, monospace; }
+    .ctx-sep { height: 1px; background: #414868; margin: 4px 6px; }
+
+    /* Keyboard shortcuts cheat-sheet */
+    #cheatsheetOverlay {
+      position: fixed; inset: 0; z-index: 400; display: flex; align-items: center; justify-content: center;
+      background: rgba(15,16,25,0.55); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+    }
+    #cheatsheetOverlay.hidden { display: none; }
+    #cheatsheetCard {
+      background: #24283b; border: 1px solid #414868; border-radius: 12px;
+      padding: 18px 20px; width: 420px; max-width: 90vw; max-height: 80vh; overflow: auto;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.55);
+    }
+    .cheatsheet-head { display: flex; align-items: center; justify-content: space-between;
+      font-size: 15px; font-weight: 600; color: #c0caf5; margin-bottom: 14px; }
+    .cheatsheet-close { background: #1a1b26; border: 1px solid #414868; border-radius: 6px;
+      width: 26px; height: 26px; color: #a9b1d6; cursor: pointer; }
+    #cheatsheetBody { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 22px; }
+    #cheatsheetBody .row { display: flex; align-items: center; justify-content: space-between;
+      font-size: 12.5px; color: #a9b1d6; padding: 2px 0; }
+    #cheatsheetBody kbd { font-size: 11px; color: #c0caf5; background: #1a1b26;
+      border: 1px solid #414868; border-radius: 4px; padding: 1px 6px;
+      font-family: 'JetBrains Mono', Consolas, monospace; }
+    #cheatsheetBody .grouphead { grid-column: 1 / -1; font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.05em; color: #565f89; margin-top: 8px; }
+
     /* Cursor styles for drawing modes */
     .canvas-draw { cursor: crosshair; }
 
@@ -639,6 +682,20 @@
       </button>
     </div>
   </main>
+
+  <!-- Right-click context menu (populated dynamically) -->
+  <div id="contextMenu" class="hidden"></div>
+
+  <!-- Keyboard shortcuts cheat-sheet (toggled with ?) -->
+  <div id="cheatsheetOverlay" class="hidden">
+    <div id="cheatsheetCard">
+      <div class="cheatsheet-head">
+        <span>Keyboard shortcuts</span>
+        <button onclick="toggleCheatsheet(false)" title="Close" class="cheatsheet-close">✕</button>
+      </div>
+      <div id="cheatsheetBody"></div>
+    </div>
+  </div>
 
   <!-- Toast notifications -->
   <div id="toastContainer"></div>
@@ -1767,8 +1824,12 @@
       const lifelineHeight = connections.some(c => c.isSequenceMessage) ?
         Math.max(...connections.filter(c => c.isSequenceMessage).map(c => c.messageY || 0)) + 80 : 300;
 
-      // Nodes
-      const sorted = [...nodes].sort((a, b) => (a.type === 'container' ? 0 : 1) - (b.type === 'container' ? 0 : 1));
+      // Nodes — containers behind everything, then by explicit z-order (front/back)
+      const sorted = [...nodes].sort((a, b) => {
+        const ca = a.type === 'container' ? 0 : 1, cb = b.type === 'container' ? 0 : 1;
+        if (ca !== cb) return ca - cb;
+        return (a.z || 0) - (b.z || 0);
+      });
 
       nodesGroup.innerHTML = sorted.map(node => {
         const isSelected = node.id === selectedId || selectedIds.includes(node.id);
@@ -2223,6 +2284,119 @@
       }
     }
     
+    // ids of the currently selected node(s)
+    function selectedNodeIds() {
+      return selectedIds.length > 0 ? selectedIds.slice() : (selectedId ? [selectedId] : []);
+    }
+
+    // z-order: bring selected node(s) to front / send to back
+    function bringToFront(ids = selectedNodeIds()) {
+      if (!ids.length) return;
+      const maxZ = nodes.reduce((m, n) => Math.max(m, n.z || 0), 0);
+      ids.forEach((id, i) => { const n = nodes.find(x => x.id === id); if (n) n.z = maxZ + 1 + i; });
+      saveState(); render();
+    }
+    function sendToBack(ids = selectedNodeIds()) {
+      if (!ids.length) return;
+      const minZ = nodes.reduce((m, n) => Math.min(m, n.z || 0), 0);
+      ids.forEach((id, i) => { const n = nodes.find(x => x.id === id); if (n) n.z = minZ - 1 - i; });
+      saveState(); render();
+    }
+
+    // duplicate selected node(s), offset slightly, and select the copies
+    function duplicateSelected(ids = selectedNodeIds()) {
+      if (!ids.length) return;
+      const copies = ids.map(id => nodes.find(n => n.id === id)).filter(Boolean)
+        .map(n => ({ ...JSON.parse(JSON.stringify(n)), id: generateId(), x: n.x + 20, y: n.y + 20 }));
+      nodes.push(...copies);
+      selectedId = copies.length === 1 ? copies[0].id : null;
+      selectedIds = copies.length > 1 ? copies.map(c => c.id) : [];
+      saveState(); render();
+      if (copies.length === 1) selectNode(copies[0].id);
+    }
+
+    function selectAllNodes() {
+      const ids = nodes.filter(n => n.type !== 'line' && n.type !== 'pencil').map(n => n.id);
+      if (!ids.length) return;
+      if (ids.length === 1) { selectNode(ids[0]); return; }
+      selectedId = null; selectedConnId = null; selectedIds = ids;
+      floatingToolbar.classList.add('hidden'); render();
+    }
+
+    // --- Right-click context menu ---
+    const contextMenu = document.getElementById('contextMenu');
+    function hideContextMenu() { contextMenu.classList.add('hidden'); }
+    const CTX_ACTIONS = {
+      edit: () => { const n = nodes.find(x => x.id === selectedId); if (n && n.type !== 'line' && n.type !== 'pencil') editNodeLabel(n); },
+      duplicate: () => duplicateSelected(),
+      front: () => bringToFront(),
+      back: () => sendToBack(),
+      delete: () => deleteSelected(),
+      addshape: () => addShapeAtCenter(),
+      selectall: () => selectAllNodes(),
+    };
+    function showContextMenu(clientX, clientY, items) {
+      contextMenu.innerHTML = items.map(it => it.sep
+        ? '<div class="ctx-sep"></div>'
+        : `<div class="ctx-item${it.danger ? ' danger' : ''}" data-act="${it.act}">${it.label}${it.kbd ? `<kbd>${it.kbd}</kbd>` : ''}</div>`).join('');
+      contextMenu.classList.remove('hidden');
+      contextMenu.querySelectorAll('.ctx-item').forEach(el => {
+        el.onclick = () => { hideContextMenu(); (CTX_ACTIONS[el.dataset.act] || (() => {}))(); };
+      });
+      const r = contextMenu.getBoundingClientRect();
+      let x = clientX, y = clientY;
+      if (x + r.width > window.innerWidth) x = window.innerWidth - r.width - 8;
+      if (y + r.height > window.innerHeight) y = window.innerHeight - r.height - 8;
+      contextMenu.style.left = Math.max(4, x) + 'px';
+      contextMenu.style.top = Math.max(4, y) + 'px';
+    }
+    canvas.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const nodeEl = e.target.closest('.node');
+      if (nodeEl) {
+        const id = nodeEl.dataset.id;
+        if (selectedId !== id && !selectedIds.includes(id)) selectNode(id);
+        showContextMenu(e.clientX, e.clientY, [
+          { act: 'edit', label: 'Edit label' },
+          { act: 'duplicate', label: 'Duplicate', kbd: '⌘D' },
+          { sep: true },
+          { act: 'front', label: 'Bring to front' },
+          { act: 'back', label: 'Send to back' },
+          { sep: true },
+          { act: 'delete', label: 'Delete', danger: true, kbd: '⌫' },
+        ]);
+      } else {
+        showContextMenu(e.clientX, e.clientY, [
+          { act: 'addshape', label: 'Add a shape here' },
+          { act: 'selectall', label: 'Select all', kbd: '⌘A' },
+        ]);
+      }
+    });
+    document.addEventListener('mousedown', (e) => {
+      if (!(e.target instanceof Element) || !e.target.closest('#contextMenu')) hideContextMenu();
+    });
+
+    // --- Keyboard shortcuts cheat-sheet ---
+    const CHEATSHEET = [
+      { group: 'Tools', items: [['Select', 'V'], ['Rectangle / Pill / Diamond / Circle / Container', '1–5'], ['Text', 'T'], ['Arrow', '6'], ['Pencil', 'P'], ['Sticky note', 'N']] },
+      { group: 'Edit', items: [['Undo', '⌘Z'], ['Redo', '⌘⇧Z'], ['Copy', '⌘C'], ['Paste', '⌘V'], ['Duplicate', '⌘D'], ['Delete', '⌫'], ['Select all', '⌘A'], ['Edit label', 'dbl-click'], ['Newline in label', '↵'], ['Commit label', '⌘↵']] },
+      { group: 'Arrange & view', items: [['Auto-arrange', 'A'], ['Snap to grid', '8'], ['Animate flow', 'F'], ['Mermaid code', 'M'], ['Share link', '0'], ['Pan', 'Shift-drag'], ['Zoom', 'Scroll']] },
+      { group: 'Other', items: [['Deselect / cancel', 'Esc'], ['Shortcuts', '?']] },
+    ];
+    const cheatsheetOverlay = document.getElementById('cheatsheetOverlay');
+    function toggleCheatsheet(show) {
+      const open = show === undefined ? cheatsheetOverlay.classList.contains('hidden') : show;
+      if (open) {
+        document.getElementById('cheatsheetBody').innerHTML = CHEATSHEET.map(g =>
+          `<div class="grouphead">${g.group}</div>` + g.items.map(([k, v]) => `<div class="row"><span>${k}</span><kbd>${v}</kbd></div>`).join('')
+        ).join('');
+        cheatsheetOverlay.classList.remove('hidden');
+      } else {
+        cheatsheetOverlay.classList.add('hidden');
+      }
+    }
+    cheatsheetOverlay.addEventListener('mousedown', (e) => { if (e.target === cheatsheetOverlay) toggleCheatsheet(false); });
+
     // Connection toolbar functions
     const connToolbar = document.getElementById('connToolbar');
     const connLabelInput = document.getElementById('connLabel');
@@ -3521,8 +3695,12 @@
     };
 
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') { deselectAll(); setTool('select'); closeDropdowns(); return; }
-      if (e.target.tagName === 'INPUT') return;
+      if (e.key === 'Escape') {
+        if (!cheatsheetOverlay.classList.contains('hidden')) { toggleCheatsheet(false); return; }
+        hideContextMenu(); deselectAll(); setTool('select'); closeDropdowns(); return;
+      }
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if (e.key === '?') { toggleCheatsheet(); return; }
 
       // Single-key shortcut (only without Cmd/Ctrl, so Cmd+V etc. fall through)
       const binding = KEY_BINDINGS[e.key.toLowerCase()];
@@ -3549,6 +3727,8 @@
         selectedId = null;
         render();
       }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'd') { e.preventDefault(); duplicateSelected(); }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'a') { e.preventDefault(); selectAllNodes(); }
     });
     
     document.addEventListener('keyup', (e) => {
