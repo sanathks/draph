@@ -1511,6 +1511,17 @@
     function updateViewBox() {
       canvas.setAttribute('viewBox', `${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`);
       zoomLevel.textContent = Math.round(1/zoom * 100) + '%';
+      // Keep the dot-grid rect covering the whole visible area (it lives in world
+      // coords, the pattern stays aligned). Without this, zooming out past the
+      // rect's old fixed size left the edges pitch-black with no dots. The 50%
+      // margin keeps dots under the cursor during a pan before the next update.
+      if (gridBg) {
+        const mx = viewBox.w * 0.5, my = viewBox.h * 0.5;
+        gridBg.setAttribute('x', viewBox.x - mx);
+        gridBg.setAttribute('y', viewBox.y - my);
+        gridBg.setAttribute('width', viewBox.w + mx * 2);
+        gridBg.setAttribute('height', viewBox.h + my * 2);
+      }
     }
     
     function screenToCanvas(x, y) {

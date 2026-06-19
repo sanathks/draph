@@ -971,4 +971,18 @@ group('v2: paste Mermaid code -> append diagram (no canvas wipe)');
   check('appended nodes are selected', E('selectedIds.length') >= 4);
 }
 
+// ---------------------------------------------------------------------------
+group('v2: dot-grid background covers the viewport at any zoom');
+{
+  const { win, doc, E } = boot();
+  const grid = doc.getElementById('gridBg');
+  // simulate a big zoom-out: large viewBox, off-origin
+  E('viewBox.x = -4000; viewBox.y = -3000; viewBox.w = 9000; viewBox.h = 7000;');
+  win.updateViewBox();
+  const gx = +grid.getAttribute('x'), gy = +grid.getAttribute('y');
+  const gw = +grid.getAttribute('width'), gh = +grid.getAttribute('height');
+  check('grid starts left/above the viewport', gx <= -4000 && gy <= -3000);
+  check('grid extends past the viewport right/bottom', gx + gw >= -4000 + 9000 && gy + gh >= -3000 + 7000);
+}
+
 process.exit(report() ? 0 : 1);
