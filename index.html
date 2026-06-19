@@ -992,7 +992,7 @@
     const SHAPE_TOOLS = ['rect', 'pill', 'diamond', 'circle', 'container', 'text', 'note', 'line'];
     const CONFIG = {
       palette: ['#7aa2f7', '#9ece6a', '#f7768e', '#e0af68', '#bb9af7', '#7dcfff', '#ff9e64'],
-      arrow: { length: 8, width: 4 },     // arrowhead size (px)
+      arrow: { length: 11, width: 5.5 },  // arrowhead size (px)
       node: { minWidth: 40, minHeight: 20 },
     };
 
@@ -1045,7 +1045,7 @@
     function addShapeAtCenter() {
       const cx = viewBox.x + viewBox.w / 2;
       const cy = viewBox.y + viewBox.h / 2;
-      const node = createNode('rect', snap(cx - 60), snap(cy - 22), 120, 44);
+      const node = createNode("rect", snap(cx - 80), snap(cy - 30), 160, 60);
       saveState();
       render();
       selectNode(node.id);
@@ -1405,8 +1405,8 @@
     // Create node at position with size
     function createNode(type, x, y, width, height) {
       const defaults = {
-        rect: { w: 120, h: 44 },
-        pill: { w: 120, h: 44 },
+        rect: { w: 160, h: 60 },
+        pill: { w: 160, h: 60 },
         diamond: { w: 80, h: 60 },
         circle: { w: 80, h: 80 },
         container: { w: 280, h: 180 },
@@ -1858,7 +1858,7 @@
           const y = conn.messageY || 150;
           const isConnSelected = selectedConnId === conn.id;
           const strokeColor = conn.color || (isConnSelected ? COLORS.accent : COLORS.fg);
-          const strokeWidth = isConnSelected ? 2.5 : 1.5;
+          const strokeWidth = isConnSelected ? 3 : 2;
           
           // Arrow type - strokeStyle overrides arrow syntax if explicitly set
           const arrowIsDashed = conn.arrow?.includes('--');
@@ -1866,7 +1866,7 @@
           const isAsync = conn.arrow?.includes(')');
           const dashArray = isDashed ? '5,3' : 'none';
           
-          const aLen = 8, aWidth = 4;
+          const aLen = CONFIG.arrow.length, aWidth = CONFIG.arrow.width;
           const label = conn.label || '';
           
           // Self-referencing message (same lifeline)
@@ -1945,7 +1945,7 @@
         // Arrow points straight into the target connector (inward normal), so it
         // sits perpendicular on the node edge. The tip is exactly on the connector
         // and the drawn line is shortened to the arrow base, so no line pokes out.
-        const aLen = 8, aWidth = 4;
+        const aLen = CONFIG.arrow.length, aWidth = CONFIG.arrow.width;
         const angle = Math.atan2(inDir.y, inDir.x);   // straight into the connector
         const ca = Math.cos(angle), sa = Math.sin(angle);
         const tipX = endX, tipY = endY;                       // tip on the connector
@@ -1976,7 +1976,7 @@
         const label = conn.label || '';
         const isConnSelected = selectedConnId === conn.id;
         const strokeColor = conn.color || (isConnSelected ? COLORS.accent : COLORS.fg);
-        const strokeWidth = isConnSelected ? 2.5 : 1.5;
+        const strokeWidth = isConnSelected ? 3 : 2;
         
         let labelEl = '';
         if (label) {
@@ -2142,7 +2142,7 @@
           
           // Calculate arrow head
           const angle = Math.atan2(y2 - y1, x2 - x1);
-          const aLen = 10, aWidth = 5;
+          const aLen = CONFIG.arrow.length, aWidth = CONFIG.arrow.width;
           const tipX = x2;
           const tipY = y2;
           const baseX = tipX - Math.cos(angle) * aLen;
@@ -2240,7 +2240,7 @@
         } else {
           const { fill, style } = getFill(node, 'infill');
           const customPattern = getCustomPattern(node);
-          const rx = node.type === 'pill' ? node.height / 2 : 6;
+          const rx = node.type === 'pill' ? node.height / 2 : 8;
           // For outline, stripe, grid - use light text; for solid infill - use contrast text
           const txtColor = (style === 'outline' || style === 'stripe' || style === 'grid') ? (node.outlineColor || COLORS.fg) : textColor;
           const rcx = node.x + node.width/2, rcy = node.y + node.height/2;
@@ -3448,7 +3448,7 @@
       if (e.target.closest('.node') || e.target.closest('[data-conn]') ||
           e.target.classList.contains('connector') || e.target.classList.contains('lifeline-connector')) return;
       const pos = screenToCanvas(e.clientX, e.clientY);
-      const node = createNode('rect', snap(pos.x - 60), snap(pos.y - 22), 120, 44);
+      const node = createNode("rect", snap(pos.x - 80), snap(pos.y - 30), 160, 60);
       saveState();
       render();
       selectNode(node.id);
@@ -3547,7 +3547,7 @@
           drawPreview.style.display = 'none';
           // Use tempLine for line preview
           const angle = Math.atan2(y2 - y1, x2 - x1);
-          const aLen = 10, aWidth = 5;
+          const aLen = CONFIG.arrow.length, aWidth = CONFIG.arrow.width;
           const baseX = x2 - Math.cos(angle) * aLen;
           const baseY = y2 - Math.sin(angle) * aLen;
           const px = Math.cos(angle + Math.PI/2) * aWidth;

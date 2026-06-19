@@ -61,7 +61,7 @@ group('Arrow sits on the connector, line trimmed to its base');
   check('arrow tip on the connector (560,400)', Math.abs(+tip[1]-560) < 0.5 && Math.abs(+tip[2]-400) < 0.5, `(${tip[1]},${tip[2]})`);
   const coords = [...lineD.matchAll(/([\-\d.]+),([\-\d.]+)/g)].map(m => [+m[1], +m[2]]);
   const end = coords[coords.length - 1];
-  check('line ends at arrow base, not the node edge', Math.abs(end[1]-392) < 1 && Math.abs(end[0]-560) < 1, `(${end})`);
+  check('line ends at arrow base, not the node edge', Math.abs(end[1]-389) < 1 && Math.abs(end[0]-560) < 1, `(${end})`);
 }
 
 // ---------------------------------------------------------------------------
@@ -419,7 +419,7 @@ group('Click-to-create at standard size + reverts to select (except pencil)');
   mouse(doc, 'mouseup', 500, 500);
   const r = E(`JSON.parse(JSON.stringify(nodes[nodes.length-1]))`);
   check('click creates a node', E('nodes.length') === 1 && r.type === 'rect');
-  check('node has its standard size (grid-snapped)', r.width === 120 && r.height === 40, `${r.width}x${r.height}`);
+  check('node has its standard size (grid-snapped)', r.width === 160 && r.height === 60, `${r.width}x${r.height}`);
   check('node is centered on the click point', Math.abs((r.x + r.width/2) - 500) <= 10 && Math.abs((r.y + r.height/2) - 500) <= 10);
   check('tool reverts to select after creating a shape', E('currentTool') === 'select');
   check('newly created node is selected', E('selectedId') === r.id);
