@@ -29,6 +29,7 @@
       --danger: #f7768e;
       --danger-bright: #ff8aa0;
       --overlay: rgba(15, 16, 25, 0.55);   /* modal backdrop */
+      --node-shadow: rgba(0, 0, 0, 0.38);  /* soft drop shadow under nodes */
     }
     :root[data-theme="light"] {
       --bg: #f3f4fa;
@@ -43,6 +44,7 @@
       --danger: #c14a5e;
       --danger-bright: #a83a4e;
       --overlay: rgba(40, 44, 66, 0.32);
+      --node-shadow: rgba(40, 44, 66, 0.20);
     }
     /* SVG presentation attributes can't read var(), so theme these by CSS
        (CSS wins over the element's fill/stroke attribute). */
@@ -135,6 +137,10 @@
 
     body { background: var(--bg); overflow: hidden; }
     .node { cursor: move; user-select: none; }
+    /* Soft drop shadow so nodes read as cards floating over the canvas (matches
+       the clean, lifted look of the reference). Inline filters — e.g. on sticky
+       notes — override this. Theme-aware via --node-shadow. */
+    .node-border { filter: drop-shadow(0 4px 6px var(--node-shadow)); }
     .node:hover .node-border { stroke-width: 2.5; }
     .node.selected .node-border { stroke: var(--accent); stroke-width: 2.5; }
     .connector { cursor: crosshair; opacity: 0; pointer-events: none; transition: opacity 0.15s, r 0.1s; }
@@ -548,8 +554,8 @@
     <div id="canvasContainer" class="flex-1 relative overflow-hidden">
     <svg id="canvas" class="w-full h-full" style="background: var(--bg);">
       <defs>
-        <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-          <circle cx="10" cy="10" r="0.5" fill="#414868" opacity="0.5"/>
+        <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+          <circle cx="12" cy="12" r="1.1" fill="#414868" opacity="0.55"/>
         </pattern>
         <pattern id="stripe" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(-45)">
           <line x1="0" y1="0" x2="0" y2="8" stroke="#a9b1d6" stroke-width="2" opacity="0.15"/>
