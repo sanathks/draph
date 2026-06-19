@@ -1009,4 +1009,31 @@ group('v2: Mermaid state diagram import (stateDiagram-v2)');
   check('a labeled transition survived import', E(`connections.some(c=>c.label==='go')`));
 }
 
+// ---------------------------------------------------------------------------
+group('v2: Mermaid ER diagram import (erDiagram)');
+{
+  const { win, E } = boot();
+  const code = `erDiagram
+    CUSTOMER ||--o{ ORDER : places
+    ORDER ||--|{ LINE-ITEM : contains
+    CUSTOMER }|..|{ DELIVERY-ADDRESS : uses
+    CUSTOMER {
+        string name
+        string custNumber PK
+    }`;
+  const parsed = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('ER parser makes entity nodes (class boxes)', parsed.nodes.some(n => n.id === 'CUSTOMER' && n.type === 'class'));
+  check('ER parser reads attributes onto the entity', parsed.nodes.find(n => n.id === 'CUSTOMER').properties.some(p => /name/.test(p)));
+  check('ER parser keeps a PK tag', parsed.nodes.find(n => n.id === 'CUSTOMER').properties.some(p => /PK/.test(p)));
+  check('ER parser handles hyphenated entity ids', parsed.nodes.some(n => n.id === 'LINE-ITEM'));
+  check('ER parser keeps relationship labels', parsed.connections.some(c => c.label === 'places'));
+  check('ER non-identifying (..) relationship is dashed', parsed.connections.some(c => c.strokeStyle === 'dashed'));
+  // full import builds class-style entities + edges, dashed carried through
+  const ed = win.document.getElementById('mermaidEditor');
+  ed.value = code;
+  win.importMermaid(true);
+  check('ER import builds entities + relationships', E(`nodes.some(n=>n.isClass)`) && E('connections.length') >= 3);
+  check('ER import carries the dashed edge style', E(`connections.some(c=>c.strokeStyle==='dashed')`));
+}
+
 process.exit(report() ? 0 : 1);

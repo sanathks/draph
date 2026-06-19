@@ -5261,9 +5261,52 @@
       if (firstLine.match(/^stateDiagram(-v2)?/i)) {
         return parseStateDiagram(lines.slice(1));
       }
+      if (firstLine.match(/^erDiagram/i)) {
+        return parseErDiagram(lines.slice(1));
+      }
 
       // Default: flowchart
       return parseFlowchart(lines);
+    }
+
+    // Entity-Relationship diagrams (erDiagram). Entities become class-style boxes
+    // (header + attribute rows); relationships become labeled edges (dashed for
+    // non-identifying `..`). Crow's-foot cardinality markers are not drawn yet
+    // (see MERMAID_SUPPORT.md) — the verb label is kept.
+    function parseErDiagram(lines) {
+      const result = { nodes: [], connections: [], errors: [], diagramType: 'flowchart' };
+      const map = {};
+      const ensure = (id) => {
+        if (!map[id]) { map[id] = { id, type: 'class', label: id, properties: [], methods: [] }; result.nodes.push(map[id]); }
+        return map[id];
+      };
+      let current = null;   // entity whose attribute block is open
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith('%%')) continue;
+        if (/^erDiagram/i.test(line)) continue;
+        if (line === '}') { current = null; continue; }
+        // entity attribute block open:  ENTITY {
+        let m = line.match(/^([A-Za-z0-9_-]+)\s*\{$/);
+        if (m) { current = ensure(m[1]); continue; }
+        // relationship: A <cardinality> B [: label]  (operator contains -- or ..)
+        m = line.match(/^([A-Za-z0-9_-]+)\s+(\S+)\s+([A-Za-z0-9_-]+)(?:\s*:\s*(.+))?$/);
+        if (m && /(--|\.\.)/.test(m[2])) {
+          const a = ensure(m[1]).id, b = ensure(m[3]).id;
+          const dashed = m[2].includes('..');
+          result.connections.push({ from: a, to: b, label: (m[4] || '').replace(/"/g, '').trim(), strokeStyle: dashed ? 'dashed' : undefined });
+          continue;
+        }
+        // attribute row inside a block:  type name [PK|FK|UK] ["comment"]
+        if (current) {
+          const parts = line.replace(/"/g, '').split(/\s+/);
+          if (parts.length >= 2) {
+            const tags = parts.slice(2).filter(p => /^(PK|FK|UK)$/i.test(p)).join(',');
+            current.properties.push(parts[1] + ' : ' + parts[0] + (tags ? ' (' + tags + ')' : ''));
+          }
+        }
+      }
+      return result;
     }
 
     // State diagrams (stateDiagram / stateDiagram-v2). States become rounded
@@ -6276,7 +6319,8 @@
                   fromIdx: 1,
                   toIdx: 1,
                   label: c.label || '',
-                  relType: c.relType
+                  relType: c.relType,
+                  strokeStyle: c.strokeStyle
                 });
               }
             }

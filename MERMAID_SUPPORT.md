@@ -16,7 +16,7 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
 | Sequence | `sequenceDiagram` | ✅ | participants, lifelines, messages, frames |
 | Class | `classDiagram` | ✅ | classes with properties/methods, relations |
 | State | `stateDiagram` / `-v2` | 🟡 | **NEW.** states→rounded rects, transitions+labels, `[*]`→small dot. TODO: composite (nested) states as containers, `note`, `<<fork>>/<<join>>/<<choice>>` shapes, `direction`, concurrency `--` |
-| Entity-Relationship | `erDiagram` | ⬜ | entities w/ attributes (class-like), relationships w/ cardinality (`||--o{`) |
+| Entity-Relationship | `erDiagram` | 🟡 | **NEW.** entities→class-style boxes w/ attribute rows (+PK/FK/UK tags), relationships→labeled edges, non-identifying `..`→dashed. TODO: crow's-foot cardinality markers (`||`, `o{`, `}|`…) on the edge ends |
 | Mindmap | `mindmap` | ⬜ | indentation-based tree; map to nodes + edges, radial/tree layout |
 | Timeline | `timeline` | ⬜ | periods → grouped events |
 | Gantt | `gantt` | ⬜ | sections/tasks with dates — needs a time axis (likely a custom render) |
@@ -42,6 +42,11 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
   line, any needed render tweaks, and regression tests in `test/regression.mjs`.
 
 ## Changelog
+- **ER diagrams (first cut):** `parseErDiagram` added. Entities render as
+  class-style boxes (reusing `isClass`), attribute rows parsed as
+  `name : type (tags)`, relationships become labeled edges with `..` → dashed.
+  `strokeStyle` now flows through `importMermaid`. Crow's-foot cardinality not
+  drawn yet. Covered by regression tests.
 - **State diagrams (first cut):** `parseStateDiagram` added; `[*]` start/end
   rendered as a 24px solid dot; transition labels preserved; flattens composite
   states and ignores notes/fork shapes for now. Covered by regression tests.
