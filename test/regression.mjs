@@ -985,4 +985,28 @@ group('v2: dot-grid background covers the viewport at any zoom');
   check('grid extends past the viewport right/bottom', gx + gw >= -4000 + 9000 && gy + gh >= -3000 + 7000);
 }
 
+// ---------------------------------------------------------------------------
+group('v2: Mermaid state diagram import (stateDiagram-v2)');
+{
+  const { win, E } = boot();
+  const code = `stateDiagram-v2
+    [*] --> Still
+    Still --> Moving : go
+    Moving --> Still : stop
+    Moving --> Crash
+    Crash --> [*]`;
+  // parser
+  const parsed = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('state parser detects a flow-style graph', parsed.diagramType === 'flowchart');
+  check('state parser makes a node per state + start/end dot', parsed.nodes.some(n => n.label === 'Still') && parsed.nodes.some(n => n.isPseudo));
+  check('state parser keeps transition labels', parsed.connections.some(c => c.label === 'go'));
+  // full import
+  const ed = win.document.getElementById('mermaidEditor');
+  ed.value = code;
+  win.importMermaid(true);
+  check('state import builds states + transitions', E(`nodes.filter(n=>n.type!=='line').length`) >= 5 && E('connections.length') >= 4);
+  check('[*] becomes a small circle node', E(`nodes.some(n=>n.type==='circle' && n.width<=30)`));
+  check('a labeled transition survived import', E(`connections.some(c=>c.label==='go')`));
+}
+
 process.exit(report() ? 0 : 1);

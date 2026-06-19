@@ -5258,9 +5258,59 @@
       if (firstLine.match(/^sequenceDiagram/i)) {
         return parseSequenceDiagram(lines.slice(1));
       }
-      
+      if (firstLine.match(/^stateDiagram(-v2)?/i)) {
+        return parseStateDiagram(lines.slice(1));
+      }
+
       // Default: flowchart
       return parseFlowchart(lines);
+    }
+
+    // State diagrams (stateDiagram / stateDiagram-v2). States become rounded
+    // rect nodes; transitions become labeled edges. [*] is the start/end
+    // pseudo-state, rendered as a small circle. (First cut: notes, forks, and
+    // composite-state nesting are flattened/ignored — see MERMAID_SUPPORT.md.)
+    function parseStateDiagram(lines) {
+      const result = { nodes: [], connections: [], errors: [], diagramType: 'flowchart' };
+      const nodeMap = {};
+      const ensure = (id, label) => {
+        if (!nodeMap[id]) { nodeMap[id] = { id, type: 'rect', label: label || id }; result.nodes.push(nodeMap[id]); }
+        else if (label) nodeMap[id].label = label;
+        return nodeMap[id].id;
+      };
+      let startId = null, endId = null;
+      const pseudo = (key) => {
+        const id = key === 'start' ? '__start' : '__end';
+        if (!nodeMap[id]) { nodeMap[id] = { id, type: 'circle', label: '', isPseudo: true }; result.nodes.push(nodeMap[id]); }
+        return id;
+      };
+
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith('%%')) continue;
+        if (/^(stateDiagram(-v2)?|direction\b)/i.test(line)) continue;
+        if (/^note\b/i.test(line)) continue;                 // skip notes (first cut)
+        if (line === '}' ) continue;                          // composite close (flatten)
+        // state "Long description" as id
+        let m = line.match(/^state\s+"([^"]+)"\s+as\s+(\w+)/i);
+        if (m) { ensure(m[2], m[1]); continue; }
+        // composite open: `state Name {` — flatten (children parsed as transitions)
+        if (/^state\s+[\w"]+.*\{\s*$/i.test(line)) {
+          const cm = line.match(/^state\s+(\w+)/i); if (cm) ensure(cm[1]);
+          continue;
+        }
+        // bare state declaration: `state Foo` or `state Foo <<fork>>`
+        m = line.match(/^state\s+(\w+)\s*(<<\w+>>)?\s*$/i);
+        if (m) { ensure(m[1]); continue; }
+        // transition: A --> B  optionally  : label   (A/B may be [*])
+        m = line.match(/^(\[\*\]|\w+)\s*-->\s*(\[\*\]|\w+)\s*(?::\s*(.+))?$/);
+        if (m) {
+          const fromId = m[1] === '[*]' ? pseudo('start') : ensure(m[1]);
+          const toId = m[2] === '[*]' ? pseudo('end') : ensure(m[2]);
+          result.connections.push({ from: fromId, to: toId, label: (m[3] || '').trim() });
+        }
+      }
+      return result;
     }
     
     function parseSequenceDiagram(lines) {
@@ -6105,6 +6155,7 @@
           const isClass = n.type === 'class';
           const isParticipant = n.type === 'participant' || n.type === 'actor';
           
+          const isPseudo = n.isPseudo;   // state-diagram [*] start/end dot
           let width, height;
           if (isClass) {
             width = 160;
@@ -6112,19 +6163,22 @@
           } else if (isParticipant) {
             width = 100;
             height = 40;
+          } else if (isPseudo) {
+            width = 26;
+            height = 26;
           }
-          
+
           const nodeType = isParticipant ? 'rect' : (isClass ? 'rect' : n.type);
           const node = createNode(nodeType, n.x, n.y, width, height);
           node.label = n.label;
-          
+
           // Store class properties/methods
           if (isClass) {
             node.isClass = true;
             node.properties = n.properties || [];
             node.methods = n.methods || [];
           }
-          
+
           // Mark as sequence participant with lifeline
           if (isParticipant) {
             node.isParticipant = true;
@@ -6132,9 +6186,12 @@
             node.isActor = n.type === 'actor';
           }
 
-          // Grow regular shapes to fit their imported label (class/participant
-          // nodes size themselves separately)
-          if (!isClass && !isParticipant) fitNodeToLabel(node);
+          // [*] pseudo-states render as a small solid dot (bypass the 40px min).
+          if (isPseudo) { node.width = 24; node.height = 24; node.fillStyle = 'infill'; node.color = COLORS.fg; }
+
+          // Grow regular shapes to fit their imported label (class/participant/
+          // pseudo nodes size themselves separately)
+          if (!isClass && !isParticipant && !isPseudo) fitNodeToLabel(node);
 
           idMap[n.id] = node.id;
         });
