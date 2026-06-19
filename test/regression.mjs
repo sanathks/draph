@@ -801,18 +801,18 @@ group('v2: light/dark theme toggle');
   const { win, doc, E } = boot();
   // defaults to dark
   check('default theme is dark', E('currentTheme') === 'dark');
-  check('COLORS.bg starts at dark bg', E('COLORS.bg') === '#1a1b26');
+  check('COLORS.bg starts at dark bg', E('COLORS.bg') === '#0f0f15');
   // toggle to light
   win.toggleTheme();
   check('toggleTheme switches to light', E('currentTheme') === 'light');
   check('html data-theme set to light', doc.documentElement.dataset.theme === 'light');
-  check('COLORS swap to light palette', E('COLORS.bg') === E('THEMES.light.bg') && E('COLORS.bg') !== '#1a1b26');
+  check('COLORS swap to light palette', E('COLORS.bg') === E('THEMES.light.bg') && E('COLORS.bg') !== '#0f0f15');
   check('light theme persisted to localStorage', win.localStorage.getItem('draph:theme') === 'light');
   check('top-right toggle button exists', !!doc.getElementById('themeToggleBtn'));
   check('toggle tooltip reflects next action', /dark/i.test(doc.getElementById('themeToggleBtn').title));
   // toggle back
   win.toggleTheme();
-  check('toggleTheme switches back to dark', E('currentTheme') === 'dark' && E('COLORS.bg') === '#1a1b26');
+  check('toggleTheme switches back to dark', E('currentTheme') === 'dark' && E('COLORS.bg') === '#0f0f15');
   // applyTheme restores a persisted choice without persisting again
   win.applyTheme('light', false);
   check('applyTheme(light,false) applies light', E('currentTheme') === 'light' && doc.documentElement.dataset.theme === 'light');
@@ -847,6 +847,41 @@ group('v2: curved connection line style');
   check('setGlobalLineStyle persists to localStorage', win.localStorage.getItem('draph:lineStyle') === 'straight');
   win.setGlobalLineStyle('curved');
   check('switching back persists curved', win.localStorage.getItem('draph:lineStyle') === 'curved');
+}
+
+// ---------------------------------------------------------------------------
+group('v2: node icons');
+{
+  const { win, doc, E } = boot();
+  const n = win.createNode('rect', 200, 200, 160, 60); n.label = 'users'; win.render();
+  win.selectNode(n.id);
+  win.setNodeIcon('database');
+  check('setNodeIcon sets node.icon', E(`nodes[0].icon`) === 'database');
+  win.render();
+  const nodeEl = doc.querySelector(`#nodes .node[data-id="${n.id}"]`);
+  check('icon renders as an svg group with the database path', !!nodeEl && /<g[^>]*transform="translate/.test(nodeEl.innerHTML) && /ellipse/.test(nodeEl.innerHTML));
+  // icon-aware sizing reserves room (node grew vs no-icon baseline)
+  win.setNodeIcon('');
+  check('clearing icon removes node.icon', E(`nodes[0].icon`) === undefined);
+  check('icon picker grid was built (none tile + all icons)', doc.querySelectorAll('#iconGrid button').length === E(`Object.keys(ICONS).length`) + 1);
+}
+
+// ---------------------------------------------------------------------------
+group('v2: paste image & text onto canvas');
+{
+  const { win, doc, E } = boot();
+  // image node via the testable factory
+  const before = E('nodes.length');
+  const img = win.createImageNode('data:image/png;base64,AAAA', 200, 120);
+  check('createImageNode adds an image node', E('nodes.length') === before + 1 && img.type === 'image' && img.src.startsWith('data:image/png'));
+  win.render();
+  const imgEl = doc.querySelector(`#nodes .node[data-id="${img.id}"] image`);
+  check('image node renders an <image> with the data URL', !!imgEl && imgEl.getAttribute('href').startsWith('data:image/png'));
+  check('image node is selected after paste', E('selectedId') === img.id);
+  // pasted text becomes an auto-sized rect carrying the text
+  const t = win.createTextNodeFromPaste('Hello pasted text');
+  check('createTextNodeFromPaste makes a labeled rect', t.type === 'rect' && t.label === 'Hello pasted text');
+  check('pasted-text node grew to fit its label', t.width >= 120);
 }
 
 process.exit(report() ? 0 : 1);
