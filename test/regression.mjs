@@ -920,6 +920,12 @@ group('v2: paste a URL -> link-preview card');
   win.loadDiagramJson(payload);
   check('loaded link node gets its domain back', E(`nodes[0].domain`) === 'youtube.com');
   check('loaded link node starts without a persisted thumbnail', E(`nodes[0].image`) === '');
+  // loading state: spinner + "Loading preview…" while fetching; not persisted
+  E(`nodes[0].loading = true`); win.render();
+  const lel = doc.querySelector('#nodes .node[data-id="L1"]');
+  check('loading card shows a spinner', !!lel && /animateTransform/.test(lel.innerHTML));
+  check('loading card shows "Loading preview"', !!lel && /Loading preview/.test(lel.textContent));
+  check('loading flag is not persisted', JSON.parse(E(`JSON.stringify(serializeNodes()[0])`)).loading === undefined);
 }
 
 // ---------------------------------------------------------------------------
