@@ -818,4 +818,28 @@ group('v2: light/dark theme toggle');
   check('applyTheme(light,false) applies light', E('currentTheme') === 'light' && doc.documentElement.dataset.theme === 'light');
 }
 
+// ---------------------------------------------------------------------------
+group('v2: curved connection line style');
+{
+  const { win, doc, E } = boot();
+  // pointsToPath('curved') emits cubic beziers through the routed points
+  const d = E(`pointsToPath([{x:0,y:0},{x:0,y:50},{x:100,y:50},{x:100,y:100}], 'curved')`);
+  check('curved path starts with a moveto', /^M0,0/.test(d), d.slice(0, 12));
+  check('curved path uses cubic beziers (C)', /C/.test(d) && !/\bL\b/.test(d), d.slice(0, 40));
+  // straight still has no curve commands
+  const ds = E(`pointsToPath([{x:0,y:0},{x:0,y:50},{x:100,y:50}], 'straight')`);
+  check('straight path has no bezier', !/C/.test(ds) && !/Q/.test(ds));
+  // setGlobalLineStyle('curved') applies to connections and the renderer emits a C path
+  const a = win.createNode('rect', 100, 100, 120, 44);
+  const b = win.createNode('rect', 100, 320, 120, 44);
+  win.createConnection ? win.createConnection(a.id, b.id) : E(`connections.push({id:'tc',from:'${a.id}',to:'${b.id}',fromSide:'bottom',toSide:'top',fromIdx:1,toIdx:1})`);
+  win.setGlobalLineStyle('curved');
+  win.render();
+  check('connections adopt the curved style', E(`connections.every(c=>c.lineStyle==='curved')`));
+  const pathEl = doc.querySelector('#connections .connection');
+  check('rendered curved connection path contains a bezier', !!pathEl && /C/.test(pathEl.getAttribute('d')), pathEl && pathEl.getAttribute('d').slice(0, 30));
+  // the curved menu item exists
+  check('Curved lines menu item exists', !!doc.querySelector('[data-line="curved"]'));
+}
+
 process.exit(report() ? 0 : 1);

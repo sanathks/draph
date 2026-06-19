@@ -445,6 +445,10 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12 H10 V6 H20"/></svg>
               Straight lines
             </div>
+            <div class="dropdown-item" data-line="curved" onclick="setGlobalLineStyle('curved')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 18 C4 8, 20 16, 20 6"/></svg>
+              Curved lines
+            </div>
             <div class="menu-sep"></div>
             <div class="dropdown-item" onclick="copyPNG();closeDropdowns()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
@@ -1649,9 +1653,31 @@
     }
 
     // Convert a routed polyline into an SVG path string. 'rounded' adds quadratic
-    // fillets at each corner; 'straight' is plain line segments. Shared by the
-    // renderer and the draw-preview so the blue preview matches the final line.
+    // fillets at each corner; 'straight' is plain line segments; 'curved' threads
+    // a smooth Catmull-Rom spline through all the points (the flowing-curve look).
+    // Shared by the renderer and the draw-preview so the preview matches the final.
     function pointsToPath(points, lineStyle = 'rounded') {
+      // 'curved': one free-flowing cubic bezier from start to end. We ignore the
+      // orthogonal mid-bends and instead pull control handles out of the source
+      // and into the target along their stub directions, so the line leaves and
+      // enters each node square-on (staying aligned with the arrowhead) and sweeps
+      // smoothly across the gap — the flowing-curve look, not a boxy route.
+      if (lineStyle === 'curved' && points.length >= 2) {
+        const p0 = points[0];
+        const pn = points[points.length - 1];
+        const unit = (ax, ay, bx, by) => {
+          const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1;
+          return { x: dx / len, y: dy / len };
+        };
+        // exit direction = first stub segment; entry direction = last stub segment
+        const out = points.length >= 2 ? unit(p0.x, p0.y, points[1].x, points[1].y) : unit(p0.x, p0.y, pn.x, pn.y);
+        const inn = unit(points[points.length - 2].x, points[points.length - 2].y, pn.x, pn.y);
+        const dist = Math.hypot(pn.x - p0.x, pn.y - p0.y);
+        const h = Math.max(30, Math.min(dist * 0.45, 160));   // handle length
+        const c1x = p0.x + out.x * h, c1y = p0.y + out.y * h;
+        const c2x = pn.x - inn.x * h, c2y = pn.y - inn.y * h;
+        return `M${p0.x},${p0.y} C${c1x},${c1y} ${c2x},${c2y} ${pn.x},${pn.y}`;
+      }
       const r = lineStyle === 'rounded' ? 12 : 0;
       if (lineStyle === 'rounded' && points.length >= 3) {
         let path = `M${points[0].x},${points[0].y}`;
