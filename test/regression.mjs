@@ -884,4 +884,28 @@ group('v2: paste image & text onto canvas');
   check('pasted-text node grew to fit its label', t.width >= 120);
 }
 
+// ---------------------------------------------------------------------------
+group('v2: paste a URL -> link-preview card');
+{
+  const { win, doc, E } = boot();
+  // URL detection
+  check('isUrl accepts an http(s) URL', E(`isUrl('https://github.com/sanathks')`) === true);
+  check('isUrl rejects plain text', E(`isUrl('just some text')`) === false);
+  check('isUrl rejects text with a URL inside', E(`isUrl('see https://x.com now')`) === false);
+  // creating a link card (enrich is a no-op without fetch in jsdom)
+  const ln = win.createLinkNode('https://github.com/sanathks/draph');
+  check('createLinkNode makes a link node', ln.type === 'link' && ln.url === 'https://github.com/sanathks/draph');
+  check('link node derives the domain', ln.domain === 'github.com');
+  win.render();
+  const el = doc.querySelector(`#nodes .node[data-id="${ln.id}"]`);
+  check('link card renders the domain text', !!el && /github\.com/.test(el.textContent));
+  // the paste pipeline routes a URL to a link card (not a text rect).
+  // jsdom has no ClipboardEvent/DataTransfer, so synthesize the event.
+  const before = E('nodes.length');
+  const ev = new win.Event('paste', { bubbles: true, cancelable: true });
+  ev.clipboardData = { items: [], getData: () => 'https://example.com/page' };
+  doc.dispatchEvent(ev);
+  check('pasting a URL adds a link node', E('nodes.length') === before + 1 && E('nodes[nodes.length-1].type') === 'link');
+}
+
 process.exit(report() ? 0 : 1);

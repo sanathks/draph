@@ -841,6 +841,7 @@
      *   fillStyle?:    'outline'|'infill'|'stripe'|'grid'
      *   icon?:         string        key into ICONS (drawn left of the label)
      *   src?:          string        data-URL image (for type 'image')
+     *   url?,domain?,title?,desc?,image?,favicon?:  link-preview card ('link')
      *   isParticipant?, hasLifeline?: boolean   (sequence diagrams)
      *   isClass?, properties?, methods?:        (UML class diagrams)
      * }
@@ -2195,6 +2196,32 @@
           shape = `<image href="${node.src}" x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" preserveAspectRatio="xMidYMid meet" style="pointer-events:none"/>
             <rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="6"
             fill="transparent" stroke="${isSelected ? COLORS.accent : 'transparent'}" stroke-width="2" class="node-border"/>`;
+        } else if (node.type === 'link') {
+          // Link-preview card: optional thumbnail, title, description, favicon+domain.
+          const x = node.x, y = node.y, w = node.width;
+          const pad = 12;
+          const clipId = 'lc-' + node.id;
+          const imgH = node.image ? Math.round(w * 0.5) : 0;
+          let cy = y + (imgH ? imgH + pad : pad + 4);
+          const titleLines = wrapLabel(node.title || node.domain || node.url, w - pad * 2, 13).slice(0, 2);
+          const descLines = node.desc ? wrapLabel(node.desc, w - pad * 2, 11).slice(0, 2) : [];
+          const titleEl = titleLines.map((l, i) => `<tspan x="${x + pad}" y="${cy + 13 + i * 17}">${esc(l)}</tspan>`).join('');
+          cy += titleLines.length * 17 + 6;
+          const descEl = descLines.map((l, i) => `<tspan x="${x + pad}" y="${cy + 11 + i * 15}">${esc(l)}</tspan>`).join('');
+          cy += descLines.length * 15;
+          const footY = y + node.height - pad;
+          const fav = node.favicon ? `<image href="${node.favicon}" x="${x + pad}" y="${footY - 11}" width="14" height="14" style="pointer-events:none"/>` : '';
+          shape = `<defs><clipPath id="${clipId}"><rect x="${x}" y="${y}" width="${w}" height="${node.height}" rx="8"/></clipPath></defs>
+            <g clip-path="url(#${clipId})">
+              <rect x="${x}" y="${y}" width="${w}" height="${node.height}" fill="${COLORS.bg2}"/>
+              ${imgH ? `<image href="${node.image}" x="${x}" y="${y}" width="${w}" height="${imgH}" preserveAspectRatio="xMidYMid slice" style="pointer-events:none"/>` : ''}
+              <text fill="${COLORS.fg}" font-size="13" font-weight="600" font-family="system-ui, sans-serif" style="pointer-events:none">${titleEl}</text>
+              <text fill="${COLORS.fg}" font-size="11" font-family="system-ui, sans-serif" opacity="0.7" style="pointer-events:none">${descEl}</text>
+              ${fav}
+              <text x="${x + pad + (node.favicon ? 20 : 0)}" y="${footY}" fill="${COLORS.fg}" font-size="11" font-family="system-ui, sans-serif" opacity="0.75" style="pointer-events:none">${esc(node.domain || '')}  ↗</text>
+            </g>
+            <rect x="${x}" y="${y}" width="${w}" height="${node.height}" rx="8"
+              fill="none" stroke="${isSelected ? COLORS.accent : COLORS.border}" stroke-width="${isSelected ? 2 : 1.5}" class="node-border"/>`;
         } else if (node.type === 'line') {
           // Standalone arrow/line shape
           const x1 = node.x;
@@ -3456,7 +3483,10 @@
       dragging = null;
       selectNode(id);
       const node = nodes.find(n => n.id === id);
-      if (node && node.type !== 'line' && node.type !== 'pencil') editNodeLabel(node);
+      if (!node) return;
+      // A link card opens its URL on double-click; images have no label to edit.
+      if (node.type === 'link') { if (node.url) window.open(node.url, '_blank', 'noopener'); return; }
+      if (node.type !== 'line' && node.type !== 'pencil' && node.type !== 'image') editNodeLabel(node);
     }
     
     function onConnectionMouseDown(e) {
@@ -4142,6 +4172,66 @@
       return node;
     }
 
+    // A single http(s) URL token (no surrounding whitespace).
+    function isUrl(text) { return /^https?:\/\/\S+$/i.test(String(text).trim()) && !/\s/.test(String(text).trim()); }
+    function urlDomain(url) { try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return url; } }
+
+    // Size a link card from its content (taller when it has a thumbnail).
+    function fitLinkNode(node) {
+      const titleLines = Math.min(2, wrapLabel(node.title || node.domain || node.url, node.width - 24, 13).length);
+      const descLines = node.desc ? Math.min(2, wrapLabel(node.desc, node.width - 24, 11).length) : 0;
+      const imgH = node.image ? Math.round(node.width * 0.5) : 0;
+      node.height = imgH + 14 + titleLines * 17 + 6 + descLines * 15 + 30;
+    }
+
+    // Create a link-preview card centered in the viewport, then enrich it async.
+    function createLinkNode(url) {
+      const ctr = viewportCenter();
+      const node = { id: generateId(), type: 'link', url, domain: urlDomain(url), title: '', desc: '', image: '', favicon: '', x: snap(ctr.x - 150), y: snap(ctr.y - 50), width: 300, height: 96, label: '' };
+      fitLinkNode(node);
+      nodes.push(node);
+      saveState();
+      render();
+      selectNode(node.id);
+      enrichLink(node);
+      return node;
+    }
+
+    // Best-effort fetch a remote asset and inline it as a data URL (so it shows
+    // offline after load and survives PNG/SVG export). Falls back to the URL.
+    async function assetToDataURL(u) {
+      try {
+        const r = await fetch(u, { mode: 'cors' });
+        const b = await r.blob();
+        return await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(b); });
+      } catch (e) { return u; }
+    }
+
+    // Enrich a link card with title/description/thumbnail via microlink (a
+    // CORS-enabled public unfurl API). Offline/blocked → keep the simple card.
+    async function enrichLink(node) {
+      if (typeof fetch !== 'function') return;   // jsdom / no network
+      try {
+        const r = await fetch('https://api.microlink.io/?url=' + encodeURIComponent(node.url));
+        const j = await r.json();
+        if (j.status !== 'success' || !j.data) throw new Error('unfurl failed');
+        const live = nodes.find(n => n.id === node.id);
+        if (!live) return;   // node deleted while fetching
+        live.title = j.data.title || '';
+        live.desc = j.data.description || '';
+        live.image = j.data.image && j.data.image.url ? await assetToDataURL(j.data.image.url) : '';
+        live.favicon = (j.data.logo && j.data.logo.url) ? await assetToDataURL(j.data.logo.url) : '';
+        fitLinkNode(live);
+        saveState();
+        render();
+      } catch (e) {
+        const live = nodes.find(n => n.id === node.id);
+        if (!live) return;
+        try { live.favicon = await assetToDataURL('https://www.google.com/s2/favicons?domain=' + encodeURIComponent(live.domain) + '&sz=64'); render(); } catch (_) {}
+        toast('Simple link card (preview unavailable)', 'info');
+      }
+    }
+
     // Read an image blob, downscale (cap longest side at 640px to keep data
     // URLs / share-links manageable), then drop it as an image node sized to fit.
     function handleImagePaste(blob) {
@@ -4182,7 +4272,11 @@
         if (blob) { e.preventDefault(); handleImagePaste(blob); return; }
       }
       const text = cd.getData ? cd.getData('text/plain') : '';
-      if (text && text.trim()) { e.preventDefault(); createTextNodeFromPaste(text); }
+      if (text && text.trim()) {
+        e.preventDefault();
+        if (isUrl(text)) createLinkNode(text.trim());
+        else createTextNodeFromPaste(text);
+      }
     });
     
     // Toolbar label editing
