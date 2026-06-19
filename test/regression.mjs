@@ -946,4 +946,29 @@ group('v2: share-link size guard');
   check('share URL would exceed Firefox-class limit', big > 65000);
 }
 
+// ---------------------------------------------------------------------------
+group('v2: paste Mermaid code -> append diagram (no canvas wipe)');
+{
+  const { win, E } = boot();
+  // detection
+  check('isMermaid: flowchart header', E(`isMermaid('flowchart TD\\n A-->B')`) === true);
+  check('isMermaid: edges + node shapes (no header)', E(`isMermaid('A[Start] --> B{Go}')`) === true);
+  check('isMermaid: plain prose is not Mermaid', E(`isMermaid('hello world, see you -- later')`) === false);
+  check('isMermaid: a URL is not Mermaid', E(`isMermaid('https://example.com')`) === false);
+  // seed an existing diagram, then append via Mermaid paste
+  const a = win.createNode('rect', 100, 100, 120, 60); a.label = 'existing';
+  win.render();
+  const beforeNodes = E('nodes.length');
+  const ok = win.importMermaid(true, { code: 'flowchart TD\n  A[Login] --> B{Auth?}\n  B -->|yes| C[Home]\n  B -->|no| D[Retry]', append: true });
+  check('importMermaid(append) returns true', ok === true);
+  check('existing node is NOT wiped', E(`nodes.some(n=>n.label==='existing')`) === true);
+  check('mermaid nodes were added on top of existing', E('nodes.length') >= beforeNodes + 4);
+  check('appended connections exist', E('connections.length') >= 3);
+  // appended block sits to the RIGHT of the existing node (offset, not overlapping)
+  const minNewX = E(`Math.min(...nodes.filter(n=>n.label!=='existing'&&n.type!=='line').map(n=>n.x))`);
+  check('appended diagram is offset to the side', minNewX >= 120, `minNewX=${minNewX}`);
+  // the newly added nodes are selected
+  check('appended nodes are selected', E('selectedIds.length') >= 4);
+}
+
 process.exit(report() ? 0 : 1);

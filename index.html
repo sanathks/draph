@@ -4249,6 +4249,16 @@
 
     // A single http(s) URL token (no surrounding whitespace).
     function isUrl(text) { return /^https?:\/\/\S+$/i.test(String(text).trim()) && !/\s/.test(String(text).trim()); }
+
+    // Heuristic: does pasted text look like Mermaid code? Either a known diagram
+    // header, or edge syntax (-->, ---, ==>) combined with node-shape syntax.
+    function isMermaid(text) {
+      const t = String(text).trim();
+      if (/^(flowchart|graph)\s+(TB|TD|BT|RL|LR)\b/im.test(t)) return true;
+      if (/^(sequenceDiagram|classDiagram|stateDiagram(-v2)?|erDiagram|gantt|pie|mindmap|journey|gitGraph)\b/im.test(t)) return true;
+      if (/(--?>|==>|-\.->|---)/.test(t) && /\w+\s*[\[\(\{]/.test(t)) return true;
+      return false;
+    }
     function urlDomain(url) { try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return url; } }
 
     // Size a link card from its content (taller when it has a thumbnail).
@@ -4354,6 +4364,9 @@
       if (text && text.trim()) {
         e.preventDefault();
         if (isUrl(text)) createLinkNode(text.trim());
+        // Mermaid code -> render it INTO the canvas beside existing content.
+        // Falls back to a text node if it doesn't actually parse.
+        else if (isMermaid(text) && importMermaid(true, { code: text, append: true })) { /* added */ }
         else createTextNodeFromPaste(text);
       }
     });
@@ -6004,40 +6017,48 @@
       }
     }
     
-    function importMermaid(force) {
+    // importMermaid(force, opts). opts.code overrides the editor; opts.append
+    // ADDS the parsed diagram beside the current canvas instead of replacing it
+    // (used by paste). Returns true on success. In append/paste mode it stays
+    // quiet on failure so the caller can fall back (e.g. to a text node).
+    function importMermaid(force, opts) {
+      opts = opts || {};
+      const append = !!opts.append;
       const editor = document.getElementById('mermaidEditor');
-      const code = editor.value.trim();
+      const code = (opts.code != null ? opts.code : editor.value).trim();
       const errorDiv = document.getElementById('mermaidError');
 
       if (!code || code === 'flowchart TD' || code === 'flowchart TD\n    %% Empty diagram') {
-        errorDiv.textContent = 'No code to import';
-        errorDiv.style.display = 'block';
-        return;
+        if (!append) { errorDiv.textContent = 'No code to import'; errorDiv.style.display = 'block'; }
+        return false;
       }
 
-      // Confirm if diagram exists (non-blocking dialog; re-runs with force=true)
-      if (!force && nodes.length > 0) {
+      // Confirm if diagram exists (non-blocking dialog; re-runs with force=true).
+      // Append mode never replaces, so it skips the prompt.
+      if (!append && !force && nodes.length > 0) {
         confirmDialog('This will replace your current diagram. Continue?', () => importMermaid(true), { okLabel: 'Replace' });
-        return;
+        return false;
       }
 
       try {
         const parsed = parseMermaid(code);
-        
+
         if (parsed.nodes.length === 0) {
-          errorDiv.textContent = 'No nodes found in code';
-          errorDiv.style.display = 'block';
-          return;
+          if (!append) { errorDiv.textContent = 'No nodes found in code'; errorDiv.style.display = 'block'; }
+          return false;
         }
-        
+
         errorDiv.style.display = 'none';
-        
-        // Clear current diagram
+
+        // Replace clears the canvas first; append keeps it.
         saveState();
-        nodes = [];
-        connections = [];
-        sequenceFrames = [];
-        
+        if (!append) {
+          nodes = [];
+          connections = [];
+          sequenceFrames = [];
+        }
+        const _appendStart = nodes.length;
+
         // Strip <br/> tags from labels
         parsed.nodes.forEach(n => {
           if (n.label) n.label = n.label.replace(/<br\s*\/?>/gi, ' ').trim();
@@ -6050,6 +6071,16 @@
         
         // Create nodes with layout (pass connections for graph-aware positioning)
         const layouted = layoutNodes(parsed.nodes, parsed.diagramType, parsed.subgraphs, parsed.connections);
+        // Append mode: shift the new diagram to sit just right of existing content.
+        if (append && layouted.length) {
+          const ex = getContentBounds();
+          if (ex) {
+            const lminX = Math.min(...layouted.map(n => n.x));
+            const lminY = Math.min(...layouted.map(n => n.y));
+            const dx = (ex.maxX + 80) - lminX, dy = ex.minY - lminY;
+            layouted.forEach(n => { n.x += dx; n.y += dy; });
+          }
+        }
         const idMap = {};
         const isSequence = parsed.diagramType === 'sequence';
         
@@ -6187,20 +6218,30 @@
         // Layout already applied by layoutNodes - just save and render
         saveState();
         render();
-        
-        // Center view on content
-        const bounds = getContentBounds();
-        if (bounds) {
-          const contentWidth = bounds.maxX - bounds.minX;
-          const contentHeight = bounds.maxY - bounds.minY;
-          viewBox.x = bounds.minX - (viewBox.w - contentWidth) / 2;
-          viewBox.y = bounds.minY - (viewBox.h - contentHeight) / 2;
-          updateViewBox();
+
+        if (append) {
+          // Select the just-added nodes (skip lines) so the user sees what landed.
+          selectedIds = nodes.slice(_appendStart).filter(n => n.type !== 'line').map(n => n.id);
+          selectedId = null;
+          floatingToolbar.classList.add('hidden');
+          render();
+          updateUrlHash();
+        } else {
+          // Center view on content
+          const bounds = getContentBounds();
+          if (bounds) {
+            const contentWidth = bounds.maxX - bounds.minX;
+            const contentHeight = bounds.maxY - bounds.minY;
+            viewBox.x = bounds.minX - (viewBox.w - contentWidth) / 2;
+            viewBox.y = bounds.minY - (viewBox.h - contentHeight) / 2;
+            updateViewBox();
+          }
         }
-        
+        return true;
+
       } catch (e) {
-        errorDiv.textContent = 'Parse error: ' + e.message;
-        errorDiv.style.display = 'block';
+        if (!append) { errorDiv.textContent = 'Parse error: ' + e.message; errorDiv.style.display = 'block'; }
+        return false;
       }
     }
     
