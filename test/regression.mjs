@@ -617,7 +617,7 @@ group('v2: local autosave & restore');
   const { win, E } = boot();
   win.createNode('rect', 100, 100, 120, 44);
   win.saveState(); // triggers updateUrlHash -> autosave
-  const stored = E(`localStorage.getItem(AUTOSAVE_KEY)`);
+  const stored = E(`localStorage.getItem('draph:autosave')`);
   check('saving writes an autosave to localStorage', !!stored && stored.includes('"n"'));
   // restoreAutosave repopulates an empty canvas from storage
   E('nodes.length = 0; connections.length = 0;');
@@ -626,7 +626,7 @@ group('v2: local autosave & restore');
   // clearing to empty removes the autosave
   E('nodes.length = 0; connections.length = 0;');
   win.updateUrlHash();
-  check('emptying the canvas clears the autosave', E(`localStorage.getItem(AUTOSAVE_KEY)`) === null);
+  check('emptying the canvas clears the autosave', E(`localStorage.getItem('draph:autosave')`) === null);
   // loadFromUrl now reports whether it loaded (init uses this to fall back)
   check('loadFromUrl returns false with no hash', E(`loadFromUrl()`) === false);
 }
@@ -840,6 +840,13 @@ group('v2: curved connection line style');
   check('rendered curved connection path contains a bezier', !!pathEl && /C/.test(pathEl.getAttribute('d')), pathEl && pathEl.getAttribute('d').slice(0, 30));
   // the curved menu item exists
   check('Curved lines menu item exists', !!doc.querySelector('[data-line="curved"]'));
+  // curved is the default for new connections
+  check('globalLineStyle defaults to curved', E(`globalLineStyle`) === 'curved');
+  // line-style choice persists to localStorage
+  win.setGlobalLineStyle('straight');
+  check('setGlobalLineStyle persists to localStorage', win.localStorage.getItem('draph:lineStyle') === 'straight');
+  win.setGlobalLineStyle('curved');
+  check('switching back persists curved', win.localStorage.getItem('draph:lineStyle') === 'curved');
 }
 
 process.exit(report() ? 0 : 1);

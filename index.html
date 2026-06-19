@@ -894,7 +894,23 @@
     let historyIndex = -1;       // pointer into historyStack
     let snapToGrid = true;       // snap positions to GRID_SIZE
     let clipboard = null;        // copy/paste buffer
-    let globalLineStyle = 'rounded'; // default lineStyle for new connections
+    let globalLineStyle = 'curved'; // default lineStyle for new connections
+
+    // --- Persisted settings (localStorage-backed) ----------------------------
+    // One place for the key prefix and the try/catch (Safari private mode / quota
+    // errors must never break the app). Use these for every saved preference:
+    //   const v = loadSetting('theme', 'dark');  saveSetting('theme', 'light');
+    const SETTINGS_PREFIX = 'draph:';
+    function loadSetting(key, fallback = null) {
+      try { const v = localStorage.getItem(SETTINGS_PREFIX + key); return v === null ? fallback : v; }
+      catch (e) { return fallback; }
+    }
+    function saveSetting(key, value) {
+      try { localStorage.setItem(SETTINGS_PREFIX + key, value); } catch (e) {}
+    }
+    function removeSetting(key) {
+      try { localStorage.removeItem(SETTINGS_PREFIX + key); } catch (e) {}
+    }
     
     const canvas = document.getElementById('canvas');
     const nodesGroup = document.getElementById('nodes');
@@ -959,7 +975,6 @@
       light: { bg: '#f3f4fa', bg2: '#ffffff', fg: '#3a4060', accent: '#3d59a1', border: '#ccd0e0' },
     };
     const COLORS = { ...THEMES.dark };
-    const THEME_KEY = 'draph:theme';
     let currentTheme = 'dark';
     // Switch theme: update the <html> data attribute (drives all CSS vars),
     // swap the canvas palette, persist, and re-render so canvas colors refresh.
@@ -967,7 +982,7 @@
       currentTheme = (theme === 'light') ? 'light' : 'dark';
       document.documentElement.dataset.theme = currentTheme;
       Object.assign(COLORS, THEMES[currentTheme]);
-      if (persist) { try { localStorage.setItem(THEME_KEY, currentTheme); } catch (e) {} }
+      if (persist) saveSetting('theme', currentTheme);
       const tbtn = document.getElementById('themeToggleBtn');
       if (tbtn) tbtn.title = currentTheme === 'light' ? 'Switch to dark theme' : 'Switch to light theme';
       if (typeof render === 'function' && nodes) render();
@@ -1190,16 +1205,15 @@
       viewBox = { x: 0, y: 0, w: rect.width, h: rect.height };
       updateViewBox();
       // Restore the saved theme before the first render (no persist write).
-      let savedTheme = 'dark';
-      try { savedTheme = localStorage.getItem(THEME_KEY) || 'dark'; } catch (e) {}
-      applyTheme(savedTheme, false);
+      applyTheme(loadSetting('theme', 'dark'), false);
       buildPalettes();
       bindCanvasEvents();
       // Share-link hash wins; otherwise restore the last autosaved diagram.
       if (!loadFromUrl()) restoreAutosave();
       saveState();
       render();
-      setGlobalLineStyle('rounded');
+      // Restore the saved line-style preference (defaults to curved).
+      setGlobalLineStyle(loadSetting('lineStyle', 'curved'));
     }
     
     function generateId() { return 'n' + (++idCounter); }
@@ -1235,12 +1249,10 @@
       }
     }
     
-    const AUTOSAVE_KEY = 'draph:autosave';   // localStorage key for the last diagram
-
     function updateUrlHash() {
       if (nodes.length === 0 && connections.length === 0) {
         history.replaceState(null, '', window.location.pathname);
-        try { localStorage.removeItem(AUTOSAVE_KEY); } catch (e) {}
+        removeSetting('autosave');
         return;
       }
       // Save viewport position along with diagram data
@@ -1248,7 +1260,7 @@
       const json = JSON.stringify(data);
       history.replaceState(null, '', '#' + btoa(encodeURIComponent(json)));
       // Autosave locally so the diagram survives a reload even without the hash
-      try { localStorage.setItem(AUTOSAVE_KEY, json); } catch (e) {}
+      saveSetting('autosave', json);
     }
     
     function loadFromUrl() {
@@ -1262,7 +1274,7 @@
     // there's no share-link hash). Returns true if a diagram was loaded.
     function restoreAutosave() {
       try {
-        const json = localStorage.getItem(AUTOSAVE_KEY);
+        const json = loadSetting('autosave');
         return json ? loadDiagramJson(json) : false;
       } catch (e) { return false; }
     }
@@ -1924,7 +1936,7 @@
         }
         
         // Smart routing — respects manually-locked sides, auto-distributes the rest
-        const lineStyle = conn.lineStyle || 'rounded';
+        const lineStyle = conn.lineStyle || 'curved';   // curved is the default
         const cg = connGeom.sideOf.get(conn.id) || getOptimalSides(from, to);
         const { points, endX, endY, inDir } = routeConnection(from, to, cg.fromSide, cg.toSide);
         const [x1, y1] = [points[0].x, points[0].y];
@@ -3192,8 +3204,9 @@
       }
     }
     
-    function setGlobalLineStyle(style) {
+    function setGlobalLineStyle(style, persist = true) {
       globalLineStyle = style;
+      if (persist) saveSetting('lineStyle', style);
       document.querySelectorAll('[data-line]').forEach(btn => btn.classList.toggle('active', btn.dataset.line === style));
       connections.forEach(c => c.lineStyle = style);
       closeDropdowns();
