@@ -1036,4 +1036,36 @@ group('v2: Mermaid ER diagram import (erDiagram)');
   check('ER import carries the dashed edge style', E(`connections.some(c=>c.strokeStyle==='dashed')`));
 }
 
+// ---------------------------------------------------------------------------
+group('v2: Mermaid mindmap import (indentation tree)');
+{
+  const { win, E } = boot();
+  const code = [
+    'mindmap',
+    '  root((Project))',
+    '    Planning',
+    '      Scope',
+    '      Timeline',
+    '    Build',
+    '      Frontend',
+    '      Backend',
+  ].join('\n');
+  const parsed = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('mindmap makes one node per line', parsed.nodes.length === 7);
+  check('mindmap root is a circle with its label', parsed.nodes.some(n => n.type === 'circle' && n.label === 'Project'));
+  check('mindmap builds parent->child edges', parsed.connections.length === 6);
+  // hierarchy: Scope's parent is Planning (not root)
+  const idOf = (lbl) => parsed.nodes.find(n => n.label === lbl).id;
+  check('mindmap nests by indentation', parsed.connections.some(c => c.from === idOf('Planning') && c.to === idOf('Scope')));
+  check('root parents the top-level branches', parsed.connections.some(c => c.from === idOf('Project') && c.to === idOf('Build')));
+  // shape parsing
+  const code2 = ['mindmap', '  A((Root))', '    B[Square]', '    C(Rounded)'].join('\n');
+  const p2 = E(`parseMermaid(${JSON.stringify(code2)})`);
+  check('mindmap shapes: [] -> rect, () -> pill', p2.nodes.some(n => n.label === 'Square' && n.type === 'rect') && p2.nodes.some(n => n.label === 'Rounded' && n.type === 'pill'));
+  // full import
+  const ed = win.document.getElementById('mermaidEditor');
+  ed.value = code; win.importMermaid(true);
+  check('mindmap import builds the tree', E(`nodes.filter(n=>n.type!=='line').length`) === 7 && E('connections.length') === 6);
+}
+
 process.exit(report() ? 0 : 1);

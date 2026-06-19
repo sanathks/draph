@@ -5264,9 +5264,48 @@
       if (firstLine.match(/^erDiagram/i)) {
         return parseErDiagram(lines.slice(1));
       }
+      if (firstLine.match(/^mindmap/i)) {
+        return parseMindmap(code);   // needs RAW lines: hierarchy is by indentation
+      }
 
       // Default: flowchart
       return parseFlowchart(lines);
+    }
+
+    // Mindmaps. Hierarchy is defined by INDENTATION (not arrows), so this works
+    // on the raw code. Each line is a node; its parent is the nearest line with
+    // smaller indentation. Shapes: ((circle)), (rounded), [square], {{hex}}.
+    // Rendered as a top-down tree (Mermaid draws it radially — see tracker).
+    function parseMindmap(rawCode) {
+      const result = { nodes: [], connections: [], errors: [], diagramType: 'flowchart' };
+      const used = new Set();
+      const stack = [];   // [{ indent, id }]
+      let auto = 0;
+      for (const raw of rawCode.split('\n')) {
+        if (!raw.trim()) continue;
+        if (/^\s*mindmap\s*$/i.test(raw)) continue;
+        let content = raw.trim();
+        if (content.startsWith('%%') || /^::icon/i.test(content)) continue;   // skip icon decorations
+        content = content.replace(/:::\S+\s*$/, '').trim();                   // drop ::: class suffix
+        if (!content) continue;
+        const indent = raw.match(/^\s*/)[0].replace(/\t/g, '  ').length;
+
+        let type = 'rect', label = content, id = null, m;
+        if ((m = content.match(/^(\w*)\(\((.+)\)\)$/))) { type = 'circle'; id = m[1]; label = m[2]; }
+        else if ((m = content.match(/^(\w*)\{\{(.+)\}\}$/))) { type = 'rect'; id = m[1]; label = m[2]; }
+        else if ((m = content.match(/^(\w*)\[(.+)\]$/))) { type = 'rect'; id = m[1]; label = m[2]; }
+        else if ((m = content.match(/^(\w*)\((.+)\)$/))) { type = 'pill'; id = m[1]; label = m[2]; }
+
+        let nodeId = (id && id.length) ? id : ('mm' + (++auto));
+        while (used.has(nodeId)) nodeId = 'mm' + (++auto);
+        used.add(nodeId);
+        result.nodes.push({ id: nodeId, type, label });
+
+        while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
+        if (stack.length) result.connections.push({ from: stack[stack.length - 1].id, to: nodeId });
+        stack.push({ indent, id: nodeId });
+      }
+      return result;
     }
 
     // Entity-Relationship diagrams (erDiagram). Entities become class-style boxes
