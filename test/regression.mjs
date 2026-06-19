@@ -906,6 +906,20 @@ group('v2: paste a URL -> link-preview card');
   ev.clipboardData = { items: [], getData: () => 'https://example.com/page' };
   doc.dispatchEvent(ev);
   check('pasting a URL adds a link node', E('nodes.length') === before + 1 && E('nodes[nodes.length-1].type') === 'link');
+  // persistence: a link card stores ONLY its URL (+geometry), never the fetched
+  // thumbnail/title/desc/favicon — those are re-fetched on load.
+  E(`nodes.find(n=>n.id==='${ln.id}').image = 'data:image/png;base64,'+'X'.repeat(50000)`);
+  E(`nodes.find(n=>n.id==='${ln.id}').title = 'Heavy Title'`);
+  const ser = E(`JSON.stringify(serializeNodes().find(n=>n.id==='${ln.id}'))`);
+  const obj = JSON.parse(ser);
+  check('serialized link keeps the url', obj.url === 'https://github.com/sanathks/draph');
+  check('serialized link drops the thumbnail/title (URL-only)', obj.image === undefined && obj.title === undefined && obj.favicon === undefined);
+  check('serialized link is tiny (no embedded image)', ser.length < 300, `len=${ser.length}`);
+  // a loaded diagram re-hydrates link nodes (blank rich fields, domain set)
+  const payload = E(`JSON.stringify({n:[{id:'L1',type:'link',url:'https://youtube.com/watch?v=abc',x:0,y:0,width:300}],c:[],v:{x:0,y:0,z:1}})`);
+  win.loadDiagramJson(payload);
+  check('loaded link node gets its domain back', E(`nodes[0].domain`) === 'youtube.com');
+  check('loaded link node starts without a persisted thumbnail', E(`nodes[0].image`) === '');
 }
 
 // ---------------------------------------------------------------------------

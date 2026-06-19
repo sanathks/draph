@@ -1306,6 +1306,18 @@
       }
     }
     
+    // Nodes prepared for persistence. Link cards keep ONLY their URL (+ geometry);
+    // the fetched preview (thumbnail/title/desc/favicon) is re-loaded on open, so
+    // a diagram full of links stays tiny instead of embedding every thumbnail.
+    function serializeNodes() {
+      return nodes.map(n => {
+        if (n.type === 'link') {
+          return { id: n.id, type: 'link', url: n.url, x: n.x, y: n.y, width: n.width };
+        }
+        return n;
+      });
+    }
+
     function updateUrlHash() {
       if (nodes.length === 0 && connections.length === 0) {
         history.replaceState(null, '', window.location.pathname);
@@ -1313,7 +1325,7 @@
         return;
       }
       // Save viewport position along with diagram data
-      const data = { n: nodes, c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom } };
+      const data = { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom } };
       const json = JSON.stringify(data);
       history.replaceState(null, '', '#' + btoa(encodeURIComponent(json)));
       // Autosave locally so the diagram survives a reload even without the hash
@@ -1343,6 +1355,17 @@
         nodes = data.n || [];
         connections = data.c || [];
         idCounter = Math.max(...nodes.map(n => parseInt(n.id.slice(1)) || 0), 0) + 1;
+        // Link cards persist only their URL — rebuild the preview on load: show a
+        // simple card immediately, then re-fetch the rich data (thumbnail/title).
+        nodes.forEach(n => {
+          if (n.type === 'link' && n.url) {
+            n.domain = urlDomain(n.url);
+            n.title = ''; n.desc = ''; n.image = ''; n.favicon = '';
+            if (!n.width) n.width = 300;
+            fitLinkNode(n);
+            enrichLink(n);
+          }
+        });
         const rect = canvas.getBoundingClientRect();
         // Restore viewport position if saved, but verify content is visible
         let shouldAutoCenter = !data.v;
@@ -1392,7 +1415,7 @@
     // The full share URL (hash-encoded diagram) WITHOUT touching the address bar,
     // so we can measure its length before committing.
     function diagramShareUrl() {
-      const data = { n: nodes, c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom } };
+      const data = { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom } };
       return location.origin + location.pathname + '#' + btoa(encodeURIComponent(JSON.stringify(data)));
     }
 
@@ -1445,7 +1468,7 @@
         toast('Nothing to save yet — add a shape first', 'error');
         return;
       }
-      const data = { n: nodes, c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom }, app: 'draph', version: 2 };
+      const data = { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom }, app: 'draph', version: 2 };
       const json = JSON.stringify(data, null, 2);
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -4258,10 +4281,11 @@
         if (!live) return;   // node deleted while fetching
         live.title = j.data.title || '';
         live.desc = j.data.description || '';
+        // Inline to data URLs in memory only (keeps PNG/SVG export working);
+        // serializeNodes() strips these so they're never persisted.
         live.image = j.data.image && j.data.image.url ? await assetToDataURL(j.data.image.url) : '';
         live.favicon = (j.data.logo && j.data.logo.url) ? await assetToDataURL(j.data.logo.url) : '';
         fitLinkNode(live);
-        saveState();
         render();
       } catch (e) {
         const live = nodes.find(n => n.id === node.id);
