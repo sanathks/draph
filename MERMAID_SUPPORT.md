@@ -18,7 +18,7 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
 | State | `stateDiagram` / `-v2` | 🟡 | **NEW.** states→rounded rects, transitions+labels, `[*]`→small dot. TODO: composite (nested) states as containers, `note`, `<<fork>>/<<join>>/<<choice>>` shapes, `direction`, concurrency `--` |
 | Entity-Relationship | `erDiagram` | 🟡 | **NEW.** entities→class-style boxes w/ attribute rows (+PK/FK/UK tags), relationships→labeled edges, non-identifying `..`→dashed. TODO: crow's-foot cardinality markers (`||`, `o{`, `}|`…) on the edge ends |
 | Mindmap | `mindmap` | 🟡 | **NEW.** indentation-based tree → nodes + parent/child edges; shapes `((circle))`/`(round)`/`[square]`/`{{hex→rect}}`. TODO: radial layout (currently top-down tree), `::icon()` rendering, class styling |
-| Timeline | `timeline` | ⬜ | periods → grouped events |
+| Timeline | `timeline` | 🟡 | **NEW.** `period : event…` → period (pill) with event (rect) children; `: event` continues a period; `section` → grouping container. Laid out top-down (Mermaid is horizontal). TODO: title node, horizontal lane layout, section colors |
 | Gantt | `gantt` | ⬜ | sections/tasks with dates — needs a time axis (likely a custom render) |
 | Pie | `pie` | ⬜ | needs a pie/chart render (not a node graph) |
 | User Journey | `journey` | ⬜ | sections, tasks, actor scores |
@@ -42,6 +42,9 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
   line, any needed render tweaks, and regression tests in `test/regression.mjs`.
 
 ## Changelog
+- **Timeline (first cut):** `parseTimeline` — periods→pills, events→rect
+  children, `: event` continuation, `section`→subgraph containers. Title ignored;
+  laid out top-down rather than horizontal. Covered by regression tests.
 - **Mindmaps (first cut):** `parseMindmap` added — works on raw code since
   hierarchy is indentation-based; nearest-smaller-indent = parent. Node shapes
   parsed; rendered as a top-down tree (not radial yet); icons/class ignored.

@@ -1068,4 +1068,33 @@ group('v2: Mermaid mindmap import (indentation tree)');
   check('mindmap import builds the tree', E(`nodes.filter(n=>n.type!=='line').length`) === 7 && E('connections.length') === 6);
 }
 
+// ---------------------------------------------------------------------------
+group('v2: Mermaid timeline import');
+{
+  const { win, E } = boot();
+  const code = [
+    'timeline',
+    '    title History',
+    '    2002 : LinkedIn',
+    '    2004 : Facebook : Google',
+    '    2005 : YouTube',
+  ].join('\n');
+  const parsed = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('timeline makes period nodes (pills)', parsed.nodes.filter(n => n.type === 'pill').length === 3);
+  check('timeline makes an event node per event', parsed.nodes.some(n => n.label === 'Facebook') && parsed.nodes.some(n => n.label === 'Google'));
+  check('timeline ignores the title line', !parsed.nodes.some(n => n.label === 'History'));
+  // a period with two events -> two child edges from that period
+  const p2004 = parsed.nodes.find(n => n.label === '2004').id;
+  check('timeline links events to their period', parsed.connections.filter(c => c.from === p2004).length === 2);
+  // sections -> grouping containers
+  const code2 = ['timeline', '  section Early', '    2002 : LinkedIn', '  section Later', '    2006 : Twitter'].join('\n');
+  const p2 = E(`parseMermaid(${JSON.stringify(code2)})`);
+  check('timeline sections become subgraphs', Array.isArray(p2.subgraphs) && p2.subgraphs.length === 2);
+  check('section owns its period node', p2.subgraphs[0].children.length >= 1);
+  // full import
+  const ed = win.document.getElementById('mermaidEditor');
+  ed.value = code; win.importMermaid(true);
+  check('timeline import builds periods + events', E(`nodes.filter(n=>n.type!=='line').length`) >= 5 && E('connections.length') >= 4);
+}
+
 process.exit(report() ? 0 : 1);

@@ -5267,9 +5267,52 @@
       if (firstLine.match(/^mindmap/i)) {
         return parseMindmap(code);   // needs RAW lines: hierarchy is by indentation
       }
+      if (firstLine.match(/^timeline\b/i)) {
+        return parseTimeline(lines.slice(1));
+      }
 
       // Default: flowchart
       return parseFlowchart(lines);
+    }
+
+    // Timelines. `period : event [: event…]` — a time period (pill) with one or
+    // more events (rects) hanging below it; `: event` continues the previous
+    // period; `section Name` groups subsequent periods into a container. Laid out
+    // as periods-across-the-top with events below (Mermaid draws it horizontally).
+    function parseTimeline(lines) {
+      const result = { nodes: [], connections: [], errors: [], diagramType: 'flowchart', subgraphs: [] };
+      let auto = 0, lastPeriodId = null, section = null;
+      const addEvent = (label) => {
+        const id = 'ev' + (++auto);
+        result.nodes.push({ id, type: 'rect', label });
+        if (lastPeriodId) result.connections.push({ from: lastPeriodId, to: id });
+        if (section) section.children.push(id);
+      };
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith('%%') || /^timeline\b/i.test(line) || /^title\s/i.test(line)) continue;
+        let m = line.match(/^section\s+(.+)$/i);
+        if (m) { section = { id: 'sec' + (++auto), label: m[1].trim(), children: [] }; result.subgraphs.push(section); continue; }
+        if (line.startsWith(':')) {                            // continuation events for the last period
+          line.slice(1).split(':').map(s => s.trim()).filter(Boolean).forEach(addEvent);
+          continue;
+        }
+        if (line.includes(':')) {                              // period : event [: event…]
+          const parts = line.split(':').map(s => s.trim());
+          const pid = 'pd' + (++auto);
+          result.nodes.push({ id: pid, type: 'pill', label: parts[0] });
+          if (section) section.children.push(pid);
+          lastPeriodId = pid;
+          parts.slice(1).filter(Boolean).forEach(addEvent);
+          continue;
+        }
+        const pid = 'pd' + (++auto);                           // bare period, no events
+        result.nodes.push({ id: pid, type: 'pill', label: line });
+        if (section) section.children.push(pid);
+        lastPeriodId = pid;
+      }
+      if (result.subgraphs.length === 0) delete result.subgraphs;
+      return result;
     }
 
     // Mindmaps. Hierarchy is defined by INDENTATION (not arrows), so this works
