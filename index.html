@@ -1389,12 +1389,51 @@
         return nodes.length > 0;
     }
     
+    // The full share URL (hash-encoded diagram) WITHOUT touching the address bar,
+    // so we can measure its length before committing.
+    function diagramShareUrl() {
+      const data = { n: nodes, c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom } };
+      return location.origin + location.pathname + '#' + btoa(encodeURIComponent(JSON.stringify(data)));
+    }
+
+    // Practical max URL length the CURRENT browser can carry in a link, by UA.
+    // (Embedded images / link-card thumbnails are what push a diagram over this.)
+    function browserUrlLimit() {
+      const ua = navigator.userAgent || '';
+      if (/Firefox\//.test(ua)) return { name: 'Firefox', limit: 65000 };
+      if (/Edg\//.test(ua)) return { name: 'Edge', limit: 2000000 };
+      if (/(Chrome|Chromium|CriOS)\//.test(ua)) return { name: 'Chrome', limit: 2000000 };
+      if (/Safari\//.test(ua)) return { name: 'Safari', limit: 80000 };
+      return { name: 'this browser', limit: 60000 };
+    }
+    // Below this, a link opens reliably in *any* browser; above it (but under the
+    // current browser's hard limit) we still copy, but warn it may not open elsewhere.
+    const SHARE_SAFE_LEN = 30000;
+
     function shareDiagram() {
+      const url = diagramShareUrl();
+      const { name, limit } = browserUrlLimit();
+      const kb = Math.max(1, Math.round(url.length / 1024));
+
+      if (url.length > limit) {
+        // Too long even for this browser — a link would be broken. Offer the file.
+        confirmDialog(
+          `This diagram is ~${kb} KB — too large to share as a link in ${name} (embedded images/previews push it past the URL length limit). Save it as a .draph file and share that instead.`,
+          () => saveDiagramFile(),
+          { okLabel: 'Save as file' }
+        );
+        return;
+      }
+
       updateUrlHash();
-      navigator.clipboard.writeText(window.location.href).then(() => {
-        toast('Share link copied to clipboard', 'success');
+      navigator.clipboard.writeText(url).then(() => {
+        if (url.length > SHARE_SAFE_LEN) {
+          toast(`Link copied (~${kb} KB) — it's long and may not open in some browsers. For big diagrams, “Save to file” is more reliable.`, 'info', 6000);
+        } else {
+          toast('Share link copied to clipboard', 'success');
+        }
       }).catch(() => {
-        toast('Could not copy link', 'error');
+        toast('Could not copy link — try “Save to file” instead', 'error');
       });
     }
 

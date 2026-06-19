@@ -908,4 +908,22 @@ group('v2: paste a URL -> link-preview card');
   check('pasting a URL adds a link node', E('nodes.length') === before + 1 && E('nodes[nodes.length-1].type') === 'link');
 }
 
+// ---------------------------------------------------------------------------
+group('v2: share-link size guard');
+{
+  const { win, E } = boot();
+  // browser limit detection returns a sane shape
+  const lim = E('browserUrlLimit()');
+  check('browserUrlLimit returns a name + numeric limit', typeof lim.name === 'string' && typeof lim.limit === 'number' && lim.limit > 1000);
+  // share URL grows with content and is measurable before committing
+  win.createNode('rect', 100, 100, 160, 60);
+  const base = E('diagramShareUrl().length');
+  check('diagramShareUrl produces a hash URL', E(`diagramShareUrl().includes('#')`) && base > 20);
+  // a huge embedded image makes the URL exceed a (small) limit -> guard would trip
+  E(`nodes.push({id:'img1',type:'image',src:'data:image/png;base64,'+'A'.repeat(200000),x:0,y:0,width:100,height:100,label:''})`);
+  const big = E('diagramShareUrl().length');
+  check('embedded image inflates the share URL past 65k', big > 65000, `len=${big}`);
+  check('share URL would exceed Firefox-class limit', big > 65000);
+}
+
 process.exit(report() ? 0 : 1);
