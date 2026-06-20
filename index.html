@@ -5875,6 +5875,14 @@
       }
 
       result.nodes = Object.values(classMap);
+      // Pre-size each box (same formula as the renderer) so the connection-aware
+      // layout can space them without overlap.
+      result.nodes.forEach(n => {
+        const rows = [...n.properties, ...n.methods, n.label, n.stereotype ? '«' + n.stereotype + '»' : ''];
+        const longest = rows.reduce((mx, s) => Math.max(mx, (s || '').length), 0);
+        n.width = Math.max(160, longest * 7 + 24);
+        n.height = Math.max(70, (n.stereotype ? 42 : 28) + n.properties.length * 16 + n.methods.length * 16 + 8);
+      });
       return result;
     }
     
@@ -6110,16 +6118,12 @@
       }
       
       // Class diagram: wider spacing
-      if (diagramType === 'class') {
-        const cols = Math.ceil(Math.sqrt(parsedNodes.length));
-        return parsedNodes.map((n, i) => ({
-          ...n,
-          x: startX + (i % cols) * 220,
-          y: startY + Math.floor(i / cols) * 180
-        }));
-      }
-      
-      // === Sugiyama-style layered layout for flowcharts ===
+      // Class diagrams fall through to the connection-aware Sugiyama layout
+      // below (parseClassDiagram pre-sizes each box via n.width/n.height, so the
+      // layout spaces them without overlap and groups them by their relations).
+      // The old fixed 220×180 grid ignored both size and edges → overlapping mess.
+
+      // === Sugiyama-style layered layout (flowcharts + class) ===
       const conns = parsedConnections || [];
       const nodeById = {};
       parsedNodes.forEach(n => { nodeById[n.id] = n; });
@@ -6540,10 +6544,8 @@
           const isFixed = n.fixed;       // gantt bars: absolute geometry, no auto-size
           let width, height;
           if (isClass) {
-            const rows = [...(n.properties || []), ...(n.methods || []), n.label || '', n.stereotype ? '«' + n.stereotype + '»' : ''];
-            const longest = rows.reduce((mx, s) => Math.max(mx, (s || '').length), 0);
-            width = Math.max(160, longest * 7 + 24);
-            height = Math.max(70, (n.stereotype ? 42 : 28) + (n.properties?.length || 0) * 16 + (n.methods?.length || 0) * 16 + 8);
+            // size was precomputed in parseClassDiagram (used by the layout too)
+            width = n.width; height = n.height;
           } else if (isParticipant) {
             width = 100;
             height = 40;

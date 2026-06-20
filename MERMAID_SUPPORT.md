@@ -42,6 +42,11 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
   line, any needed render tweaks, and regression tests in `test/regression.mjs`.
 
 ## Changelog
+- **Class diagram layout fix:** replaced the fixed 220×180 grid (which let big
+  boxes overlap and ignored edges) with the connection-aware Sugiyama layout.
+  Class boxes are pre-sized in parseClassDiagram so the layout spaces them
+  without overlap and stacks parents above subclasses. Tested (pairwise
+  no-overlap + parent-above-child).
 - **Quadrant (first cut):** new `quadrant` node type — `parseQuadrant` reads
   axes, the 4 quadrant labels, and points `[x,y]`; renderNodes draws the 2×2
   plot (tinted cells, cross, axis labels, point dots). Tested.

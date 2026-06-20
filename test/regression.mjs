@@ -1306,4 +1306,37 @@ group('v2: Mermaid quadrantChart import');
   check('quadrant renders axis labels', !!el && /High Reach/.test(el.textContent));
 }
 
+// ---------------------------------------------------------------------------
+group('v2: class diagram layout is connection-aware + non-overlapping');
+{
+  const { win, doc, E } = boot();
+  const code = [
+    'classDiagram',
+    '  class Animal { +String name +eat() void }',
+    '  class Dog { +bark() void }',
+    '  class Cat { +meow() void }',
+    '  class Puppy { +play() void }',
+    '  Animal <|-- Dog',
+    '  Animal <|-- Cat',
+    '  Dog <|-- Puppy',
+  ].join('\n');
+  const ed = doc.getElementById('mermaidEditor');
+  ed.value = code; win.importMermaid(true);
+  const ns = E(`nodes.filter(n=>n.isClass).map(n=>({label:n.label,x:n.x,y:n.y,w:n.width,h:n.height}))`);
+  check('all four classes imported', ns.length === 4);
+  // no two class boxes overlap (the bug: fixed grid let big boxes collide)
+  let overlap = false;
+  for (let i = 0; i < ns.length; i++) for (let j = i + 1; j < ns.length; j++) {
+    const a = ns[i], b = ns[j];
+    const ox = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+    const oy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+    if (ox > 1 && oy > 1) overlap = true;
+  }
+  check('no two class boxes overlap', !overlap);
+  // connection-aware: parent (Animal) sits above its children (Dog/Cat)
+  const by = {}; ns.forEach(n => by[n.label] = n);
+  check('parent class is laid out above its subclasses', by['Animal'].y < by['Dog'].y && by['Animal'].y < by['Cat'].y);
+  check('grandchild is below its parent', by['Puppy'].y > by['Dog'].y);
+}
+
 process.exit(report() ? 0 : 1);
