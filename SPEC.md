@@ -53,9 +53,9 @@ and, when ready, implement + verify with `npm test`:
 - ~~**Subgraph layout parity:**~~ DONE (commit 57ac846) — the subgraph branch now
   shares the width-aware `estW/estH/HGAP/VGAP` sizing and preserves barycenter
   ordering inside each container; children no longer overlap on long labels.
-- **`fitNodeToLabel` shrink-to-fit (opt-in):** currently grow-only, so deleting
-  text leaves nodes oversized. Consider shrinking toward content unless the user
-  manually resized (needs a `manuallyResized` flag).
+- **`fitNodeToLabel` shrink-to-fit:** ✅ **DONE (#35)** — now shrinks toward
+  content (down to the type minimum) as well as grows; dragging the resize handle
+  sets `manuallyResized:true`, and such nodes are never auto-shrunk.
 - **Hard-break very long words:** a single unbreakable token still forces a very
   wide node; offer character-level wrapping past a width cap.
 - **Export test coverage:** PNG/SVG/GIF export is untested (jsdom lacks canvas).
