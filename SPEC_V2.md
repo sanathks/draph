@@ -52,8 +52,10 @@ Capabilities shipped in v1:
 5. **Routing is "two-endpoint aware," not obstacle-aware** — edges can still
    cross unrelated nodes; no waypoints or manual bends.
 6. **No theming** beyond the single Tokyo Night palette.
-7. **Weak on touch/mobile and accessibility** — mouse-only, limited keyboard
-   nav, no ARIA/screen-reader story.
+7. **Weak on touch/mobile and accessibility** — ~~mouse-only~~ **touch/Apple-Pencil
+   now supported** (#21: canvas runs on Pointer events, `touch-action:none`,
+   two-finger pinch-zoom + pan, pen-pressure capture, palm rejection); still
+   limited keyboard nav, no ARIA/screen-reader story.
 8. **No AI authoring** despite being a natural fit (text → diagram, NL editing).
 
 ### 1.3 Target users & jobs-to-be-done

@@ -1545,4 +1545,47 @@ group('Touch & pointer input (#21): pointer-event migration + pen pressure');
   pointer(doc, 'pointerup', 60, 60, { pointerType: 'touch' });
 }
 
+group('Touch & pointer input (#21): multi-touch pinch/pan + palm rejection');
+{
+  const { doc, E } = boot();
+  const canvas = doc.getElementById('canvas');
+  // --- pinch-zoom: two fingers moving apart zooms IN (zoom value decreases) ---
+  E('zoom=1; viewBox.x=0; viewBox.y=0; viewBox.w=1200; viewBox.h=800;');
+  pointer(canvas, 'pointerdown', 400, 400, { pointerType: 'touch', pointerId: 1 });
+  pointer(canvas, 'pointerdown', 600, 400, { pointerType: 'touch', pointerId: 2 });
+  check('two touch pointers begin a pinch gesture', E('pinch !== null'));
+  const z0 = E('zoom');
+  pointer(doc, 'pointermove', 350, 400, { pointerType: 'touch', pointerId: 1 });
+  pointer(doc, 'pointermove', 650, 400, { pointerType: 'touch', pointerId: 2 });
+  check('fingers apart zooms in (zoom value drops)', E('zoom') < z0);
+  pointer(doc, 'pointerup', 350, 400, { pointerType: 'touch', pointerId: 1 });
+  pointer(doc, 'pointerup', 650, 400, { pointerType: 'touch', pointerId: 2 });
+  check('lifting a finger ends the pinch', E('pinch === null'));
+
+  // --- two-finger pan: dragging both fingers shifts the viewBox ---
+  const { doc: doc2, E: E2 } = boot();
+  const canvas2 = doc2.getElementById('canvas');
+  E2('zoom=1; viewBox.x=0; viewBox.y=0; viewBox.w=1200; viewBox.h=800;');
+  pointer(canvas2, 'pointerdown', 400, 400, { pointerType: 'touch', pointerId: 1 });
+  pointer(canvas2, 'pointerdown', 500, 400, { pointerType: 'touch', pointerId: 2 });
+  const vx0 = E2('viewBox.x');
+  pointer(doc2, 'pointermove', 450, 400, { pointerType: 'touch', pointerId: 1 });
+  pointer(doc2, 'pointermove', 550, 400, { pointerType: 'touch', pointerId: 2 });
+  check('two-finger drag moves the viewBox (pan)', E2('viewBox.x') !== vx0);
+
+  // --- palm rejection: a stray finger during a pen stroke is ignored ---
+  const { win: win3, doc: doc3, E: E3 } = boot();
+  const canvas3 = doc3.getElementById('canvas');
+  win3.setTool('pencil');
+  pointer(canvas3, 'pointerdown', 100, 100, { pointerType: 'pen', pointerId: 1, pressure: 0.5 });
+  pointer(doc3, 'pointermove', 140, 140, { pointerType: 'pen', pointerId: 1, pressure: 0.5 });
+  check('pen stroke marks penActive', E3('penActive === true'));
+  pointer(canvas3, 'pointerdown', 300, 300, { pointerType: 'touch', pointerId: 2 });
+  check('stray finger does not start a pinch while pen draws', E3('pinch === null'));
+  check('stray finger does not reset the in-progress pen stroke', E3('penciling !== null && penciling.points.length >= 2'));
+  pointer(doc3, 'pointerup', 140, 140, { pointerType: 'pen', pointerId: 1 });
+  check('exactly one pencil node after the pen stroke + palm touch', E3(`nodes.filter(n=>n.type==='pencil').length`) === 1);
+  check('penActive clears when the pen lifts', E3('penActive === false'));
+}
+
 process.exit(report() ? 0 : 1);

@@ -901,6 +901,9 @@
     let panning = false;         // canvas pan in progress (shift/middle-drag)
     let panStart = { x: 0, y: 0 };
     let selecting = null;        // marquee selection rect in progress
+    let activePointers = new Map(); // pointerId -> {x,y} screen coords for touch/pen (multi-touch)
+    let pinch = null;            // active two-finger gesture: { dist, mx, my }
+    let penActive = false;       // a pen pointer is mid-stroke (drives palm rejection)
     let viewBox = { x: 0, y: 0, w: 0, h: 0 }; // SVG viewport (pan/zoom)
     let zoom = 1;                // viewBox scale (higher = more zoomed out)
     let idCounter = 0;           // monotonic id source (see generateId)
@@ -4264,7 +4267,58 @@
       clearTimeout(zoomUrlTimer);
       zoomUrlTimer = setTimeout(updateUrlHash, 300);
     }, { passive: false });
-    
+
+    // --- Multi-touch: two-finger pinch-zoom + pan, and pen palm rejection ------
+    // Capture-phase pointer tracking so it runs before the single-pointer handlers
+    // and can take over (cancel an in-progress marquee/draw) when a 2nd finger
+    // lands. Mice keep using the wheel handler above. All math reuses the same
+    // viewBox/zoom model as `wheel`.
+    function cancelActiveDrags() {
+      penciling = null; drawing = null; selecting = null; panning = false;
+      if (drawPreview) drawPreview.style.display = 'none';
+      if (selectBox) selectBox.style.display = 'none';
+      hideTempLine();
+    }
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') return;                 // mouse zooms via wheel
+      // Palm rejection: while a pen is drawing, ignore stray finger touches.
+      if (e.pointerType === 'touch' && penActive && currentTool === 'pencil') {
+        e.stopPropagation(); e.preventDefault(); return;
+      }
+      if (e.pointerType === 'pen' && currentTool === 'pencil') penActive = true;
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (activePointers.size === 2) {
+        cancelActiveDrags();                                 // hand the gesture to pinch/pan
+        const p = [...activePointers.values()];
+        pinch = { dist: Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y), mx: null, my: null };
+      }
+    }, true);
+    document.addEventListener('pointermove', (e) => {
+      if (!activePointers.has(e.pointerId)) return;
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (activePointers.size < 2 || !pinch) return;
+      e.stopPropagation();                                   // suppress single-pointer move logic
+      const p = [...activePointers.values()];
+      const curDist = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) || 1;
+      const rect = canvas.getBoundingClientRect();
+      const mx = (p[0].x + p[1].x) / 2 - rect.left, my = (p[0].y + p[1].y) / 2 - rect.top;
+      // 1) two-finger pan by how far the midpoint moved
+      if (pinch.mx != null) { viewBox.x += (pinch.mx - mx) * zoom; viewBox.y += (pinch.my - my) * zoom; }
+      // 2) pinch-zoom about the current midpoint (same anchoring math as wheel)
+      const wx = viewBox.x + mx * zoom, wy = viewBox.y + my * zoom;
+      const nz = Math.min(Math.max(zoom * (pinch.dist / curDist), 0.25), 4);
+      zoom = nz; viewBox.w = rect.width * nz; viewBox.h = rect.height * nz;
+      viewBox.x = wx - mx * nz; viewBox.y = wy - my * nz;
+      pinch.dist = curDist; pinch.mx = mx; pinch.my = my;
+      updateViewBox();
+    }, true);
+    function dropPointer(e) {
+      if (e.pointerType === 'pen') penActive = false;
+      if (activePointers.delete(e.pointerId) && activePointers.size < 2) pinch = null;
+    }
+    document.addEventListener('pointerup', dropPointer, true);
+    document.addEventListener('pointercancel', dropPointer, true);
+
     // Keyboard shortcuts
     // Single-key shortcuts (no Cmd/Ctrl). Add a shortcut by adding one entry —
     // keep the empty-state hint text in sync. Keys are matched case-insensitively.
