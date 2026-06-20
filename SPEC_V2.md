@@ -97,11 +97,16 @@ These constrain every design decision below.
 Each feature lists **Why**, **What**, and **Acceptance criteria (AC)**. Priority:
 **P0** = v2 core (must ship), **P1** = strong, **P2** = opportunistic.
 
-### 3.1 Persistence & documents — **P0**
+### 3.1 Persistence & documents — **P0**  ·  🟢 core shipped (#38)
 - **Why:** URL-hash-only storage is the biggest blocker to real use.
 - **What:**
   - **Local-first autosave** to IndexedDB; a "My diagrams" gallery (list,
-    rename, duplicate, delete, thumbnail).
+    rename, duplicate, delete, thumbnail). ✅ **DONE (#38)** — `docStore`
+    (in-memory cache + IndexedDB write-through), document model
+    `{id,title,created,updated,schemaVersion,data}`, gallery panel (open-on-click,
+    new/rename/duplicate/delete, active-doc highlight), autosave writes through to
+    the active doc, v1 URL-hash diagrams become library docs on edit. Thumbnails
+    are placeholder swatches (real snapshot = follow-up).
   - **File save/open** as `.draph` (JSON, versioned) via the File System Access
     API where available, with download/upload fallback.
   - **URL sharing keeps working** but switches to a short link backed by a

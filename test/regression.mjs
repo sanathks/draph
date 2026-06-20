@@ -556,10 +556,10 @@ group('Nodes grow to fit their label (label-aware sizing)');
   const textW = 'Authenticated?'.length * (11 * 0.62);
   check('diamond widened to fit a long label', d.width >= textW / 0.6, `w=${d.width} need~${Math.ceil(textW/0.6)}`);
   check('diamond grew from its default', d.width > 90);
-  // fit never shrinks below the user's larger size
-  const big = win.createNode('rect', 0, 0, 400, 200); big.label = 'Hi';
+  // fit never shrinks a node the user manually resized (#35: guarded by the flag)
+  const big = win.createNode('rect', 0, 0, 400, 200); big.label = 'Hi'; big.manuallyResized = true;
   win.fitNodeToLabel(big);
-  check('fit does not shrink a manually-large node', big.width === 400 && big.height === 200);
+  check('fit does not shrink a manually-resized node', big.width === 400 && big.height === 200);
   // typing in the toolbar grows the selected node live
   const r = win.createNode('rect', 0, 0, 120, 44); r.label = 'x'; win.render(); win.selectNode(r.id);
   const inp = doc.getElementById('toolbarLabel');
@@ -1169,7 +1169,7 @@ group('v2: Mermaid user-journey import');
   ].join('\n');
   const p = E(`parseMermaid(${JSON.stringify(code)})`);
   check('journey makes a task node per task', p.nodes.filter(n => n.type === 'pill').length === 3);
-  check('journey shows actors in the label', p.nodes.some(n => /Do work \(Me, Cat\)/.test(n.label)));
+  check('journey carries actors as a list on the task (#31)', p.nodes.some(n => Array.isArray(n.actors) && n.actors.length === 2 && n.actors[0] === 'Me' && n.actors[1] === 'Cat'));
   check('journey chains tasks sequentially', p.connections.length === 2);
   // higher score => higher up (smaller y). "Make tea" (5) above "Do work" (1)
   const tea = p.nodes.find(n => /Make tea/.test(n.label));
@@ -1649,6 +1649,62 @@ group('Touch & pointer input (#21): multi-touch pinch/pan + palm rejection');
   check('penActive clears when the pen lifts', E3('penActive === false'));
 }
 
+group('Document store (#38): docStore CRUD against the in-memory backend');
+{
+  const { win, E } = boot();
+  E(`docStore._useMemory()`);                                       // swap to the test backend
+  // a real diagram to persist
+  win.createNode('rect', 100, 100);
+  E(`docStore.save({ title:'Auth flow', data: exportState() })`);
+  check('doc saved + listed', E(`docStore.list().length`) === 1);
+  check('list item carries title + timestamps', E(`(d=>d.title==='Auth flow' && typeof d.created==='number' && typeof d.updated==='number')(docStore.list()[0])`));
+  check('load round-trips the title + data', E(`(d=>d.title==='Auth flow' && Array.isArray(d.data.n) && d.data.n.length===1)(docStore.load(docStore.list()[0].id))`));
+  // duplicate → new id, same content
+  E(`docStore.duplicate(docStore.list()[0].id)`);
+  check('duplicate adds a 2nd doc with a new id', E(`docStore.list().length`) === 2 && E(`docStore.list()[0].id`) !== E(`docStore.list()[1].id`));
+  check('duplicate title is derived', E(`docStore.list().some(d=>/ copy$/.test(d.title))`));
+  // save with an existing id updates in place (no new doc), bumps updated, keeps created
+  const firstId = E(`docStore.list().find(d=>d.title==='Auth flow').id`);
+  const created0 = E(`docStore.load('${firstId}').created`);
+  E(`docStore.save({ id:'${firstId}', title:'Auth flow v2' })`);
+  check('save with id updates in place (count unchanged)', E(`docStore.list().length`) === 2);
+  check('update keeps created, changes title', E(`docStore.load('${firstId}').title`) === 'Auth flow v2' && E(`docStore.load('${firstId}').created`) === created0);
+  // remove
+  E(`docStore.remove('${firstId}')`);
+  check('remove drops the doc', E(`docStore.list().length`) === 1 && E(`docStore.load('${firstId}')`) === null);
+}
+
+group('Document library (#38): gallery UI + autosave write-through');
+{
+  const { win, doc, E } = boot();
+  E(`docStore._useMemory(); activeDocId = null;`);
+  // first edit autosaves through to a new active doc
+  win.createNode('rect', 100, 100);
+  win.updateUrlHash();
+  check('first edit creates an active library doc', E(`activeDocId !== null`) && E(`docStore.list().length`) === 1);
+  const id1 = E(`activeDocId`);
+  win.galleryRename(id1, 'Auth flow');
+  check('rename updates the doc title', E(`docStore.load('${id1}').title`) === 'Auth flow');
+  // "New" banks the current diagram and starts a fresh one (newest-first → 2 docs)
+  win.galleryNew();
+  check('New starts a 2nd doc and switches active', E(`docStore.list().length`) === 2 && E(`activeDocId`) !== id1);
+  // edit B, then open A → canvas restores A exactly
+  win.createNode('diamond', 200, 200); win.updateUrlHash();
+  win.galleryOpen(id1);
+  check('opening a doc restores its data + sets it active', E(`activeDocId`) === id1 && E(`nodes.length`) === 1 && E(`nodes[0].type`) === 'rect');
+  // autosave write-through bumps the active doc's data (B kept its diamond)
+  const other = E(`docStore.list().find(d=>d.id!=='${id1}').id`);
+  check('the other doc retained its own edited data', E(`docStore.load('${other}').data.n.some(n=>n.type==='diamond')`));
+  // duplicate + gallery DOM
+  win.galleryDuplicate(id1);
+  check('duplicate adds a 3rd card', E(`docStore.list().length`) === 3);
+  win.toggleGallery();
+  check('gallery opens and renders one card per doc', E(`galleryIsOpen()`) === true && doc.querySelectorAll('#galleryGrid .gallery-card').length === 3);
+  check('active doc card is highlighted', !!doc.querySelector(`#galleryGrid .gallery-card[data-id="${id1}"]`));
+  win.toggleGallery();
+  check('gallery toggles closed', E(`galleryIsOpen()`) === false);
+}
+
 group('Connection routing (#34): non-locked sides re-seat on render');
 {
   const { win, E } = boot();
@@ -1670,6 +1726,37 @@ group('Connection routing (#34): non-locked sides re-seat on render');
   E(`nodes.find(n=>n.id==='${b.id}').x = 900`);          // move b far right again
   win.render();
   check('locked toSide is left untouched', E(`connections.find(c=>c.id==='r34').toSide`) === locked);
+}
+
+group('Shape library panel (#40): placeShape + slide-out panel');
+{
+  const { win, doc, E } = boot();
+  const c = win.placeShape('class', 200, 200);
+  check('class box created with UML flag', c.isClass === true);
+  check('class box has default members', ((c.properties || []).length + (c.methods || []).length) > 0);
+  const i = win.placeShape('interface', 400, 200);
+  check('interface variant sets stereotype', i.isClass === true && i.stereotype === 'interface');
+  const en = win.placeShape('enumeration', 600, 200);
+  check('enum variant sets stereotype + values', en.stereotype === 'enumeration' && en.properties.length >= 1);
+  const p = win.placeShape('participant', 800, 200);
+  check('participant has a lifeline', p.hasLifeline === true && p.isParticipant === true);
+  const ent = win.placeShape('entity', 1000, 200);
+  check('entity is a class box with attribute rows', ent.isClass === true && ent.properties.length >= 1);
+  const t = win.placeShape('terminal', 100, 400);
+  check('terminal is a small pseudo dot', t.isPseudo === true && t.width <= 24);
+  check('placed shape lands on the requested point (within its bounds)', c.x <= 200 && 200 <= c.x + c.width && c.y <= 200 && 200 <= c.y + c.height);
+  win.render();
+  const cEl = doc.querySelector(`#nodes .node[data-id="${c.id}"]`);
+  check('placed class renders with its members', !!cEl && cEl.textContent.length > 0);
+  check('placed participant renders', !!doc.querySelector(`#nodes .node[data-id="${p.id}"]`));
+  // panel toggles open/closed + reflects state in className
+  win.toggleShapePanel(true);
+  check('shape panel opens', /\bopen\b/.test(doc.getElementById('shapePanel').className) && doc.getElementById('shapePanel').style.display === 'flex');
+  win.toggleShapePanel(false);
+  check('shape panel closes', !/\bopen\b/.test(doc.getElementById('shapePanel').className));
+  // no regression: basic shape tool still works
+  win.setTool('rect');
+  check('basic rect tool still selects', E(`currentTool`) === 'rect');
 }
 
 group('Mermaid state import (#22): composite / fork-join-choice / notes');
@@ -1722,6 +1809,98 @@ group('Selection → Mermaid (#2): selection-scoped export');
   // no selection → wrapper falls back to whole-canvas export
   E(`selectedIds = []; selectedId = null;`);
   check('no selection falls back to whole-canvas export', /\bC\b/.test(E(`generateMermaid({ selectionOnly: true })`)));
+}
+
+group('Mermaid append import (#46): feedback on silent failures');
+{
+  const { win, doc } = boot();
+  // recognized-but-unsupported keyword → named toast, returns false, nothing imported
+  const n0 = doc.querySelectorAll('.toast').length;
+  const r1 = win.importMermaid(true, { code: 'kanban\n  Todo\n  Doing', append: true });
+  check('unsupported append import returns false', r1 === false);
+  check('a feedback toast was shown', doc.querySelectorAll('.toast').length > n0);
+  check('toast names the unsupported type', /kanban/.test(doc.querySelector('.toast span').textContent));
+  check('nothing was imported on failure', win.eval('nodes.length') === 0);
+  // garbage / no recognizable diagram → generic toast, returns false
+  const before2 = doc.querySelectorAll('.toast').length;
+  const r2 = win.importMermaid(true, { code: '%% only a comment', append: true });
+  check('comment-only append import returns false + toasts', r2 === false && doc.querySelectorAll('.toast').length > before2);
+  // valid append import still succeeds with no error toast
+  const before3 = doc.querySelectorAll('.toast').length;
+  const r3 = win.importMermaid(true, { code: 'flowchart TD\n A-->B', append: true });
+  check('valid append import still succeeds, no new toast', r3 === true && doc.querySelectorAll('.toast').length === before3 && win.eval('nodes.length') === 2);
+  // replace-mode (non-append) still uses the editor errorDiv, not a toast (no regression)
+  const before4 = doc.querySelectorAll('.toast').length;
+  win.importMermaid(true, { code: 'kanban\n x', append: false });
+  check('replace-mode unsupported does not toast (errorDiv path unchanged)', doc.querySelectorAll('.toast').length === before4);
+}
+
+group('Accessibility (#45): icon-button ARIA labels + pressed state');
+{
+  const { win, doc } = boot();
+  const btns = [...doc.querySelectorAll('.tool-btn')];
+  check('every tool button has a non-empty aria-label', btns.length >= 10 && btns.every(b => (b.getAttribute('aria-label') || '').trim().length > 0));
+  check('decorative button SVGs are aria-hidden', btns.every(b => { const s = b.querySelector('svg'); return !s || s.getAttribute('aria-hidden') === 'true'; }));
+  win.setTool('rect');
+  const rectBtn = doc.getElementById('tool-rect');
+  check('active tool is marked aria-pressed=true', rectBtn.getAttribute('aria-pressed') === 'true');
+  win.setTool('pencil');
+  check('previously-active tool clears aria-pressed', rectBtn.getAttribute('aria-pressed') === 'false');
+  check('newly-active tool is pressed', doc.getElementById('tool-pencil').getAttribute('aria-pressed') === 'true');
+  // exactly one tool is pressed at a time
+  check('exactly one tool button is pressed', [...doc.querySelectorAll('[id^="tool-"]')].filter(b => b.getAttribute('aria-pressed') === 'true').length === 1);
+}
+
+group('First-run onboarding (#44): walkthrough + versioned flag');
+{
+  const { win, doc, E } = boot();
+  const ov = doc.getElementById('onboardingOverlay');
+  // fresh jsdom → flag absent → should show (init already auto-showed; flag still absent)
+  check('first run: flag absent and should show', E(`!localStorage.getItem('draph.onboarding.v1') && shouldShowOnboarding()`) === true);
+  win.startOnboarding();
+  check('overlay visible on start', !!ov && !ov.classList.contains('hidden'));
+  check('starts at step 0 with all 7 step dots', E(`onboardingStep`) === 0 && doc.querySelectorAll('#obDots .ob-dot').length === 7);
+  win.onboardingNext();
+  check('Next advances the step', E(`onboardingStep`) === 1);
+  win.onboardingBack();
+  check('Back goes up a step', E(`onboardingStep`) === 0);
+  win.finishOnboarding();
+  check('finish writes the versioned flag', E(`localStorage.getItem('draph.onboarding.v1')`) !== null);
+  check('overlay hidden after finish', ov.classList.contains('hidden'));
+  check('does not auto-show once completed', E(`shouldShowOnboarding()`) === false);
+  win.startOnboarding();
+  check('manual replay reopens despite the flag', !ov.classList.contains('hidden'));
+  // skip also writes the flag (not just finish)
+  E(`localStorage.removeItem('draph.onboarding.v1')`);
+  win.startOnboarding(); win.skipOnboarding();
+  check('skip closes and writes the flag too', ov.classList.contains('hidden') && E(`localStorage.getItem('draph.onboarding.v1')`) !== null);
+  // Next on the last step acts as Finish
+  E(`localStorage.removeItem('draph.onboarding.v1')`);
+  win.startOnboarding(); E(`onboardingStep = 6`); win.onboardingNext();
+  check('Next on the last step finishes (overlay closed + flag set)', ov.classList.contains('hidden') && E(`shouldShowOnboarding()`) === false);
+}
+
+group('SVG export (#37): buildExportSVG string assertions');
+{
+  const { win, E } = boot();
+  // empty canvas → null, no side effects
+  check('buildExportSVG returns null on an empty canvas', E(`buildExportSVG()`) === null);
+  const a = win.createNode('rect', 100, 100); E(`nodes.find(n=>n.id==='${a.id}').label='Alpha'`);
+  const b = win.createNode('rect', 400, 100); E(`nodes.find(n=>n.id==='${b.id}').label='Beta'`);
+  E(`connections.push({ id:'e', from:'${a.id}', to:'${b.id}' })`);
+  win.render();
+  const svg = E(`buildExportSVG()`);
+  check('export is a standalone <svg> with a viewBox', /^<svg[\s>]/.test(svg.trim()) && /viewBox=/.test(svg));
+  check('export includes every node label', /Alpha/.test(svg) && /Beta/.test(svg));
+  check('export includes the connection markup', /connection-group|class="connection"/.test(svg));
+  check('export omits UI chrome (connectors/hit-areas/grid/marquee)', !/connector|conn-hit|gridBg|selectBox|drawPreview|resize-handle/.test(svg));
+  // viewBox tightly bounds content (not the full 1200×800 canvas)
+  const vb = (svg.match(/viewBox="([^"]+)"/) || [])[1].split(/\s+/).map(Number);
+  check('viewBox crops to content, not the whole canvas', vb[2] < 1200 && vb[3] < 800 && vb[0] > 0);
+  // pure: calling it does not mutate state or trigger a download
+  const before = E(`nodes.length`);
+  E(`buildExportSVG()`);
+  check('buildExportSVG is side-effect free (node count unchanged)', E(`nodes.length`) === before);
 }
 
 group('Mermaid class import (#27): namespaces → grouping container');
@@ -1803,6 +1982,29 @@ group('Mermaid gantt import (#25): dependency arrows + weekly axis');
   check('gantt: bars keep fixed geometry', design.fixed === true && code2.fixed === true);
 }
 
+group('Keyboard a11y (#58): roving arrows + modal focus trap/restore');
+{
+  const { win, doc, E } = boot();
+  doc.getElementById('tool-select').focus();
+  key(doc, 'ArrowRight');
+  check('arrow cycles tool focus + selection', doc.activeElement === doc.getElementById('tool-rect') && E('currentTool') === 'rect');
+  key(doc, 'ArrowLeft');
+  check('arrow-left cycles back', doc.activeElement === doc.getElementById('tool-select') && E('currentTool') === 'select');
+  check('roving tabindex: active tool is the only tab stop', doc.getElementById('tool-select').getAttribute('tabindex') === '0' && doc.getElementById('tool-rect').getAttribute('tabindex') === '-1');
+  // modal focus trap + restore
+  const opener = doc.getElementById('tool-select'); opener.focus();
+  win.toggleCheatsheet(true);
+  check('opening a modal moves focus inside it', doc.getElementById('cheatsheetOverlay').contains(doc.activeElement));
+  key(doc, 'Tab');
+  check('Tab stays trapped within the modal', doc.getElementById('cheatsheetOverlay').contains(doc.activeElement));
+  key(doc, 'Escape');
+  check('Esc closes the modal', doc.getElementById('cheatsheetOverlay').classList.contains('hidden'));
+  check('focus restored to the opener on close', doc.activeElement === opener);
+  // no regression: single-key shortcuts still fire
+  key(doc, 'p');
+  check('single-key shortcut still works (P → pencil)', E('currentTool') === 'pencil');
+}
+
 group('Mermaid C4 import (#28): directional Rel + person figure');
 {
   const { win, doc, E } = boot();
@@ -1869,6 +2071,72 @@ group('Mermaid gitGraph import (#26): tags, commit types, cherry-pick');
   check('gitgraph: import carries tag + commitType onto nodes', E(`nodes.some(n=>n.tag==='v1.0')`) && E(`nodes.some(n=>n.commitType==='HIGHLIGHT')`));
 }
 
+group('Mermaid quadrant import (#33): per-point radius/color styling');
+{
+  const { win, doc, E } = boot();
+  const code = 'quadrantChart\n  x-axis Low --> High\n  y-axis Low --> High\n  Campaign A: [0.3, 0.6] radius: 10, color: #ff0000\n  Plain B: [0.5, 0.5]';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const a = p.nodes[0].points[0], b = p.nodes[0].points[1];
+  check('quadrant: per-point radius parsed', a.radius === 10);
+  check('quadrant: per-point color parsed', a.color === '#ff0000');
+  check('quadrant: unstyled point keeps defaults', b.radius === undefined && b.color === undefined);
+  // render: styled dot uses its custom radius + color, default dot stays r=5
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  const el = doc.querySelector('#nodes .node');
+  const radii = [...el.querySelectorAll('circle')].map(c => c.getAttribute('r'));
+  check('quadrant: styled dot uses custom radius', radii.includes('10'));
+  check('quadrant: default dot still r=5', radii.includes('5'));
+  check('quadrant: custom color rendered', /fill="#ff0000"/.test(el.innerHTML));
+}
+
+group('Mermaid requirement import (#32): containment diamond glyph');
+{
+  const { win, doc, E } = boot();
+  const code = 'requirementDiagram\n  requirement r1 { id: 1 text: top }\n  requirement r2 { id: 2 text: child }\n  r1 - contains -> r2\n  r2 - satisfies -> r1';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const c = p.connections.find(x => x.from === 'r1' && x.to === 'r2');
+  const s = p.connections.find(x => x.label === 'satisfies');
+  check('req: contains edge gets a filled diamond at the parent end', c && c.relType === 'contains' && c.markerStart === 'diamond-filled');
+  check('req: contains is solid (not dashed)', c && c.strokeStyle !== 'dashed');
+  check('req: other typed links stay dashed + arrow', s && s.strokeStyle === 'dashed' && s.markerEnd === 'arrow');
+  // render: the diamond glyph draws (inline umlMarker → polygon)
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  check('req: diamond marker rendered on the connection', /polygon/.test(doc.getElementById('connections').innerHTML));
+  check('req: contains markerStart carried through import', E(`connections.some(c=>c.markerStart==='diamond-filled')`));
+}
+
+group('fitNodeToLabel shrink-to-fit + manual-resize guard (#35)');
+{
+  const { win, E } = boot();
+  const n = win.createNode('rect', 100, 100, 'A very long label that makes the node quite wide indeed');
+  win.fitNodeToLabel(n); const wide = n.width;
+  E(`nodes.find(x=>x.id==='${n.id}').label='Hi'`); win.fitNodeToLabel(E(`nodes.find(x=>x.id==='${n.id}')`));
+  check('shrinks toward content when not manually resized', E(`nodes.find(x=>x.id==='${n.id}').width`) < wide);
+  check('does not shrink below the type minimum', E(`nodes.find(x=>x.id==='${n.id}').width`) >= E('CONFIG.node.minWidth'));
+  // manually-resized node is never auto-shrunk
+  const m = win.createNode('rect', 300, 300, 'x');
+  E(`(n=>{n.manuallyResized=true; n.width=400; n.label='y';})(nodes.find(x=>x.id==='${m.id}'))`);
+  win.fitNodeToLabel(E(`nodes.find(x=>x.id==='${m.id}')`));
+  check('manually-resized node keeps its width', E(`nodes.find(x=>x.id==='${m.id}').width`) === 400);
+}
+
+group('Mermaid journey import (#31): actor avatars + section bands');
+{
+  const { win, doc, E } = boot();
+  const code = 'journey\n  title My Day\n  section Morning\n    Wake: 3: Me\n    Coffee: 5: Me, Cat';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const coffee = p.nodes.find(n => /Coffee/.test(n.label));
+  check('journey: task carries its actor list', Array.isArray(coffee.actors) && coffee.actors.length === 2);
+  check('journey: each actor gets a distinct color', coffee.actorColors && coffee.actorColors[0] !== coffee.actorColors[1]);
+  check('journey: section band node present', p.nodes.some(n => /^jband/.test(n.id)));
+  // render: section label + actor glyphs draw
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  check('journey: section band/label rendered', /Morning/.test(doc.getElementById('nodes').textContent));
+  const cn = E(`nodes.find(n=>/Coffee/.test(n.label))`);
+  const el = doc.querySelector(`#nodes .node[data-id="${cn.id}"]`);
+  check('journey: actor glyphs render on the task', !!el && (el.innerHTML.match(/<circle/g) || []).length >= 2);
+}
+
 group('Mermaid pie import (#30): donut variant + leader lines');
 {
   const { win, doc, E } = boot();
@@ -1907,6 +2175,129 @@ group('Obstacle-aware routing (#69): edges detour around unrelated nodes');
   const B2 = w2.createNode('rect', 440, 200, 80, 40);
   const r2 = E2(`routeConnection(nodes.find(n=>n.id==='${A2.id}'),nodes.find(n=>n.id==='${B2.id}'),'right','left')`);
   check('clear path is left unchanged (≤3 points, no detour)', r2.points.length <= 3);
+}
+
+group('#36 label wrapping: hard-break long unbreakable words');
+{
+  const { win, E } = boot();
+  // A single token longer than the line cap hard-breaks across lines.
+  const lines = E(`wrapLabel('supercalifragilisticexpialidociousAndThenSomeMore', 120)`);
+  check('long unbreakable word hard-breaks to >=2 lines', lines.length >= 2);
+  check('each wrapped line stays within the cap-ish width', lines.every(l => l.length <= 30));
+  check('hard-break preserves all characters', lines.join('') === 'supercalifragilisticexpialidociousAndThenSomeMore');
+  // Normal multi-word labels still wrap on spaces (no regression).
+  const normal = E(`wrapLabel('the quick brown fox jumps', 120)`);
+  check('normal wrap still breaks on spaces', normal.join(' ').split(' ').length === 5);
+  // Code-point safe: an emoji token isn't split mid-surrogate.
+  const emoji = E(`wrapLabel('😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀', 60)`);
+  check('emoji hard-break keeps code-points intact', emoji.every(l => !/�/.test(l)) && emoji.length >= 2);
+  // fitNodeToLabel caps node width for a long token instead of stretching it.
+  const n = win.createNode('rect', 100, 100, 120, 44);
+  E(`(nd=>{nd.label='supercalifragilisticexpialidociousAndThenSomeMoreEvenLonger'; fitNodeToLabel(nd);})(nodes.find(x=>x.id==='${n.id}'))`);
+  const w = E(`nodes.find(x=>x.id==='${n.id}').width`);
+  check('long token does not force an ultra-wide node', w <= E('CONFIG.wrap.maxWidth') + 30);
+  check('cap lives in CONFIG (no magic number)', typeof E('CONFIG.wrap.maxWidth') === 'number');
+}
+
+group('Coach-marks (#56): spotlight steps + shared onboarding flag');
+{
+  const { win, doc, E } = boot();
+  E(`localStorage.removeItem('draph.onboarding.v1')`);
+  const ov = doc.getElementById('coachmarkOverlay');
+  check('coachmark overlay starts hidden', !!ov && ov.classList.contains('hidden'));
+
+  win.startCoachmarks();
+  check('coachmarks overlay visible', !ov.classList.contains('hidden'));
+  check('step 1 targets the rect tool', E(`coachmarkSteps[coachmarkStep].target`) === '#tool-rect');
+
+  win.coachmarkNext();
+  check('Next advances the step', E(`coachmarkStep`) === 1);
+
+  // Last-step Next finishes.
+  E(`coachmarkStep = coachmarkSteps.length - 1`); win.coachmarkNext();
+  check('overlay hidden after finish', ov.classList.contains('hidden'));
+  check('shares onboarding flag (no re-trigger)', E(`localStorage.getItem('draph.onboarding.v1')`) !== null);
+  check('finishing coachmarks suppresses first-run', E(`shouldShowOnboarding()`) === false);
+
+  // Skip also hides + writes the flag.
+  E(`localStorage.removeItem('draph.onboarding.v1')`); win.startCoachmarks();
+  win.skipCoachmarks();
+  check('skip hides the overlay', ov.classList.contains('hidden'));
+  check('skip writes the shared flag', E(`localStorage.getItem('draph.onboarding.v1')`) !== null);
+
+  // Finishing the #44 carousel hands off to coach-marks.
+  const { win: w2, doc: d2, E: E2 } = boot();
+  E2(`localStorage.removeItem('draph.onboarding.v1')`);
+  w2.startOnboarding(); E2(`onboardingStep = ONBOARDING_STEPS.length - 1`); w2.onboardingNext();
+  check('carousel finish opens coach-marks', !d2.getElementById('coachmarkOverlay').classList.contains('hidden'));
+}
+
+group('Flowchart shapes (#49): placeShape + renderNodes branches');
+{
+  const { win, doc } = boot();
+  for (const kind of ['cylinder', 'hexagon', 'parallelogram', 'trapezoid', 'subroutine']) {
+    const n = win.placeShape(kind, 200, 200);
+    check(kind + ' node created with that type', n && n.type === kind);
+    check(kind + ' has a default size', n && n.width > 0 && n.height > 0);
+  }
+  win.render();
+  // cylinder renders a path + ellipse
+  const cyl = win.placeShape('cylinder', 400, 200); win.render();
+  const elc = doc.querySelector(`#nodes .node[data-id="${cyl.id}"]`);
+  check('cylinder renders a path/ellipse', !!elc && /<path|<ellipse/i.test(elc.innerHTML));
+  // hexagon / parallelogram / trapezoid render polygons
+  const hex = win.placeShape('hexagon', 600, 200); win.render();
+  const elh = doc.querySelector(`#nodes .node[data-id="${hex.id}"]`);
+  check('hexagon renders a polygon', !!elh && /<polygon/i.test(elh.innerHTML));
+  // subroutine renders a rect plus inner vertical border lines
+  const sub = win.placeShape('subroutine', 800, 200); win.render();
+  const els = doc.querySelector(`#nodes .node[data-id="${sub.id}"]`);
+  check('subroutine renders a double border (rect + lines)', !!els && /<rect/i.test(els.innerHTML) && (els.innerHTML.match(/<line/g) || []).length >= 2);
+  // label/connect parity: a flowchart shape carries a label and can be an edge endpoint
+  check('flowchart shape carries a default label', !!cyl.label);
+  const other = win.createNode('rect', 1000, 200, 80, 40);
+  win.eval(`connections.push({ id: 'fc', from: '${cyl.id}', to: '${other.id}' })`); win.render();
+  check('flowchart shape is connectable', win.eval(`connections.some(c=>c.from==='${cyl.id}')`));
+}
+
+group('Screen-reader semantics (#59): node/conn aria-labels + live region');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 100, 100, 120, 60);
+  E(`nodes.find(n=>n.id==='${a.id}').label = 'Login'`);
+  win.render();
+  const el = doc.querySelector(`#nodes .node[data-id="${a.id}"]`);
+  check('node group has role=img', !!el && el.getAttribute('role') === 'img');
+  check('node aria-label includes type + label', !!el && /Rectangle: Login/.test(el.getAttribute('aria-label') || ''));
+
+  // unlabeled node falls back to the type name
+  const u = win.createNode('diamond', 300, 100, 100, 60);
+  E(`nodes.find(n=>n.id==='${u.id}').label = ''`);
+  win.render();
+  const elu = doc.querySelector(`#nodes .node[data-id="${u.id}"]`);
+  check('unlabeled node aria-label is the type', (elu.getAttribute('aria-label') || '') === 'Diamond');
+
+  // connection accessible name describes from→to
+  const b = win.createNode('pill', 500, 100, 120, 60);
+  E(`nodes.find(n=>n.id==='${b.id}').label = 'Home'`);
+  E(`connections.push({ id: 'e1', from: '${a.id}', to: '${b.id}' })`);
+  win.render();
+  const ce = doc.querySelector(`.connection-group[data-id="e1"]`);
+  check('connection has role=img', !!ce && ce.getAttribute('role') === 'img');
+  check('connection aria-label describes from→to', !!ce && /from Login to Home/.test(ce.getAttribute('aria-label') || ''));
+
+  // live region exists and receives announcements
+  const live = doc.querySelector('[aria-live]');
+  check('an aria-live region exists', !!live);
+  win.createNode('rect', 700, 100, 80, 40);
+  check('add announces via the live region', /added/.test((live.textContent || '')));
+  E(`selectedId = '${a.id}'`); win.deleteSelected();
+  check('delete announces via the live region', /deleted/i.test((live.textContent || '')));
+  win.announceConnect(b.id, u.id);
+  check('connect announcement names endpoints', /connected Home to Diamond/.test(live.textContent || ''));
+
+  // no visual regression: node groups still render their shape markup
+  check('node still renders its shape', !!doc.querySelector(`#nodes .node[data-id="${b.id}"] rect, #nodes .node[data-id="${b.id}"] path`));
 }
 
 process.exit(report() ? 0 : 1);

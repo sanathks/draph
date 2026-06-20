@@ -176,6 +176,9 @@
     .tool-btn:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--fg-bright); }
     .tool-btn:active { transform: scale(0.92); }
     .tool-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    /* Visible focus ring on every interactive control (keyboard a11y, #58) */
+    button:focus-visible, .dropdown-item:focus-visible, [role="button"]:focus-visible,
+    a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
     .tool-btn.active { background: var(--accent); color: var(--bg); box-shadow: 0 2px 6px color-mix(in srgb, var(--accent) 35%, transparent); }
     .tool-btn svg { width: 20px; height: 20px; }
     /* keyboard-shortcut badge in the corner of a tool button */
@@ -236,6 +239,19 @@
       background: var(--overlay); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
     }
     #cheatsheetOverlay.hidden { display: none; }
+    #onboardingOverlay {
+      position: fixed; inset: 0; z-index: 410; display: flex; align-items: center; justify-content: center;
+      background: var(--overlay); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+    }
+    #onboardingOverlay.hidden { display: none; }
+    #onboardingCard {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      width: 420px; max-width: 92vw; padding: 0; box-shadow: 0 12px 40px rgba(0,0,0,0.45); overflow: hidden;
+    }
+    #onboardingCard .ob-icon { font-size: 30px; line-height: 1; }
+    #onboardingCard .ob-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); display: inline-block; }
+    #onboardingCard .ob-dot.on { background: var(--accent); }
+    #onboardingCard button { cursor: pointer; font-family: inherit; }
     #cheatsheetCard {
       background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
       padding: 18px 20px; width: 420px; max-width: 90vw; max-height: 80vh; overflow: auto;
@@ -345,9 +361,37 @@
       padding: 1px 6px; background: var(--bg2); border: 1px solid var(--border); border-radius: 4px;
       font-size: 11px; color: var(--fg); font-family: 'JetBrains Mono', Consolas, monospace;
     }
+    /* Interactive coach-marks (#56): a spotlight cutout (box-shadow dims everything
+       except the target rect) plus a positioned tooltip. */
+    #coachmarkOverlay { position: fixed; inset: 0; z-index: 320; }
+    #coachmarkOverlay.hidden { display: none; }
+    #coachmarkSpot {
+      position: absolute; border-radius: 8px; pointer-events: none;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,0.55); transition: all 0.18s ease;
+      outline: 2px solid var(--accent); outline-offset: 2px;
+    }
+    #coachmarkTip {
+      position: absolute; width: 240px; max-width: 80vw; z-index: 1;
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px; box-shadow: 0 8px 28px rgba(0,0,0,0.4);
+    }
+    #cmDots .cm-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border); display: inline-block; }
+    #cmDots .cm-dot.on { background: var(--accent); }
+    .shape-item {
+      padding: 8px 6px; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+      font-size: 11px; color: var(--fg); cursor: pointer; text-align: center; transition: border-color .12s, background .12s;
+    }
+    .shape-item:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg2)); }
+    /* Visually-hidden, screen-reader-only (#59) */
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+    }
   </style>
 </head>
 <body class="h-screen flex flex-col">
+  <!-- Screen-reader live region (#59): announces structural edits (add/delete/connect) -->
+  <div id="a11yLive" class="sr-only" aria-live="polite" aria-atomic="true"></div>
   <!-- Top Toolbar -->
   <header class="h-14 flex items-center px-4 z-20 absolute top-0 left-0 right-0" style="background:transparent;pointer-events:none">
     <!-- Left: Logo -->
@@ -409,6 +453,12 @@
             <path d="M4 4h16v11l-5 5H4z"/><path d="M20 14h-5v5"/>
           </svg>
           <span class="kbd-badge">N</span>
+        </button>
+        <button class="tool-btn" id="tool-shapes" onclick="toggleShapePanel()" title="Shape library — UML / sequence / state / ER (S)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="8" height="8" rx="1"/><circle cx="17" cy="7" r="4"/><path d="M7 14l4 7H3z"/><rect x="13" y="14" width="8" height="7" rx="1"/>
+          </svg>
+          <span class="kbd-badge">S</span>
         </button>
         <div class="divider"></div>
         <!-- More: everything secondary lives here to keep the bar uncluttered -->
@@ -490,6 +540,11 @@
               Open file
             </div>
             <div class="menu-sep"></div>
+            <div class="dropdown-item" onclick="startOnboarding();closeDropdowns()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              Show onboarding
+            </div>
+            <div class="menu-sep"></div>
             <div class="dropdown-item danger" onclick="clearCanvas();closeDropdowns()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
               Clear canvas
@@ -550,6 +605,61 @@
       </div>
     </div>
     
+    <!-- Shape library panel (manual UML/diagram shapes; slides in from the right) -->
+    <div id="shapePanel" class="shape-panel" style="display:none;position:fixed;top:0;right:0;height:100%;width:260px;max-width:85vw;z-index:280;background:var(--bg);border-left:1px solid var(--border);box-shadow:-4px 0 24px rgba(0,0,0,0.35);flex-direction:column">
+      <div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:13px;font-weight:600;color:var(--fg)">Shapes</span>
+        <button onclick="toggleShapePanel(false)" title="Close (Esc)" style="width:24px;height:24px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--fg);cursor:pointer">✕</button>
+      </div>
+      <div style="flex:1;overflow:auto;padding:10px;font-size:12px">
+        <div style="color:var(--fg-dim);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:2px 0 6px">Class (UML)</div>
+        <div class="shape-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
+          <button class="shape-item" onclick="placeShape('class')">Class</button>
+          <button class="shape-item" onclick="placeShape('interface')">Interface</button>
+          <button class="shape-item" onclick="placeShape('abstract')">Abstract</button>
+          <button class="shape-item" onclick="placeShape('enumeration')">Enum</button>
+        </div>
+        <div style="color:var(--fg-dim);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:2px 0 6px">Sequence</div>
+        <div class="shape-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
+          <button class="shape-item" onclick="placeShape('participant')">Participant</button>
+          <button class="shape-item" onclick="placeShape('actor')">Actor</button>
+        </div>
+        <div style="color:var(--fg-dim);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:2px 0 6px">State</div>
+        <div class="shape-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
+          <button class="shape-item" onclick="placeShape('terminal')">Start/End</button>
+        </div>
+        <div style="color:var(--fg-dim);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:2px 0 6px">ER</div>
+        <div class="shape-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
+          <button class="shape-item" onclick="placeShape('entity')">Entity</button>
+        </div>
+        <div style="color:var(--fg-dim);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:2px 0 6px">Flowchart</div>
+        <div class="shape-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px">
+          <button class="shape-item" onclick="placeShape('cylinder')">Database</button>
+          <button class="shape-item" onclick="placeShape('hexagon')">Hexagon</button>
+          <button class="shape-item" onclick="placeShape('parallelogram')">I/O</button>
+          <button class="shape-item" onclick="placeShape('trapezoid')">Trapezoid</button>
+          <button class="shape-item" onclick="placeShape('subroutine')">Subroutine</button>
+        </div>
+        <div style="color:var(--fg-dim);font-size:10px;margin-top:10px">Fork/Join/Choice land with #22.</div>
+      </div>
+    </div>
+
+    <!-- "My diagrams" gallery (document library over docStore) -->
+    <div id="galleryOverlay" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.45)" onclick="if(event.target===this)toggleGallery()">
+      <div style="position:absolute;top:0;right:0;height:100%;width:380px;max-width:90vw;background:var(--bg);border-left:1px solid var(--border);display:flex;flex-direction:column;box-shadow:-4px 0 24px rgba(0,0,0,0.4)">
+        <div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:13px;font-weight:600;color:var(--fg)">My diagrams</span>
+          <div style="display:flex;gap:6px">
+            <button onclick="galleryNew()" style="padding:4px 8px;background:var(--accent);border:none;border-radius:4px;font-size:11px;font-weight:600;color:var(--bg);cursor:pointer">+ New</button>
+            <button onclick="saveActiveDoc(true)" title="Save the current diagram to your library" style="padding:4px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;font-size:11px;color:var(--fg);cursor:pointer">Save current</button>
+            <button onclick="toggleGallery()" title="Close (G)" style="width:24px;height:24px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--fg);cursor:pointer">✕</button>
+          </div>
+        </div>
+        <div id="galleryGrid" style="flex:1;overflow:auto;padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-content:start"></div>
+        <div id="galleryEmpty" style="display:none;padding:24px;text-align:center;color:var(--fg-dim);font-size:12px">No saved diagrams yet — “+ New” starts one.</div>
+      </div>
+    </div>
+
     <!-- Canvas area -->
     <div id="canvasContainer" class="flex-1 relative overflow-hidden">
     <svg id="canvas" class="w-full h-full" style="background: var(--bg); touch-action: none;">
@@ -789,6 +899,41 @@
     </div>
   </div>
 
+  <!-- First-run onboarding walkthrough -->
+  <div id="onboardingOverlay" class="hidden" onclick="if(event.target===this)skipOnboarding()">
+    <div id="onboardingCard">
+      <div style="padding:22px 22px 8px;text-align:center">
+        <div class="ob-icon" id="obIcon">👋</div>
+        <div id="obTitle" style="font-size:16px;font-weight:700;color:var(--fg);margin-top:10px"></div>
+        <div id="obBody" style="font-size:13px;color:var(--fg-dim);margin-top:8px;line-height:1.5;min-height:42px"></div>
+      </div>
+      <div id="obDots" style="display:flex;gap:6px;justify-content:center;padding:6px 0 14px"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg)">
+        <button onclick="skipOnboarding()" style="padding:6px 10px;background:transparent;border:none;color:var(--fg-dim);font-size:12px">Skip</button>
+        <div style="display:flex;gap:8px">
+          <button id="obBack" onclick="onboardingBack()" style="padding:6px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:12px">Back</button>
+          <button id="obNext" onclick="onboardingNext()" style="padding:6px 14px;background:var(--accent);border:none;border-radius:6px;color:var(--bg);font-weight:600;font-size:12px">Next</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Interactive coach-marks (#56): spotlight cutout over a live target + anchored tooltip -->
+  <div id="coachmarkOverlay" class="hidden">
+    <div id="coachmarkSpot"></div>
+    <div id="coachmarkTip">
+      <div id="cmTitle" style="font-size:14px;font-weight:700;color:var(--fg)"></div>
+      <div id="cmBody" style="font-size:12px;color:var(--fg-dim);margin-top:6px;line-height:1.5"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px">
+        <div id="cmDots" style="display:flex;gap:5px"></div>
+        <div style="display:flex;gap:8px">
+          <button onclick="skipCoachmarks()" style="padding:5px 9px;background:transparent;border:none;color:var(--fg-dim);font-size:12px;cursor:pointer">Skip</button>
+          <button id="cmNext" onclick="coachmarkNext()" style="padding:5px 13px;background:var(--accent);border:none;border-radius:6px;color:var(--bg);font-weight:600;font-size:12px;cursor:pointer">Next</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast notifications -->
   <div id="toastContainer"></div>
 
@@ -1012,6 +1157,10 @@
       palette: ['#7aa2f7', '#9ece6a', '#f7768e', '#e0af68', '#bb9af7', '#7dcfff', '#ff9e64'],
       arrow: { length: 11, width: 5.5 },  // arrowhead size (px)
       node: { minWidth: 40, minHeight: 20 },
+      // Label wrapping (#36): a single unbreakable token (long URL/identifier)
+      // wider than maxWidth px is hard-broken at the character level so the node
+      // respects the cap instead of stretching into one ultra-wide box.
+      wrap: { maxWidth: 240 },
     };
 
     // Curated monochrome icon set (Lucide-style, 24×24 inner markup only — the
@@ -1129,12 +1278,27 @@
     
     // === SECTION: TOOLS, PICKERS & LIFECYCLE (init, history, persistence) ===
 
+    // Accessibility: give every icon-only control an accessible name (derived from
+    // its existing title) and hide decorative inline SVGs from the a11y tree.
+    function applyA11yLabels() {
+      document.querySelectorAll('.tool-btn[title], button[title]').forEach(btn => {
+        const t = btn.getAttribute('title');
+        if (t && !btn.getAttribute('aria-label')) btn.setAttribute('aria-label', t);
+      });
+      document.querySelectorAll('.tool-btn svg, button svg').forEach(svg => svg.setAttribute('aria-hidden', 'true'));
+      // reflect the current tool's pressed state at load
+      document.querySelectorAll('[id^="tool-"]').forEach(btn => btn.setAttribute('aria-pressed', btn.id === 'tool-' + currentTool ? 'true' : 'false'));
+    }
+
     // Tool management
     function setTool(tool) {
       currentTool = tool;
-      // Update toolbar buttons
-      document.querySelectorAll('[id^="tool-"]').forEach(btn => btn.classList.remove('active'));
-      document.getElementById('tool-' + tool)?.classList.add('active');
+      // Update toolbar buttons: active class, roving tabindex (#58 — only the
+      // active tool is in the Tab order, arrows move focus within the group), and
+      // aria-pressed for screen readers (#45).
+      document.querySelectorAll('[id^="tool-"]').forEach(btn => { btn.classList.remove('active'); btn.setAttribute('tabindex', '-1'); btn.setAttribute('aria-pressed', 'false'); });
+      const activeToolBtn = document.getElementById('tool-' + tool);
+      if (activeToolBtn) { activeToolBtn.classList.add('active'); activeToolBtn.setAttribute('tabindex', '0'); activeToolBtn.setAttribute('aria-pressed', 'true'); }
       // Update cursor
       const container = document.getElementById('canvasContainer');
       if (SHAPE_TOOLS.includes(tool) || tool === 'pencil') {
@@ -1270,13 +1434,18 @@
       applyTheme(loadSetting('theme', 'dark'), false);
       buildPalettes();
       buildIconPicker();
+      applyA11yLabels();
       bindCanvasEvents();
+      initKeyboardA11y();
       // Share-link hash wins; otherwise restore the last autosaved diagram.
       if (!loadFromUrl()) restoreAutosave();
+      docStore._open();   // hydrate the document library from IndexedDB (best-effort; no-op without IDB)
       saveState();
       render();
       // Restore the saved line-style preference (defaults to curved).
       setGlobalLineStyle(loadSetting('lineStyle', 'curved'));
+      // First run only: show the guided walkthrough (flag persisted on finish/skip).
+      if (shouldShowOnboarding()) startOnboarding();
     }
     
     function generateId() { return 'n' + (++idCounter); }
@@ -1336,6 +1505,10 @@
       history.replaceState(null, '', '#' + btoa(encodeURIComponent(json)));
       // Autosave locally so the diagram survives a reload even without the hash
       saveSetting('autosave', json);
+      // Write through to the document library (creates the active doc on first edit;
+      // updates its data + `updated` thereafter). Back-compat: a v1 URL-hash diagram
+      // becomes a library doc as soon as it's edited.
+      if (typeof saveActiveDoc === 'function') saveActiveDoc();
     }
     
     function loadFromUrl() {
@@ -1417,7 +1590,84 @@
         }
         return nodes.length > 0;
     }
-    
+
+    // Snapshot the live diagram as the persisted `{n, c, v}` payload (same shape
+    // as the share-link / autosave / .draph file). Used by the document store.
+    function exportState() {
+      return { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom } };
+    }
+
+    // === SECTION: DOCUMENT STORE ("My diagrams") ===============================
+    // A thin, SYNCHRONOUS document store over an in-memory cache, with optional
+    // IndexedDB write-through for persistence in the browser. jsdom has no
+    // IndexedDB, so the cache is the source of truth and IDB is best-effort:
+    // every mutation updates the cache immediately (sync) and fires an async IDB
+    // write; on load the cache is hydrated from IDB. Tests call `_useMemory()` to
+    // force the pure in-memory backend. Doc shape:
+    //   { id, title, created, updated, schemaVersion, data:{n,c,v} }
+    const docStore = (() => {
+      const STORE = 'docs', DB_NAME = 'draph-docs';
+      const cache = new Map();              // id -> doc (the synchronous view)
+      let idb = null;                       // IDBDatabase, or null = memory-only
+      let useIDB = (typeof indexedDB !== 'undefined' && indexedDB);
+      const now = () => Date.now();
+      const uid = () => 'doc-' + Math.random().toString(36).slice(2, 9) + now().toString(36);
+      const clone = (o) => (o == null ? o : JSON.parse(JSON.stringify(o)));
+
+      function _useMemory() { useIDB = false; idb = null; cache.clear(); }  // test hook
+
+      function _persist(doc) {
+        if (!useIDB || !idb) return;
+        try { idb.transaction(STORE, 'readwrite').objectStore(STORE).put(clone(doc)); } catch (e) {}
+      }
+      function _evict(id) {
+        if (!useIDB || !idb) return;
+        try { idb.transaction(STORE, 'readwrite').objectStore(STORE).delete(id); } catch (e) {}
+      }
+      // Open IndexedDB and hydrate the cache. Returns a Promise; safe to ignore.
+      function _open() {
+        if (!useIDB) return Promise.resolve(false);
+        return new Promise((resolve) => {
+          let req;
+          try { req = indexedDB.open(DB_NAME, 1); } catch (e) { useIDB = false; return resolve(false); }
+          req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' }); };
+          req.onsuccess = () => {
+            idb = req.result;
+            try {
+              const all = idb.transaction(STORE, 'readonly').objectStore(STORE).getAll();
+              all.onsuccess = () => { (all.result || []).forEach(d => cache.set(d.id, d)); resolve(true); };
+              all.onerror = () => resolve(false);
+            } catch (e) { resolve(false); }
+          };
+          req.onerror = () => { useIDB = false; resolve(false); };
+        });
+      }
+
+      // Create or update. Pass {id} to update; omit for a new doc. Returns the rec.
+      function save(doc = {}) {
+        const id = doc.id || uid();
+        const prev = cache.get(id);
+        const rec = {
+          id,
+          title: doc.title != null ? doc.title : (prev ? prev.title : 'Untitled'),
+          created: prev ? prev.created : (doc.created || now()),
+          updated: now(),
+          schemaVersion: doc.schemaVersion || (prev && prev.schemaVersion) || 1,
+          data: doc.data !== undefined ? doc.data : (prev ? prev.data : null),
+        };
+        cache.set(id, rec); _persist(rec); return clone(rec);
+      }
+      function list() { return [...cache.values()].sort((a, b) => b.updated - a.updated).map(clone); }
+      function load(id) { return cache.has(id) ? clone(cache.get(id)) : null; }
+      function duplicate(id) {
+        const src = cache.get(id); if (!src) return null;
+        return save({ title: src.title + ' copy', data: clone(src.data), schemaVersion: src.schemaVersion });
+      }
+      function remove(id) { const had = cache.delete(id); if (had) _evict(id); return had; }
+
+      return { save, list, load, duplicate, remove, _open, _useMemory };
+    })();
+
     // The full share URL (hash-encoded diagram) WITHOUT touching the address bar,
     // so we can measure its length before committing.
     function diagramShareUrl() {
@@ -1548,7 +1798,13 @@
         container: { w: 340, h: 220 },
         text: { w: 100, h: 24 },
         note: { w: 200, h: 150 },
-        line: { w: 100, h: 0 }  // width = dx, height = dy from start
+        line: { w: 100, h: 0 },  // width = dx, height = dy from start
+        // Flowchart shape zoo (#49)
+        cylinder: { w: 120, h: 80 },
+        hexagon: { w: 150, h: 70 },
+        parallelogram: { w: 170, h: 60 },
+        trapezoid: { w: 170, h: 70 },
+        subroutine: { w: 160, h: 60 },
       };
       const def = defaults[type] || { w: 120, h: 44 };
 
@@ -1584,7 +1840,70 @@
       }
       
       nodes.push(node);
+      announce(nodeTypeName(node) + ' added');   // #59: screen-reader edit announcement
       return node;
+    }
+
+    // Manually place a diagram-specific shape (Class / Sequence / State / ER) that
+    // otherwise only comes from Mermaid import. Reuses the existing renderNodes
+    // branches (isClass / hasLifeline / isPseudo). Returns the created node so the
+    // shape-library panel and tests can both reach it. Defaults to viewport center.
+    function placeShape(kind, x, y) {
+      if (x == null) x = viewBox.x + viewBox.w / 2;
+      if (y == null) y = viewBox.y + viewBox.h / 2;
+      const sizeClass = (n) => {
+        const rows = [...(n.properties || []), ...(n.methods || []), n.label, n.stereotype ? '«' + n.stereotype + '»' : ''];
+        const longest = rows.reduce((m, s) => Math.max(m, (s || '').length), 0);
+        n.width = Math.max(170, longest * 7 + 24);
+        n.height = Math.max(70, (n.stereotype ? 42 : 28) + (n.properties || []).length * 16 + (n.methods || []).length * 16 + 8);
+      };
+      let node;
+      const mkClass = (label, stereotype, properties, methods) => {
+        node = createNode('rect', 0, 0, 170, 80);
+        node.label = label; node.isClass = true; node.stereotype = stereotype || '';
+        node.properties = properties || []; node.methods = methods || [];
+        sizeClass(node);
+      };
+      switch ((kind || '').toLowerCase()) {
+        case 'class': mkClass('NewClass', '', ['+ field: Type'], ['+ method() void']); break;
+        case 'interface': mkClass('NewInterface', 'interface', [], ['+ operation() void']); break;
+        case 'abstract': mkClass('AbstractBase', 'abstract', ['# state: Type'], ['+ run()* void']); break;
+        case 'enum': case 'enumeration': mkClass('NewEnum', 'enumeration', ['VALUE_A', 'VALUE_B'], []); break;
+        case 'entity': mkClass('Entity', '', ['id: int PK', 'name: string'], []); break;
+        case 'participant': case 'actor':
+          node = createNode('rect', 0, 0, 100, 40);
+          node.label = kind.toLowerCase() === 'actor' ? 'Actor' : 'Participant';
+          node.isParticipant = true; node.hasLifeline = true; node.isActor = kind.toLowerCase() === 'actor';
+          break;
+        case 'terminal':   // state start/end pseudo-dot (shared kind with #22)
+          node = createNode('circle', 0, 0, 24, 24);
+          node.label = ''; node.isPseudo = true; node.width = 24; node.height = 24;
+          node.fillStyle = 'infill'; node.color = COLORS.fg;
+          break;
+        case 'cylinder': case 'hexagon': case 'parallelogram': case 'trapezoid': case 'subroutine': {
+          // Flowchart shape zoo (#49): created as their own node type; rendered by the
+          // matching renderNodes branch; behave like any other shape otherwise.
+          const k = kind.toLowerCase();
+          node = createNode(k, 0, 0);
+          node.label = { cylinder: 'Database', hexagon: 'Prepare', parallelogram: 'Input', trapezoid: 'Manual', subroutine: 'Process' }[k] || 'Node';
+          break;
+        }
+        default: mkClass('NewClass', '', ['+ field: Type'], ['+ method() void']);
+      }
+      node.x = Math.round(x - node.width / 2);
+      node.y = Math.round(y - node.height / 2);
+      selectedId = node.id; selectedIds = [node.id];
+      saveState(); render(); updateUrlHash();
+      return node;
+    }
+
+    // Toggle the right-anchored shape library panel. `force` true=open / false=close;
+    // omit to flip. Open state is reflected in the className ('shape-panel open').
+    function toggleShapePanel(force) {
+      const p = document.getElementById('shapePanel'); if (!p) return;
+      const open = force === undefined ? !/\bopen\b/.test(p.className) : !!force;
+      p.className = open ? 'shape-panel open' : 'shape-panel';
+      p.style.display = open ? 'flex' : 'none';
     }
 
     // Grow a node so its label fits inside the shape (never shrinks below the
@@ -1609,6 +1928,9 @@
       // 'text' and 'container' render their label on a single line, so they don't wrap.
       const prefMax = (node.type === 'text' || node.type === 'container') ? Infinity : 140;
       let textW = Math.max(longestWord * charW, Math.min(longestSegW, prefMax));
+      // Cap the width for wrapping shapes: a single very long token hard-breaks
+      // (wrapLabel) instead of stretching the node past CONFIG.wrap.maxWidth (#36).
+      if (prefMax !== Infinity) textW = Math.min(textW, CONFIG.wrap.maxWidth);
       // Reserve room for an inline icon (drawn left of the label).
       if (node.icon && ICONS[node.icon]) textW += Math.round(fs * 1.3) + 6;
       let numLines = 0;
@@ -1620,8 +1942,18 @@
       else if (node.type === 'note') { padX = 22; padY = 22; }
       else if (node.type === 'container') { padX = 24; padY = 14; }
 
-      node.width = Math.max(node.width, Math.ceil(textW / ratio) + padX);
-      node.height = Math.max(node.height, Math.ceil(textH / ratio) + padY);
+      const fitW = Math.ceil(textW / ratio) + padX;
+      const fitH = Math.ceil(textH / ratio) + padY;
+      if (node.manuallyResized) {
+        // User chose this size — only grow to avoid overflow, never shrink.
+        node.width = Math.max(node.width, fitW);
+        node.height = Math.max(node.height, fitH);
+      } else {
+        // Shrink-to-fit (as well as grow), down to the type's minimum, so deleting
+        // text reclaims the space instead of leaving an oversized box.
+        node.width = Math.max(CONFIG.node.minWidth, fitW);
+        node.height = Math.max(CONFIG.node.minHeight, fitH);
+      }
       if (node.type === 'circle') { const s = Math.max(node.width, node.height); node.width = s; node.height = s; }
     }
 
@@ -2136,7 +2468,7 @@
             
             const arrowHit = `<circle class="conn-hit" cx="${fromX + 5}" cy="${endY}" r="15" fill="transparent" data-conn="${conn.id}" style="cursor:pointer;pointer-events:all"/>`;
             
-            return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" style="cursor:pointer">
+            return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" role="img" aria-label="${esc(connAriaLabel(conn, nodeById))}" style="cursor:pointer">
               <path class="conn-hit" d="${loopPath}" fill="none" stroke="transparent" stroke-width="20" data-conn="${conn.id}" style="cursor:pointer;pointer-events:stroke"/>
               ${arrowHit}
               <path d="${loopPath}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" style="pointer-events:none"/>
@@ -2169,7 +2501,7 @@
           // Hit area for arrow head (circle around arrow tip)
           const arrowHitX = toX - dir * 5;
           const arrowHit = `<circle class="conn-hit" cx="${arrowHitX}" cy="${y}" r="15" fill="transparent" data-conn="${conn.id}" style="cursor:pointer;pointer-events:all"/>`;
-          return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" style="cursor:pointer">
+          return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" role="img" aria-label="${esc(connAriaLabel(conn, nodeById))}" style="cursor:pointer">
             <line class="conn-hit" x1="${fromX}" y1="${y}" x2="${toX}" y2="${y}" stroke="transparent" stroke-width="20" data-conn="${conn.id}" style="cursor:pointer;pointer-events:stroke"/>
             ${arrowHit}
             <line x1="${fromX}" y1="${y}" x2="${arrowX}" y2="${y}" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" class="connection" style="pointer-events:none"/>
@@ -2282,7 +2614,7 @@
         const connDashArray = conn.strokeStyle === 'dashed' ? '5,3' : 'none';
         // Endpoint drag-handles are drawn in the #connHandles overlay (above nodes)
         if (isConnSelected) selHandles = { fromX: x1, fromY: y1, toX: endX, toY: endY };
-        return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" style="cursor:pointer">${hitArea}${arrowHit}<path class="connection" d="${path}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${connDashArray}" style="pointer-events:none"/>${startMarkerSvg}${endMarkerSvg}${labelEl}</g>`;
+        return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" role="img" aria-label="${esc(connAriaLabel(conn, nodeById))}" style="cursor:pointer">${hitArea}${arrowHit}<path class="connection" d="${path}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${connDashArray}" style="pointer-events:none"/>${startMarkerSvg}${endMarkerSvg}${labelEl}</g>`;
       }).join('');
 
       // Endpoint handles on top of everything, with a generous transparent hit area
@@ -2514,8 +2846,10 @@
           let pts = '';
           (node.points || []).forEach(p => {
             const cx = px + p.x * pw, cy = py + (1 - p.y) * ph;
-            pts += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="5" fill="${COLORS.accent}"/>`;
-            pts += `<text x="${(cx + 8).toFixed(1)}" y="${(cy + 4).toFixed(1)}" fill="${COLORS.fg}" font-size="11" font-family="system-ui, sans-serif" style="pointer-events:none">${esc(p.label)}</text>`;
+            const r = p.radius || 5, fill = p.color || COLORS.accent;
+            const stroke = p.strokeColor ? ` stroke="${p.strokeColor}" stroke-width="${p.strokeWidth || 1}"` : '';
+            pts += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r}" fill="${fill}"${stroke}/>`;
+            pts += `<text x="${(cx + r + 3).toFixed(1)}" y="${(cy + 4).toFixed(1)}" fill="${COLORS.fg}" font-size="11" font-family="system-ui, sans-serif" style="pointer-events:none">${esc(p.label)}</text>`;
           });
           const ax = node.xAxis || {}, ay = node.yAxis || {};
           const axis =
@@ -2650,6 +2984,44 @@
           const w = isSelected ? 3 : 2;
           shape = `<path d="${d}" fill="none" stroke="transparent" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="${d}" fill="none" stroke="${stroke}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" class="node-border"/>`;
+        } else if (node.type === 'cylinder' || node.type === 'hexagon' || node.type === 'parallelogram' || node.type === 'trapezoid' || node.type === 'subroutine') {
+          // Flowchart shape zoo (#49): cylinder/hex/parallelogram/trapezoid as
+          // path/polygon, subroutine as a double-bordered rect. Label is wrapped
+          // and clipped to the shape, like the other branches.
+          const { fill, style } = getFill(node, 'infill');
+          const customPattern = getCustomPattern(node);
+          const txtColor = (style === 'outline' || style === 'stripe' || style === 'grid') ? (node.outlineColor || COLORS.fg) : textColor;
+          const x = node.x, y = node.y, w = node.width, h = node.height, cx = x + w / 2, cy = y + h / 2;
+          const clipId = 'clip-' + node.id;
+          let outline, clip;
+          if (node.type === 'cylinder') {
+            const ry = Math.min(14, h * 0.16);
+            clip = `<rect x="${x}" y="${y + ry}" width="${w}" height="${Math.max(1, h - ry * 2)}"/>`;
+            outline = `<path d="M${x},${y + ry} L${x},${y + h - ry} A${w / 2},${ry} 0 0 0 ${x + w},${y + h - ry} L${x + w},${y + ry} Z" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>
+              <ellipse cx="${cx}" cy="${y + ry}" rx="${w / 2}" ry="${ry}" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5"/>`;
+          } else if (node.type === 'hexagon') {
+            const n = Math.min(22, w * 0.2);
+            const pts = `${x + n},${y} ${x + w - n},${y} ${x + w},${cy} ${x + w - n},${y + h} ${x + n},${y + h} ${x},${cy}`;
+            clip = `<polygon points="${pts}"/>`;
+            outline = `<polygon points="${pts}" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>`;
+          } else if (node.type === 'parallelogram') {
+            const s = Math.min(26, w * 0.22);
+            const pts = `${x + s},${y} ${x + w},${y} ${x + w - s},${y + h} ${x},${y + h}`;
+            clip = `<polygon points="${pts}"/>`;
+            outline = `<polygon points="${pts}" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>`;
+          } else if (node.type === 'trapezoid') {
+            const s = Math.min(26, w * 0.22);
+            const pts = `${x + s},${y} ${x + w - s},${y} ${x + w},${y + h} ${x},${y + h}`;
+            clip = `<polygon points="${pts}"/>`;
+            outline = `<polygon points="${pts}" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>`;
+          } else { // subroutine: rect with a second vertical border on each side
+            const inset = 7;
+            clip = `<rect x="${x + inset}" y="${y}" width="${Math.max(1, w - inset * 2)}" height="${h}"/>`;
+            outline = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>
+              <line x1="${x + inset}" y1="${y}" x2="${x + inset}" y2="${y + h}" stroke="${strokeColor}" stroke-width="1.5"/>
+              <line x1="${x + w - inset}" y1="${y}" x2="${x + w - inset}" y2="${y + h}" stroke="${strokeColor}" stroke-width="1.5"/>`;
+          }
+          shape = `${customPattern}<defs><clipPath id="${clipId}">${clip}</clipPath></defs>${outline}<g clip-path="url(#${clipId})">${renderWrappedText(node.label, cx, cy, w * 0.7, 12, txtColor, '', node.icon)}</g>`;
         } else if (node.isClass) {
           // UML class box: header (with optional «stereotype»), then attribute
           // and method sections (each shown only when non-empty).
@@ -2696,9 +3068,20 @@
           const clipId = 'clip-' + node.id;
           const pad = 8;
           shape = `${customPattern}<defs><clipPath id="${clipId}"><rect x="${node.x + pad}" y="${node.y + 2}" width="${node.width - pad*2}" height="${node.height - 4}" rx="${rx}"/></clipPath></defs>
-            <rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${rx}" 
+            <rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${rx}"
             fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>
             <g clip-path="url(#${clipId})">${renderWrappedText(node.label, rcx, rcy, node.width - pad*2, 12, txtColor, '', node.icon)}</g>`;
+          // journey actor avatars: one color-coded glyph per actor, above the pill
+          if (node.actors && node.actors.length) {
+            const gr = 7, gap = 4, gy = node.y - gr - 3;
+            let gx = node.x + gr + 2;
+            node.actors.forEach((a, i) => {
+              const col = (node.actorColors && node.actorColors[i]) || COLORS.accent;
+              shape += `<circle cx="${gx}" cy="${gy}" r="${gr}" fill="${col}" stroke="${COLORS.bg2}" stroke-width="1.5" style="pointer-events:none"/>`;
+              shape += `<text x="${gx}" y="${gy + 3}" fill="${COLORS.bg}" font-size="8" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle" style="pointer-events:none">${esc((a[0] || '?').toUpperCase())}</text>`;
+              gx += gr * 2 + gap;
+            });
+          }
         }
         
         // Add lifeline for sequence participants with clickable connection zones
@@ -2735,13 +3118,49 @@
         const resizeHandle = (isSelected && node.type !== 'line' && node.type !== 'pencil') ?
           `<rect class="resize-handle" x="${node.x + node.width - 8}" y="${node.y + node.height - 8}" width="8" height="8" fill="${COLORS.accent}" rx="2"/>` : '';
         
-        return `<g class="node ${isSelected ? 'selected' : ''}" data-id="${node.id}">
+        return `<g class="node ${isSelected ? 'selected' : ''}" data-id="${node.id}" role="img" aria-label="${esc(nodeAriaLabel(node))}">
           ${lifeline}
           ${shape}
           ${connectors}
           ${resizeHandle}
         </g>`;
       }).join('');
+    }
+
+    // === Screen-reader semantics (#59) ===
+    // Human-readable type names for accessible labels.
+    const NODE_TYPE_NAMES = {
+      rect: 'Rectangle', pill: 'Pill', diamond: 'Diamond', circle: 'Circle', container: 'Group',
+      text: 'Text', note: 'Note', line: 'Line', pencil: 'Drawing', image: 'Image', link: 'Link',
+      cylinder: 'Database', hexagon: 'Hexagon', parallelogram: 'Input/Output', trapezoid: 'Trapezoid',
+      subroutine: 'Subroutine', pie: 'Pie chart', quadrant: 'Quadrant chart', xychart: 'XY chart', bar: 'Bar',
+    };
+    function nodeTypeName(node) {
+      if (node.isClass) return node.stereotype ? node.stereotype[0].toUpperCase() + node.stereotype.slice(1) : 'Class';
+      return NODE_TYPE_NAMES[node.type] || (node.type ? node.type[0].toUpperCase() + node.type.slice(1) : 'Node');
+    }
+    // Accessible name for a node group: "Type: label" (or just the type when unlabeled).
+    function nodeAriaLabel(node) {
+      const lbl = (node.label || '').trim();
+      return lbl ? `${nodeTypeName(node)}: ${lbl}` : nodeTypeName(node);
+    }
+    // Accessible name for a connection: "arrow from A to B" using endpoint labels.
+    function connAriaLabel(conn, nodeById) {
+      const from = nodeById ? nodeById.get(conn.from) : nodes.find(n => n.id === conn.from);
+      const to = nodeById ? nodeById.get(conn.to) : nodes.find(n => n.id === conn.to);
+      const name = (n) => n ? ((n.label || '').trim() || nodeTypeName(n)) : '?';
+      const verb = conn.label ? `${conn.label}: ` : '';
+      return `${verb}arrow from ${name(from)} to ${name(to)}`;
+    }
+    // Announce a structural edit through the visually-hidden aria-live region.
+    function announce(msg) {
+      const live = document.getElementById('a11yLive');
+      if (live) live.textContent = msg;
+    }
+    // Announce a new connection by endpoint names.
+    function announceConnect(fromId, toId) {
+      const nm = (id) => { const n = nodes.find(x => x.id === id); return n ? ((n.label || '').trim() || nodeTypeName(n)) : '?'; };
+      announce(`connected ${nm(fromId)} to ${nm(toId)}`);
     }
 
     // Event delegation: listeners are attached ONCE to the persistent group
@@ -2786,15 +3205,33 @@
     // Wrap label text into lines that fit within a given pixel width. Explicit
     // newlines (\n) are honored as hard breaks first, then each segment is
     // word-wrapped to maxWidth.
-    function wrapLabel(label, maxWidth, fontSize) {
+    function wrapLabel(label, maxWidth, fontSize = 12) {
       if (!label) return [''];
       const charW = fontSize * 0.6; // approximate character width
       const maxChars = Math.max(4, Math.floor(maxWidth / charW));
+      // A single token wider than the line cap can't wrap on a space, so hard-break
+      // it into cap-sized chunks (#36). Array.from keeps code-points intact so we
+      // never split mid-emoji / mid-surrogate-pair.
+      const hardBreak = (word) => {
+        if (Array.from(word).length <= maxChars) return [word];
+        const cps = Array.from(word), chunks = [];
+        for (let i = 0; i < cps.length; i += maxChars) chunks.push(cps.slice(i, i + maxChars).join(''));
+        return chunks;
+      };
       const out = [];
       for (const segment of String(label).split('\n')) {
         const words = segment.split(' ');
         let cur = '';
         for (const w of words) {
+          const pieces = hardBreak(w);
+          if (pieces.length > 1) {
+            // Flush the current line, emit all but the last chunk as full lines,
+            // and carry the remainder so following words can still pack onto it.
+            if (cur) { out.push(cur); cur = ''; }
+            for (let i = 0; i < pieces.length - 1; i++) out.push(pieces[i]);
+            cur = pieces[pieces.length - 1];
+            continue;
+          }
           const test = cur ? cur + ' ' + w : w;
           if (test.length > maxChars && cur) { out.push(cur); cur = w; }
           else cur = test;
@@ -2954,6 +3391,7 @@
         nodes = nodes.filter(n => !toDelete.includes(n.id));
         connections = connections.filter(c => !toDelete.includes(c.from) && !toDelete.includes(c.to));
         deselectAll();
+        announce(toDelete.length === 1 ? 'Node deleted' : toDelete.length + ' nodes deleted');   // #59
         saveState();
         render();
       }
@@ -3103,11 +3541,152 @@
           `<div class="grouphead">${g.group}</div>` + g.items.map(([k, v]) => `<div class="row"><span>${k}</span><kbd>${v}</kbd></div>`).join('')
         ).join('');
         cheatsheetOverlay.classList.remove('hidden');
+        trapModalFocus(cheatsheetOverlay);
       } else {
         cheatsheetOverlay.classList.add('hidden');
+        releaseModalFocus();
       }
     }
     cheatsheetOverlay.addEventListener('mousedown', (e) => { if (e.target === cheatsheetOverlay) toggleCheatsheet(false); });
+
+    // === Keyboard a11y (#58): modal focus trap/restore + toolbar arrow cycling ===
+    let _modalReturnFocus = null, _modalTrapHandler = null;
+    const focusablesIn = (root) => [...root.querySelectorAll('button, [href], input, textarea, select, [tabindex]')]
+      .filter(el => el.getAttribute('tabindex') !== '-1' && !el.disabled);
+    // Trap Tab within `overlay` (handler on document so it works regardless of
+    // where focus is) and remember the opener to restore on close.
+    function trapModalFocus(overlay) {
+      _modalReturnFocus = document.activeElement;
+      const items = focusablesIn(overlay);
+      if (items[0] && items[0].focus) items[0].focus();
+      _modalTrapHandler = (e) => {
+        if (e.key !== 'Tab') return;
+        const f = focusablesIn(overlay); if (!f.length) return;
+        const first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      };
+      document.addEventListener('keydown', _modalTrapHandler, true);
+    }
+    function releaseModalFocus() {
+      if (_modalTrapHandler) document.removeEventListener('keydown', _modalTrapHandler, true);
+      _modalTrapHandler = null;
+      if (_modalReturnFocus && _modalReturnFocus.focus) _modalReturnFocus.focus();
+      _modalReturnFocus = null;
+    }
+    // Roving-tabindex arrow cycling across the tool buttons.
+    function initKeyboardA11y() {
+      const tools = () => [...document.querySelectorAll('[id^="tool-"]')];
+      tools().forEach((b, i) => b.setAttribute('tabindex', b.classList.contains('active') ? '0' : '-1'));
+      if (!tools().some(b => b.getAttribute('tabindex') === '0') && tools()[0]) tools()[0].setAttribute('tabindex', '0');
+      document.addEventListener('keydown', (e) => {
+        if (!/^Arrow(Left|Right|Up|Down)$/.test(e.key)) return;
+        const btns = tools(); const i = btns.indexOf(document.activeElement);
+        if (i === -1) return;   // focus isn't on a tool button — leave arrows alone
+        e.preventDefault();
+        const dir = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : -1;
+        const next = btns[(i + dir + btns.length) % btns.length];
+        next.focus();
+        const toolName = next.id.replace(/^tool-/, '');
+        if (toolName) setTool(toolName);
+      });
+    }
+
+    // === SECTION: FIRST-RUN ONBOARDING (one-time guided walkthrough) ===========
+    // Completion is persisted under a VERSIONED key so the walkthrough can be
+    // re-shown later by bumping the version. Replayable from the ⋯ menu (ignores
+    // the flag). Self-contained: inline text + an emoji glyph per step, no assets.
+    const ONBOARDING_KEY = 'draph.onboarding.v1';
+    const ONBOARDING_STEPS = [
+      { icon: '👋', title: 'Welcome to Draph', body: 'A fast, single-file diagram editor — flowcharts, UML, sequence, state, ER, and more. Here\'s the 30-second tour.' },
+      { icon: '✏️', title: 'Draw a shape', body: 'Pick a tool (keys 1–6, P for pencil, N for note) and drag on the canvas to create a shape.' },
+      { icon: '🔗', title: 'Connect shapes', body: 'Hover a node, then drag from its connector dot to another node to draw an arrow.' },
+      { icon: '🎨', title: 'Edit & style', body: 'Double-click to rename. Use the selection toolbar for color / fill / outline, and the handles to resize.' },
+      { icon: '〽️', title: 'Mermaid, two ways', body: 'Press M (or ⋯ → Mermaid) for the code panel — paste Mermaid and it renders to the canvas, and back.' },
+      { icon: '📤', title: 'Export & share', body: 'Export PNG/SVG, or "copy share link" — the whole diagram lives in the URL.' },
+      { icon: '⌨️', title: 'More shortcuts', body: 'Press ? anytime for the full keyboard cheatsheet. That\'s it — enjoy!' },
+    ];
+    let onboardingStep = 0;
+    function shouldShowOnboarding() {
+      try { return !localStorage.getItem(ONBOARDING_KEY); } catch (e) { return false; }
+    }
+    function renderOnboarding() {
+      const s = ONBOARDING_STEPS[onboardingStep];
+      document.getElementById('obIcon').textContent = s.icon;
+      document.getElementById('obTitle').textContent = s.title;
+      document.getElementById('obBody').textContent = s.body;
+      document.getElementById('obDots').innerHTML = ONBOARDING_STEPS.map((_, i) => `<span class="ob-dot${i === onboardingStep ? ' on' : ''}"></span>`).join('');
+      document.getElementById('obBack').style.visibility = onboardingStep === 0 ? 'hidden' : 'visible';
+      document.getElementById('obNext').textContent = onboardingStep === ONBOARDING_STEPS.length - 1 ? 'Finish' : 'Next';
+    }
+    function startOnboarding() {
+      onboardingStep = 0;
+      renderOnboarding();
+      document.getElementById('onboardingOverlay').classList.remove('hidden');
+    }
+    function onboardingNext() {
+      if (onboardingStep >= ONBOARDING_STEPS.length - 1) {
+        finishOnboarding();
+        startCoachmarks();   // #56: hand off from the static carousel to the interactive coach-marks
+        return;
+      }
+      onboardingStep++; renderOnboarding();
+    }
+    function onboardingBack() { if (onboardingStep > 0) { onboardingStep--; renderOnboarding(); } }
+    function finishOnboarding() {
+      try { localStorage.setItem(ONBOARDING_KEY, String(Date.now())); } catch (e) {}
+      document.getElementById('onboardingOverlay').classList.add('hidden');
+    }
+    function skipOnboarding() { finishOnboarding(); }   // skip also writes the flag (don't nag again)
+
+    // === Interactive coach-marks (#56) ===
+    // Spotlight tooltips anchored to live toolbar elements, mirroring the
+    // cheatsheet overlay pattern. Shares #44's ONBOARDING_KEY so finishing either
+    // path stops the first-run nag. Targets are stable element ids; the tooltip is
+    // positioned from each target's getBoundingClientRect (no hard-coded pixels).
+    const coachmarkSteps = [
+      { target: '#tool-rect',    title: 'Pick a shape',     body: 'Choose the Rectangle tool to start drawing.' },
+      { target: '#canvas',       title: 'Draw it',          body: 'Drag anywhere on the canvas to place your shape.' },
+      { target: '#canvas',       title: 'Connect shapes',   body: 'Hover a node and drag its connector dot to another node to link them.' },
+      { target: '#mermaidToggle', title: 'Or write Mermaid', body: 'Toggle the Mermaid panel to type diagrams as text — they render live.' },
+    ];
+    let coachmarkStep = 0;
+    function renderCoachmark() {
+      const step = coachmarkSteps[coachmarkStep];
+      if (!step) return;
+      const el = document.querySelector(step.target);
+      const spot = document.getElementById('coachmarkSpot');
+      const tip = document.getElementById('coachmarkTip');
+      const r = el ? el.getBoundingClientRect() : { left: 20, top: 20, width: 40, height: 40, bottom: 60, right: 60 };
+      const pad = 4;
+      spot.style.left = (r.left - pad) + 'px';
+      spot.style.top = (r.top - pad) + 'px';
+      spot.style.width = (r.width + pad * 2) + 'px';
+      spot.style.height = (r.height + pad * 2) + 'px';
+      // Place the tooltip below the target, or above if it would overflow.
+      const below = r.bottom + 12;
+      const wantAbove = below + 140 > window.innerHeight;
+      tip.style.left = Math.max(12, Math.min(r.left, window.innerWidth - 252)) + 'px';
+      tip.style.top = (wantAbove ? Math.max(12, r.top - 150) : below) + 'px';
+      document.getElementById('cmTitle').textContent = step.title;
+      document.getElementById('cmBody').textContent = step.body;
+      document.getElementById('cmDots').innerHTML = coachmarkSteps.map((_, i) => `<span class="cm-dot${i === coachmarkStep ? ' on' : ''}"></span>`).join('');
+      document.getElementById('cmNext').textContent = coachmarkStep === coachmarkSteps.length - 1 ? 'Finish' : 'Next';
+    }
+    function startCoachmarks() {
+      coachmarkStep = 0;
+      document.getElementById('coachmarkOverlay').classList.remove('hidden');
+      renderCoachmark();
+    }
+    function coachmarkNext() {
+      if (coachmarkStep >= coachmarkSteps.length - 1) { finishCoachmarks(); return; }
+      coachmarkStep++; renderCoachmark();
+    }
+    function finishCoachmarks() {
+      try { localStorage.setItem(ONBOARDING_KEY, String(Date.now())); } catch (e) {}   // shares #44's flag
+      document.getElementById('coachmarkOverlay').classList.add('hidden');
+    }
+    function skipCoachmarks() { finishCoachmarks(); }
 
     // Connection toolbar functions
     const connToolbar = document.getElementById('connToolbar');
@@ -3399,7 +3978,96 @@
         toast('Canvas cleared', 'success');
       }, { danger: true, okLabel: 'Clear' });
     }
-    
+
+    // === SECTION: "MY DIAGRAMS" GALLERY (document library UI over docStore) =====
+    let activeDocId = null;   // the library doc the canvas currently represents
+
+    function deriveTitle() {
+      const labeled = nodes.find(n => n.label && n.label.trim());
+      return labeled ? labeled.label.trim().slice(0, 40) : 'Untitled diagram';
+    }
+    // Write the live diagram through to its library doc. Creates the active doc on
+    // first save; `force` saves even an empty canvas (the "Save current" button).
+    function saveActiveDoc(force) {
+      if (!force && nodes.length === 0 && connections.length === 0) return null;
+      if (activeDocId && docStore.load(activeDocId)) {
+        docStore.save({ id: activeDocId, data: exportState() });   // keep title, refresh data+updated
+      } else {
+        activeDocId = docStore.save({ title: deriveTitle(), data: exportState() }).id;
+      }
+      if (galleryIsOpen()) renderGallery();
+      return activeDocId;
+    }
+    function galleryIsOpen() { const o = document.getElementById('galleryOverlay'); return !!o && o.style.display !== 'none' && o.style.display !== ''; }
+    function toggleGallery() {
+      const o = document.getElementById('galleryOverlay'); if (!o) return;
+      if (galleryIsOpen()) { o.style.display = 'none'; }
+      else { renderGallery(); o.style.display = 'block'; }
+    }
+    function relTime(ts) {
+      const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+      if (s < 60) return 'just now';
+      const m = Math.round(s / 60); if (m < 60) return m + 'm ago';
+      const h = Math.round(m / 60); if (h < 24) return h + 'h ago';
+      return Math.round(h / 24) + 'd ago';
+    }
+    function renderGallery() {
+      const grid = document.getElementById('galleryGrid'); if (!grid) return;
+      const docs = docStore.list();
+      const empty = document.getElementById('galleryEmpty');
+      if (empty) empty.style.display = docs.length ? 'none' : 'block';
+      grid.style.display = docs.length ? 'grid' : 'none';
+      const swatch = ['#7aa2f7', '#9ece6a', '#bb9af7', '#e0af68', '#f7768e'];
+      grid.innerHTML = docs.map((d, i) => `
+        <div class="gallery-card" data-id="${d.id}" style="border:1px solid ${d.id === activeDocId ? 'var(--accent)' : 'var(--border)'};border-radius:8px;overflow:hidden;background:var(--bg2)">
+          <div onclick="galleryOpen('${d.id}')" title="Open" style="height:72px;background:${swatch[i % swatch.length]};opacity:0.85;cursor:pointer"></div>
+          <div style="padding:8px">
+            <div class="gallery-title" style="font-size:12px;font-weight:600;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.title)}</div>
+            <div style="font-size:10px;color:var(--fg-dim);margin-top:2px">${relTime(d.updated)}</div>
+            <div style="display:flex;gap:4px;margin-top:6px">
+              <button onclick="galleryRenamePrompt('${d.id}')" style="flex:1;padding:2px;font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:3px;color:var(--fg);cursor:pointer">Rename</button>
+              <button onclick="galleryDuplicate('${d.id}')" style="flex:1;padding:2px;font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:3px;color:var(--fg);cursor:pointer">Dup</button>
+              <button onclick="galleryDelete('${d.id}')" style="flex:1;padding:2px;font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:3px;color:var(--danger);cursor:pointer">Del</button>
+            </div>
+          </div>
+        </div>`).join('');
+    }
+    function galleryNew() {
+      saveActiveDoc();                        // bank the current diagram first
+      nodes = []; connections = []; deselectAll();
+      activeDocId = docStore.save({ title: 'Untitled diagram', data: exportState() }).id;
+      saveState(); render();
+      if (galleryIsOpen()) renderGallery();
+    }
+    function galleryOpen(id) {
+      const d = docStore.load(id); if (!d) return;
+      saveActiveDoc();                        // bank current before switching
+      loadDiagramJson(JSON.stringify(d.data || { n: [], c: [], v: null }));
+      activeDocId = id;
+      saveState(); render();
+      if (galleryIsOpen()) toggleGallery();
+    }
+    function galleryDuplicate(id) { if (docStore.duplicate(id)) renderGallery(); }
+    function galleryDelete(id) {
+      confirmDialog('Delete this diagram from your library?', () => {
+        docStore.remove(id);
+        if (activeDocId === id) activeDocId = null;
+        renderGallery();
+        toast('Diagram deleted', 'success');
+      }, { danger: true, okLabel: 'Delete' });
+    }
+    function galleryRename(id, title) { docStore.save({ id, title }); if (galleryIsOpen()) renderGallery(); }
+    function galleryRenamePrompt(id) {
+      const card = document.querySelector(`.gallery-card[data-id="${id}"]`); if (!card) return;
+      const titleEl = card.querySelector('.gallery-title'); if (!titleEl) return;
+      const cur = (docStore.load(id) || {}).title || '';
+      titleEl.innerHTML = `<input class="gallery-rename-input" value="${esc(cur)}" style="width:100%;font-size:12px;font-weight:600;background:var(--bg);color:var(--fg);border:1px solid var(--accent);border-radius:3px;padding:1px 3px">`;
+      const input = titleEl.querySelector('input'); input.focus(); input.select();
+      const commit = () => galleryRename(id, input.value.trim() || cur);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } else if (e.key === 'Escape') renderGallery(); });
+      input.addEventListener('blur', commit);
+    }
+
     // Smart auto-arrange based on diagram type
     // === SECTION: LAYOUT (auto-arrange algorithms per diagram type) ===
 
@@ -4101,6 +4769,7 @@
         const dy = e.clientY - resizing.startY;
         resizing.node.width = Math.max(60, snap(resizing.startW + dx / zoom));
         resizing.node.height = Math.max(40, snap(resizing.startH + dy / zoom));
+        resizing.node.manuallyResized = true;   // never auto-shrink a user-sized node (#35)
         scheduleRender();
       }
       
@@ -4344,6 +5013,7 @@
                 lineStyle: globalLineStyle
               });
             }
+            announceConnect(connecting.from, toId);   // #59
             saveState();
             render();
           }
@@ -4364,6 +5034,7 @@
               toIdx: 1,
               lineStyle: globalLineStyle
             });
+            announceConnect(connecting.from, toNode.id);   // #59
             saveState();
             render();
           }
@@ -4504,11 +5175,25 @@
       '0': () => shareDiagram(),
       a: () => arrangeDiagram(),
       m: () => toggleMermaidSidebar(),
+      s: () => toggleShapePanel(),
+      g: () => toggleGallery(),
     };
+
+    // Close the shape panel on an outside click (not the panel, not its toolbar button).
+    document.addEventListener('pointerdown', (e) => {
+      const sp = document.getElementById('shapePanel');
+      if (!sp || !/\bopen\b/.test(sp.className)) return;
+      if (sp.contains(e.target) || (e.target.closest && e.target.closest('#tool-shapes'))) return;
+      toggleShapePanel(false);
+    }, true);
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
+        const sp = document.getElementById('shapePanel');
+        if (sp && /\bopen\b/.test(sp.className)) { toggleShapePanel(false); return; }
         if (!cheatsheetOverlay.classList.contains('hidden')) { toggleCheatsheet(false); return; }
+        const cm = document.getElementById('coachmarkOverlay');
+        if (cm && !cm.classList.contains('hidden')) { skipCoachmarks(); return; }
         hideContextMenu(); deselectAll(); setTool('select'); closeDropdowns(); return;
       }
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
@@ -4718,31 +5403,33 @@
     // === SECTION: EXPORT (SVG / PNG / GIF) ===
 
     // Export
-    function downloadSVG() {
+    // Build the export SVG as a string — content-cropped, UI chrome stripped,
+    // background filled — WITHOUT triggering a download. Returns null if the
+    // canvas is empty. Pure/testable; downloadSVG() wraps it for the file save.
+    function buildExportSVG() {
       const bounds = getContentBounds();
-      if (!bounds) {
-        toast('Nothing to export yet — add a shape first', 'error');
-        return;
-      }
-      
+      if (!bounds) return null;
+
       const padding = 40;
       const cropX = bounds.minX - padding;
       const cropY = bounds.minY - padding;
       const cropW = (bounds.maxX - bounds.minX) + padding * 2;
       const cropH = (bounds.maxY - bounds.minY) + padding * 2;
-      
+
       const clone = canvas.cloneNode(true);
-      clone.querySelectorAll('.connector, .resize-handle, #selectBox, #drawPreview, .lifeline-connector, .line-handle').forEach(el => el.remove());
+      // Strip all interaction chrome: connectors, resize/line handles, marquee &
+      // draw previews, lifeline connectors, and the transparent conn-hit overlays.
+      clone.querySelectorAll('.connector, .resize-handle, #selectBox, #drawPreview, .lifeline-connector, .line-handle, .conn-hit').forEach(el => el.remove());
       const gridBg = clone.querySelector('#gridBg');
       if (gridBg) gridBg.remove();
-      
-      // Set viewBox and dimensions to cropped area
+
+      // Crop the viewport to the content
       clone.setAttribute('viewBox', `${cropX} ${cropY} ${cropW} ${cropH}`);
       clone.setAttribute('width', cropW);
       clone.setAttribute('height', cropH);
       clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-      
-      // Add background
+
+      // Solid background behind the content
       const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
       bg.setAttribute('x', cropX);
       bg.setAttribute('y', cropY);
@@ -4750,8 +5437,14 @@
       bg.setAttribute('height', cropH);
       bg.setAttribute('fill', COLORS.bg);
       clone.insertBefore(bg, clone.firstChild);
-      
-      const blob = new Blob([clone.outerHTML], { type: 'image/svg+xml' });
+
+      return clone.outerHTML;
+    }
+
+    function downloadSVG() {
+      const svg = buildExportSVG();
+      if (!svg) { toast('Nothing to export yet — add a shape first', 'error'); return; }
+      const blob = new Blob([svg], { type: 'image/svg+xml' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = 'diagram.svg';
@@ -5964,19 +6657,30 @@
         if (!line || line.startsWith('%%') || /^requirementDiagram/i.test(line)) continue;
         if (line === '}') { current = null; continue; }
         let m = line.match(reqType);
-        if (m) { current = ensure(m[2], m[1].toLowerCase()); continue; }
+        // inline single-line block `requirement r1 { … }` closes immediately;
+        // multi-line `requirement r1 {` keeps `current` open until a `}` line.
+        if (m) { current = ensure(m[2], m[1].toLowerCase()); if (/\}\s*$/.test(line)) current = null; continue; }
         m = line.match(/^element\s+(\S+)\s*\{/i);
-        if (m) { current = ensure(m[1], 'element'); continue; }
+        if (m) { current = ensure(m[1], 'element'); if (/\}\s*$/.test(line)) current = null; continue; }
         if (current) {
           const am = line.match(/^(\w+)\s*:\s*(.+)$/);
           if (am) current.properties.push(am[1] + ': ' + am[2].trim());
           continue;
         }
-        // relationships: `src - type -> dest`  or  `dest <- type - src`
+        // relationships: `src - type -> dest`  or  `dest <- type - src`. `contains`
+        // (SysML composition) → a filled diamond at the PARENT (from) end, solid
+        // line, no arrowhead; other typed links keep their dashed labeled arrow.
+        const relConn = (from, to, type) => {
+          ensure(from); ensure(to);
+          const isContains = type.toLowerCase() === 'contains';
+          result.connections.push(isContains
+            ? { from, to, label: type, relType: 'contains', marker: 'diamond-filled', markerStart: 'diamond-filled', strokeStyle: undefined }
+            : { from, to, label: type, markerEnd: 'arrow', strokeStyle: 'dashed' });
+        };
         m = line.match(/^(\S+)\s*-\s*(\w+)\s*->\s*(\S+)$/);
-        if (m) { ensure(m[1]); ensure(m[3]); result.connections.push({ from: m[1], to: m[3], label: m[2], markerEnd: 'arrow', strokeStyle: m[2].toLowerCase() === 'contains' ? undefined : 'dashed' }); continue; }
+        if (m) { relConn(m[1], m[3], m[2]); continue; }   // parent = from (m[1])
         m = line.match(/^(\S+)\s*<-\s*(\w+)\s*-\s*(\S+)$/);
-        if (m) { ensure(m[1]); ensure(m[3]); result.connections.push({ from: m[3], to: m[1], label: m[2], markerEnd: 'arrow', strokeStyle: m[2].toLowerCase() === 'contains' ? undefined : 'dashed' }); continue; }
+        if (m) { relConn(m[3], m[1], m[2]); continue; }   // parent = src (m[3])
       }
       result.nodes.forEach(n => {
         const rows = [...n.properties, ...n.methods, n.label, n.stereotype ? '«' + n.stereotype + '»' : ''];
@@ -6003,7 +6707,16 @@
         if ((m = line.match(/^x-axis\s+(.+)$/i))) { const a = m[1].split('-->'); node.xAxis = { left: a[0].trim(), right: (a[1] || '').trim() }; continue; }
         if ((m = line.match(/^y-axis\s+(.+)$/i))) { const a = m[1].split('-->'); node.yAxis = { bottom: a[0].trim(), top: (a[1] || '').trim() }; continue; }
         if ((m = line.match(/^quadrant-([1-4])\s+(.+)$/i))) { node.quadrants[+m[1] - 1] = m[2].trim(); continue; }
-        if ((m = line.match(/^(.+?):\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*\]/))) { node.points.push({ label: m[1].trim(), x: parseFloat(m[2]), y: parseFloat(m[3]) }); }
+        if ((m = line.match(/^(.+?):\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*\]\s*(.*)$/))) {
+          const pt = { label: m[1].trim().replace(/:::\S+/, '').trim(), x: parseFloat(m[2]), y: parseFloat(m[3]) };
+          const rest = m[4] || '';   // per-point styling: radius:N, color:#hex, stroke-color:#hex, stroke-width:N
+          let s;
+          if ((s = rest.match(/radius:\s*([\d.]+)/i))) pt.radius = parseFloat(s[1]);
+          if ((s = rest.match(/(?:^|[\s,])color:\s*(#[0-9a-f]{3,8}|\w+)/i))) pt.color = s[1];
+          if ((s = rest.match(/stroke-color:\s*(#[0-9a-f]{3,8}|\w+)/i))) pt.strokeColor = s[1];
+          if ((s = rest.match(/stroke-width:\s*([\d.]+)/i))) pt.strokeWidth = parseFloat(s[1]);
+          node.points.push(pt);
+        }
       }
       node.label = node.title || 'Quadrant';
       return { nodes: [node], connections: [], errors: [], diagramType: 'quadrant' };
@@ -6075,21 +6788,36 @@
         let m = line.match(/^section\s+(.+)$/i);
         if (m) { sections.push({ name: m[1].trim(), at: tasks.length }); continue; }
         m = line.match(/^(.+?)\s*:\s*(\d+)\s*:\s*(.+)$/);          // name : score : actors
-        if (m) { tasks.push({ name: m[1].trim(), score: +m[2], actors: m[3].trim() }); continue; }
+        if (m) { tasks.push({ name: m[1].trim(), score: +m[2], actors: m[3].split(',').map(s => s.trim()).filter(Boolean) }); continue; }
         m = line.match(/^(.+?)\s*:\s*(\d+)\s*$/);                  // name : score
-        if (m) tasks.push({ name: m[1].trim(), score: +m[2], actors: '' });
+        if (m) tasks.push({ name: m[1].trim(), score: +m[2], actors: [] });
       }
+      // stable per-actor color across the whole journey
+      const actorColor = {}; let aci = 0;
+      const colorOf = (a) => (actorColor[a] || (actorColor[a] = CONFIG.palette[aci++ % CONFIG.palette.length]));
+      tasks.forEach(t => t.actors.forEach(colorOf));
+
+      // Section bands first (drawn behind the tasks): a tinted rect spanning the
+      // section's task columns.
+      sections.forEach((s, si) => {
+        const start = s.at;
+        const end = (sections[si + 1] ? sections[si + 1].at : tasks.length) - 1;
+        if (end < start) return;
+        const bx = baseX + start * PXT - 20;
+        const bw = (end - start) * PXT + Math.max(120, 140);
+        result.nodes.push({ id: 'jband' + si, type: 'rect', label: '', fixed: true, x: bx, y: baseY - 5 * scoreUnit - 20, width: bw, height: 5 * scoreUnit + 90, color: CONFIG.palette[si % CONFIG.palette.length], fillStyle: 'outline' });
+        result.nodes.push({ id: 'jsec' + s.at, type: 'text', label: s.name, fixed: true, x: bx + 8, y: baseY + 50, width: 160, height: 24 });
+      });
+
       let prev = null;
       tasks.forEach((t, i) => {
         const id = 'jt' + i;
-        const label = t.actors ? `${t.name} (${t.actors})` : t.name;
         const score = Math.min(5, Math.max(1, t.score || 1));
-        result.nodes.push({ id, type: 'pill', label, fixed: true, x: baseX + i * PXT, y: baseY - score * scoreUnit, width: Math.max(120, label.length * 7 + 24), height: taskH });
+        const node = { id, type: 'pill', label: t.name, fixed: true, x: baseX + i * PXT, y: baseY - score * scoreUnit, width: Math.max(120, t.name.length * 7 + 24), height: taskH };
+        if (t.actors.length) { node.actors = t.actors.slice(); node.actorColors = t.actors.map(colorOf); }
+        result.nodes.push(node);
         if (prev) result.connections.push({ from: prev, to: id });
         prev = id;
-      });
-      sections.forEach(s => {
-        result.nodes.push({ id: 'jsec' + s.at, type: 'text', label: s.name, fixed: true, x: baseX + s.at * PXT, y: baseY + 40, width: 160, height: 24 });
       });
       return result;
     }
@@ -7273,6 +8001,16 @@
 
       if (!code || code === 'flowchart TD' || code === 'flowchart TD\n    %% Empty diagram') {
         if (!append) { errorDiv.textContent = 'No code to import'; errorDiv.style.display = 'block'; }
+        else toast('Nothing to import — no Mermaid code found.', 'error');
+        return false;
+      }
+
+      // Recognized-but-unsupported Mermaid diagram types: bail with a named toast
+      // rather than letting the flowchart fallback emit spurious nodes (append flow).
+      const firstKw = (code.split('\n').find(l => l.trim() && !l.trim().startsWith('%%')) || '').trim().split(/\s+/)[0];
+      const UNSUPPORTED_MERMAID = /^(zenuml|kanban|packet-beta|radar|treemap|mindmap-beta|sankey)$/i;
+      if (append && firstKw && UNSUPPORTED_MERMAID.test(firstKw)) {
+        toast(`Can't import "${firstKw}" yet — unsupported diagram type.`, 'error');
         return false;
       }
 
@@ -7288,6 +8026,7 @@
 
         if (parsed.nodes.length === 0) {
           if (!append) { errorDiv.textContent = 'No nodes found in code'; errorDiv.style.display = 'block'; }
+          else toast('Couldn\'t import that Mermaid — no recognizable diagram found.', 'error');
           return false;
         }
 
@@ -7362,6 +8101,7 @@
           if (n.type === 'quadrant') { node.title = n.title; node.xAxis = n.xAxis; node.yAxis = n.yAxis; node.quadrants = n.quadrants; node.points = n.points; }
           if (n.type === 'xychart') { node.title = n.title; node.xAxis = n.xAxis; node.yAxis = n.yAxis; node.series = n.series; }
           if (n.icon) node.icon = n.icon;   // mindmap ::icon(...) → node icon
+          if (n.actors) { node.actors = n.actors; node.actorColors = n.actorColors; }   // journey actor glyphs
           if (n.tag) node.tag = n.tag;                 // gitGraph commit tag
           if (n.commitType) node.commitType = n.commitType;   // gitGraph HIGHLIGHT/REVERSE
 
