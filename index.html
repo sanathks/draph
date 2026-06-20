@@ -1620,8 +1620,18 @@
       else if (node.type === 'note') { padX = 22; padY = 22; }
       else if (node.type === 'container') { padX = 24; padY = 14; }
 
-      node.width = Math.max(node.width, Math.ceil(textW / ratio) + padX);
-      node.height = Math.max(node.height, Math.ceil(textH / ratio) + padY);
+      const fitW = Math.ceil(textW / ratio) + padX;
+      const fitH = Math.ceil(textH / ratio) + padY;
+      if (node.manuallyResized) {
+        // User chose this size — only grow to avoid overflow, never shrink.
+        node.width = Math.max(node.width, fitW);
+        node.height = Math.max(node.height, fitH);
+      } else {
+        // Shrink-to-fit (as well as grow), down to the type's minimum, so deleting
+        // text reclaims the space instead of leaving an oversized box.
+        node.width = Math.max(CONFIG.node.minWidth, fitW);
+        node.height = Math.max(CONFIG.node.minHeight, fitH);
+      }
       if (node.type === 'circle') { const s = Math.max(node.width, node.height); node.width = s; node.height = s; }
     }
 
@@ -4050,6 +4060,7 @@
         const dy = e.clientY - resizing.startY;
         resizing.node.width = Math.max(60, snap(resizing.startW + dx / zoom));
         resizing.node.height = Math.max(40, snap(resizing.startH + dy / zoom));
+        resizing.node.manuallyResized = true;   // never auto-shrink a user-sized node (#35)
         scheduleRender();
       }
       

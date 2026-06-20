@@ -556,10 +556,10 @@ group('Nodes grow to fit their label (label-aware sizing)');
   const textW = 'Authenticated?'.length * (11 * 0.62);
   check('diamond widened to fit a long label', d.width >= textW / 0.6, `w=${d.width} need~${Math.ceil(textW/0.6)}`);
   check('diamond grew from its default', d.width > 90);
-  // fit never shrinks below the user's larger size
-  const big = win.createNode('rect', 0, 0, 400, 200); big.label = 'Hi';
+  // fit never shrinks a node the user manually resized (#35: guarded by the flag)
+  const big = win.createNode('rect', 0, 0, 400, 200); big.label = 'Hi'; big.manuallyResized = true;
   win.fitNodeToLabel(big);
-  check('fit does not shrink a manually-large node', big.width === 400 && big.height === 200);
+  check('fit does not shrink a manually-resized node', big.width === 400 && big.height === 200);
   // typing in the toolbar grows the selected node live
   const r = win.createNode('rect', 0, 0, 120, 44); r.label = 'x'; win.render(); win.selectNode(r.id);
   const inp = doc.getElementById('toolbarLabel');
@@ -1867,6 +1867,21 @@ group('Mermaid gitGraph import (#26): tags, commit types, cherry-pick');
   doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
   check('gitgraph: tag label rendered', /v1\.0/.test(doc.getElementById('nodes').textContent));
   check('gitgraph: import carries tag + commitType onto nodes', E(`nodes.some(n=>n.tag==='v1.0')`) && E(`nodes.some(n=>n.commitType==='HIGHLIGHT')`));
+}
+
+group('fitNodeToLabel shrink-to-fit + manual-resize guard (#35)');
+{
+  const { win, E } = boot();
+  const n = win.createNode('rect', 100, 100, 'A very long label that makes the node quite wide indeed');
+  win.fitNodeToLabel(n); const wide = n.width;
+  E(`nodes.find(x=>x.id==='${n.id}').label='Hi'`); win.fitNodeToLabel(E(`nodes.find(x=>x.id==='${n.id}')`));
+  check('shrinks toward content when not manually resized', E(`nodes.find(x=>x.id==='${n.id}').width`) < wide);
+  check('does not shrink below the type minimum', E(`nodes.find(x=>x.id==='${n.id}').width`) >= E('CONFIG.node.minWidth'));
+  // manually-resized node is never auto-shrunk
+  const m = win.createNode('rect', 300, 300, 'x');
+  E(`(n=>{n.manuallyResized=true; n.width=400; n.label='y';})(nodes.find(x=>x.id==='${m.id}'))`);
+  win.fitNodeToLabel(E(`nodes.find(x=>x.id==='${m.id}')`));
+  check('manually-resized node keeps its width', E(`nodes.find(x=>x.id==='${m.id}').width`) === 400);
 }
 
 group('Mermaid journey import (#31): actor avatars + section bands');
