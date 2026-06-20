@@ -1434,4 +1434,39 @@ group('v2: Mermaid C4 diagram import');
   check('C4 import builds boxes + relationships', E(`nodes.filter(n=>n.isClass).length`) === 3 && E('connections.length') === 3);
 }
 
+group('v2: Mermaid block diagram import (block-beta)');
+{
+  const { win, doc, E } = boot();
+  const code = [
+    'block-beta',
+    '  columns 3',
+    '  a["Square"] b(("Circle")) c{"Diamond"}',
+    '  d:2 e',
+    '  space f',
+    '  a --> b',
+    '  b -- "lbl" --> c',
+  ].join('\n');
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const byId = {}; p.nodes.forEach(n => byId[n.id] = n);
+  check('block diagramType is block', p.diagramType === 'block');
+  check('block parses all six blocks (spaces make no node)', p.nodes.length === 6);
+  check('block shapes map []→rect (()) →circle {}→diamond', byId.a.type === 'rect' && byId.b.type === 'circle' && byId.c.type === 'diamond');
+  check('block keeps quoted labels', byId.a.label === 'Square' && byId.b.label === 'Circle' && byId.c.label === 'Diamond');
+  check('block nodes carry fixed geometry', byId.a.fixed === true && byId.a.x === 80 && byId.a.y === 80);
+  check('block column span widens the block', byId.d.width === 2 * 150 + 22);
+  check('block wraps to a new row at the column count', byId.d.y > byId.a.y && byId.c.x > byId.b.x);
+  check('block space leaves an empty cell (f shifted right + down a row)', byId.f.x === 80 + (150 + 22) && byId.f.y > byId.d.y);
+  check('block plain arrow becomes an edge', p.connections.some(c => c.from === 'a' && c.to === 'b' && c.label === '' && c.markerEnd === 'arrow'));
+  check('block labelled arrow keeps its label', p.connections.some(c => c.from === 'b' && c.to === 'c' && c.label === 'lbl'));
+  // full import round-trips through layout + render
+  const ed = doc.getElementById('mermaidEditor');
+  ed.value = code; win.importMermaid(true);
+  check('block import builds the blocks + edges', E(`nodes.length`) === 6 && E('connections.length') === 2);
+  check('block import preserves the circle shape', E(`nodes.some(n=>n.type==='circle')`) && E(`nodes.some(n=>n.type==='diamond')`));
+  // no-columns case: a single row sized to the block count
+  const code2 = ['block-beta', '  x y z'].join('\n');
+  const p2 = E(`parseMermaid(${JSON.stringify(code2)})`);
+  check('block with no columns lays out one row', p2.nodes.length === 3 && p2.nodes[0].y === p2.nodes[1].y && p2.nodes[1].y === p2.nodes[2].y);
+}
+
 process.exit(report() ? 0 : 1);
