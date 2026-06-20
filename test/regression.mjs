@@ -1817,4 +1817,20 @@ group('Mermaid gitGraph import (#26): tags, commit types, cherry-pick');
   check('gitgraph: import carries tag + commitType onto nodes', E(`nodes.some(n=>n.tag==='v1.0')`) && E(`nodes.some(n=>n.commitType==='HIGHLIGHT')`));
 }
 
+group('Mermaid requirement import (#32): containment diamond glyph');
+{
+  const { win, doc, E } = boot();
+  const code = 'requirementDiagram\n  requirement r1 { id: 1 text: top }\n  requirement r2 { id: 2 text: child }\n  r1 - contains -> r2\n  r2 - satisfies -> r1';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const c = p.connections.find(x => x.from === 'r1' && x.to === 'r2');
+  const s = p.connections.find(x => x.label === 'satisfies');
+  check('req: contains edge gets a filled diamond at the parent end', c && c.relType === 'contains' && c.markerStart === 'diamond-filled');
+  check('req: contains is solid (not dashed)', c && c.strokeStyle !== 'dashed');
+  check('req: other typed links stay dashed + arrow', s && s.strokeStyle === 'dashed' && s.markerEnd === 'arrow');
+  // render: the diamond glyph draws (inline umlMarker → polygon)
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  check('req: diamond marker rendered on the connection', /polygon/.test(doc.getElementById('connections').innerHTML));
+  check('req: contains markerStart carried through import', E(`connections.some(c=>c.markerStart==='diamond-filled')`));
+}
+
 process.exit(report() ? 0 : 1);
