@@ -3315,6 +3315,32 @@
     // --- Right-click context menu ---
     const contextMenu = document.getElementById('contextMenu');
     function hideContextMenu() { contextMenu.classList.add('hidden'); }
+    // Copy/paste node style (#99): "format painter" for color / fillStyle / outlineColor.
+    let styleClipboard = null;
+    function copyStyle(id) {
+      const n = nodes.find(x => x.id === id);
+      if (!n) return false;
+      styleClipboard = { color: n.color, fillStyle: n.fillStyle, outlineColor: n.outlineColor };
+      return true;
+    }
+    // Apply the copied style to a target id, or (no arg) to the current selection.
+    // One undo unit. Shape / size / label are untouched.
+    function pasteStyle(target) {
+      if (!styleClipboard) return false;
+      const ids = target ? [target] : selectedNodeIds();
+      if (!ids.length) return false;
+      saveState();
+      ids.forEach(id => {
+        const n = nodes.find(x => x.id === id);
+        if (!n) return;
+        n.color = styleClipboard.color;
+        n.fillStyle = styleClipboard.fillStyle;
+        n.outlineColor = styleClipboard.outlineColor;
+      });
+      render();
+      return true;
+    }
+
     const CTX_ACTIONS = {
       edit: () => { const n = nodes.find(x => x.id === selectedId); if (n && n.type !== 'line' && n.type !== 'pencil') editNodeLabel(n); },
       duplicate: () => duplicateSelected(),
@@ -3326,6 +3352,8 @@
       group: () => groupSelected(),
       ungroup: () => ungroupSelected(),
       copyMermaid: () => copyAsMermaid(),
+      copyStyle: () => copyStyle(selectedId || selectedNodeIds()[0]),
+      pasteStyle: () => pasteStyle(),
     };
     function showContextMenu(clientX, clientY, items) {
       contextMenu.innerHTML = items.map(it => it.sep
@@ -3359,7 +3387,9 @@
           { act: 'edit', label: 'Edit label' },
           { act: 'duplicate', label: 'Duplicate', kbd: '⌘D' },
           { act: 'copyMermaid', label: 'Copy as Mermaid' },
+          { act: 'copyStyle', label: 'Copy style' },   // #99
         ];
+        if (styleClipboard) items.push({ act: 'pasteStyle', label: 'Paste style' });   // #99
         if (selectedIds.length > 1) items.push({ act: 'group', label: 'Group', kbd: '⌘G' });
         if (n && n.groupId) items.push({ act: 'ungroup', label: 'Ungroup', kbd: '⌘⇧G' });
         items.push(
