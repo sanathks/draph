@@ -4678,31 +4678,33 @@
     // === SECTION: EXPORT (SVG / PNG / GIF) ===
 
     // Export
-    function downloadSVG() {
+    // Build the export SVG as a string — content-cropped, UI chrome stripped,
+    // background filled — WITHOUT triggering a download. Returns null if the
+    // canvas is empty. Pure/testable; downloadSVG() wraps it for the file save.
+    function buildExportSVG() {
       const bounds = getContentBounds();
-      if (!bounds) {
-        toast('Nothing to export yet — add a shape first', 'error');
-        return;
-      }
-      
+      if (!bounds) return null;
+
       const padding = 40;
       const cropX = bounds.minX - padding;
       const cropY = bounds.minY - padding;
       const cropW = (bounds.maxX - bounds.minX) + padding * 2;
       const cropH = (bounds.maxY - bounds.minY) + padding * 2;
-      
+
       const clone = canvas.cloneNode(true);
-      clone.querySelectorAll('.connector, .resize-handle, #selectBox, #drawPreview, .lifeline-connector, .line-handle').forEach(el => el.remove());
+      // Strip all interaction chrome: connectors, resize/line handles, marquee &
+      // draw previews, lifeline connectors, and the transparent conn-hit overlays.
+      clone.querySelectorAll('.connector, .resize-handle, #selectBox, #drawPreview, .lifeline-connector, .line-handle, .conn-hit').forEach(el => el.remove());
       const gridBg = clone.querySelector('#gridBg');
       if (gridBg) gridBg.remove();
-      
-      // Set viewBox and dimensions to cropped area
+
+      // Crop the viewport to the content
       clone.setAttribute('viewBox', `${cropX} ${cropY} ${cropW} ${cropH}`);
       clone.setAttribute('width', cropW);
       clone.setAttribute('height', cropH);
       clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-      
-      // Add background
+
+      // Solid background behind the content
       const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
       bg.setAttribute('x', cropX);
       bg.setAttribute('y', cropY);
@@ -4710,8 +4712,14 @@
       bg.setAttribute('height', cropH);
       bg.setAttribute('fill', COLORS.bg);
       clone.insertBefore(bg, clone.firstChild);
-      
-      const blob = new Blob([clone.outerHTML], { type: 'image/svg+xml' });
+
+      return clone.outerHTML;
+    }
+
+    function downloadSVG() {
+      const svg = buildExportSVG();
+      if (!svg) { toast('Nothing to export yet — add a shape first', 'error'); return; }
+      const blob = new Blob([svg], { type: 'image/svg+xml' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = 'diagram.svg';
