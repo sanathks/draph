@@ -1724,4 +1724,33 @@ group('Selection → Mermaid (#2): selection-scoped export');
   check('no selection falls back to whole-canvas export', /\bC\b/.test(E(`generateMermaid({ selectionOnly: true })`)));
 }
 
+group('First-run onboarding (#44): walkthrough + versioned flag');
+{
+  const { win, doc, E } = boot();
+  const ov = doc.getElementById('onboardingOverlay');
+  // fresh jsdom → flag absent → should show (init already auto-showed; flag still absent)
+  check('first run: flag absent and should show', E(`!localStorage.getItem('draph.onboarding.v1') && shouldShowOnboarding()`) === true);
+  win.startOnboarding();
+  check('overlay visible on start', !!ov && !ov.classList.contains('hidden'));
+  check('starts at step 0 with all 7 step dots', E(`onboardingStep`) === 0 && doc.querySelectorAll('#obDots .ob-dot').length === 7);
+  win.onboardingNext();
+  check('Next advances the step', E(`onboardingStep`) === 1);
+  win.onboardingBack();
+  check('Back goes up a step', E(`onboardingStep`) === 0);
+  win.finishOnboarding();
+  check('finish writes the versioned flag', E(`localStorage.getItem('draph.onboarding.v1')`) !== null);
+  check('overlay hidden after finish', ov.classList.contains('hidden'));
+  check('does not auto-show once completed', E(`shouldShowOnboarding()`) === false);
+  win.startOnboarding();
+  check('manual replay reopens despite the flag', !ov.classList.contains('hidden'));
+  // skip also writes the flag (not just finish)
+  E(`localStorage.removeItem('draph.onboarding.v1')`);
+  win.startOnboarding(); win.skipOnboarding();
+  check('skip closes and writes the flag too', ov.classList.contains('hidden') && E(`localStorage.getItem('draph.onboarding.v1')`) !== null);
+  // Next on the last step acts as Finish
+  E(`localStorage.removeItem('draph.onboarding.v1')`);
+  win.startOnboarding(); E(`onboardingStep = 6`); win.onboardingNext();
+  check('Next on the last step finishes (overlay closed + flag set)', ov.classList.contains('hidden') && E(`shouldShowOnboarding()`) === false);
+}
+
 process.exit(report() ? 0 : 1);
