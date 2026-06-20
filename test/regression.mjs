@@ -1082,15 +1082,15 @@ group('v2: Mermaid timeline import');
   const parsed = E(`parseMermaid(${JSON.stringify(code)})`);
   check('timeline makes period nodes (pills)', parsed.nodes.filter(n => n.type === 'pill').length === 3);
   check('timeline makes an event node per event', parsed.nodes.some(n => n.label === 'Facebook') && parsed.nodes.some(n => n.label === 'Google'));
-  check('timeline ignores the title line', !parsed.nodes.some(n => n.label === 'History'));
+  check('timeline title becomes a heading node (#29)', parsed.nodes.some(n => n.label === 'History'));
   // a period with two events -> two child edges from that period
   const p2004 = parsed.nodes.find(n => n.label === '2004').id;
   check('timeline links events to their period', parsed.connections.filter(c => c.from === p2004).length === 2);
-  // sections -> grouping containers
+  // sections -> period pills tinted per-section (#29: horizontal, not containers)
   const code2 = ['timeline', '  section Early', '    2002 : LinkedIn', '  section Later', '    2006 : Twitter'].join('\n');
   const p2 = E(`parseMermaid(${JSON.stringify(code2)})`);
-  check('timeline sections become subgraphs', Array.isArray(p2.subgraphs) && p2.subgraphs.length === 2);
-  check('section owns its period node', p2.subgraphs[0].children.length >= 1);
+  const e2002 = p2.nodes.find(n => n.label === '2002'), t2006 = p2.nodes.find(n => n.label === '2006');
+  check('timeline sections tint period pills with distinct colors', !!e2002.color && !!t2006.color && e2002.color !== t2006.color);
   // full import
   const ed = win.document.getElementById('mermaidEditor');
   ed.value = code; win.importMermaid(true);
@@ -1782,6 +1782,23 @@ group('Mermaid gantt import (#25): dependency arrows + weekly axis');
   check('gantt: dependency arrow connects predecessor → dependent', p.connections.some(c => c.from === design.id && c.to === code2.id && c.markerEnd === 'arrow'));
   check('gantt: weekly axis ticks span the date range', p.nodes.filter(n => /^gax/.test(n.id)).length >= 2);
   check('gantt: bars keep fixed geometry', design.fixed === true && code2.fixed === true);
+}
+
+group('Mermaid timeline import (#29): horizontal lanes + title + section tint');
+{
+  const { win, doc, E } = boot();
+  const code = 'timeline\n  title History\n  2002 : LinkedIn\n  2004 : Facebook : Google';
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true);
+  const ns = E(`nodes.map(n=>({l:n.label,x:n.x,y:n.y,w:n.width,h:n.height}))`);
+  const p2002 = ns.find(n => n.l === '2002'), p2004 = ns.find(n => n.l === '2004');
+  check('timeline: periods laid left-to-right on one row', p2004.x > p2002.x && Math.abs(p2004.y - p2002.y) < 40);
+  check('timeline: title heading node present', ns.some(n => n.l === 'History'));
+  const fb = ns.find(n => n.l === 'Facebook');
+  check('timeline: events sit under their period', fb.x === p2004.x && fb.y > p2004.y);
+  // section tint: two sections → period pills get distinct colors
+  const p2 = E(`parseMermaid('timeline\\n  section A\\n  2002 : x\\n  section B\\n  2006 : y')`);
+  const a = p2.nodes.find(n => n.label === '2002'), b = p2.nodes.find(n => n.label === '2006');
+  check('timeline: per-section pill tint differs', a.color && b.color && a.color !== b.color);
 }
 
 process.exit(report() ? 0 : 1);
