@@ -2396,14 +2396,27 @@
           const availH = node.height - titleH;
           const R = Math.max(20, Math.min(availH / 2 - pad, node.width * 0.30));
           const cx = node.x + pad + R, cy = node.y + titleH + availH / 2;
-          let ang = -Math.PI / 2, arcs = '';
+          const donut = !!node.donut, Ri = donut ? R * 0.55 : 0;
+          const P = (r, a) => `${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`;
+          let ang = -Math.PI / 2, arcs = '', leaders = '';
           slices.forEach(sl => {
             const frac = (sl.value || 0) / total;
-            if (frac >= 0.999) { arcs += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="${sl.color}" stroke="${COLORS.bg2}" stroke-width="1.5"/>`; return; }
             const a2 = ang + frac * 2 * Math.PI;
-            const x1 = cx + R * Math.cos(ang), y1 = cy + R * Math.sin(ang);
-            const x2 = cx + R * Math.cos(a2), y2 = cy + R * Math.sin(a2);
-            arcs += `<path d="M${cx},${cy} L${x1.toFixed(1)},${y1.toFixed(1)} A${R},${R} 0 ${frac > 0.5 ? 1 : 0} 1 ${x2.toFixed(1)},${y2.toFixed(1)} Z" fill="${sl.color}" stroke="${COLORS.bg2}" stroke-width="1.5"/>`;
+            if (frac >= 0.999) {
+              arcs += donut
+                ? `<path d="M${P(R, 0)} A${R},${R} 0 1 1 ${P(R, Math.PI)} A${R},${R} 0 1 1 ${P(R, 0)} M${P(Ri, 0)} A${Ri},${Ri} 0 1 0 ${P(Ri, Math.PI)} A${Ri},${Ri} 0 1 0 ${P(Ri, 0)} Z" fill="${sl.color}" fill-rule="evenodd" stroke="${COLORS.bg2}" stroke-width="1.5"/>`
+                : `<circle cx="${cx}" cy="${cy}" r="${R}" fill="${sl.color}" stroke="${COLORS.bg2}" stroke-width="1.5"/>`;
+            } else {
+              const big = frac > 0.5 ? 1 : 0;
+              arcs += donut
+                ? `<path d="M${P(R, ang)} A${R},${R} 0 ${big} 1 ${P(R, a2)} L${P(Ri, a2)} A${Ri},${Ri} 0 ${big} 0 ${P(Ri, ang)} Z" fill="${sl.color}" stroke="${COLORS.bg2}" stroke-width="1.5"/>`
+                : `<path d="M${cx},${cy} L${P(R, ang)} A${R},${R} 0 ${big} 1 ${P(R, a2)} Z" fill="${sl.color}" stroke="${COLORS.bg2}" stroke-width="1.5"/>`;
+            }
+            // leader line: from the slice mid-rim outward to a small % label
+            const am = (ang + a2) / 2, pct = Math.round(frac * 100);
+            const lx2 = cx + (R + 12) * Math.cos(am), ly2 = cy + (R + 12) * Math.sin(am);
+            leaders += `<line x1="${(cx + R * Math.cos(am)).toFixed(1)}" y1="${(cy + R * Math.sin(am)).toFixed(1)}" x2="${lx2.toFixed(1)}" y2="${ly2.toFixed(1)}" stroke="${COLORS.fg}" stroke-width="1" opacity="0.5" style="pointer-events:none"/>`;
+            leaders += `<text x="${lx2.toFixed(1)}" y="${(ly2 + 3).toFixed(1)}" fill="${COLORS.fg}" font-size="9" font-family="system-ui, sans-serif" text-anchor="${Math.cos(am) < 0 ? 'end' : 'start'}" style="pointer-events:none">${pct}%</text>`;
             ang = a2;
           });
           const lx = node.x + pad * 2 + 2 * R; let ly = node.y + titleH + pad + 4; let legend = '';
@@ -2414,7 +2427,7 @@
             ly += 22;
           });
           const titleEl = node.title ? `<text x="${node.x + node.width / 2}" y="${node.y + 17}" fill="${COLORS.fg}" font-size="13" font-weight="600" font-family="system-ui, sans-serif" text-anchor="middle" style="pointer-events:none">${esc(node.title)}</text>` : '';
-          shape = `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="8" fill="${COLORS.bg2}" stroke="${isSelected ? COLORS.accent : COLORS.border}" stroke-width="${isSelected ? 2 : 1.5}" class="node-border"/>${titleEl}${arcs}${legend}`;
+          shape = `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="8" fill="${COLORS.bg2}" stroke="${isSelected ? COLORS.accent : COLORS.border}" stroke-width="${isSelected ? 2 : 1.5}" class="node-border"/>${titleEl}${arcs}${leaders}${legend}`;
         } else if (node.type === 'quadrant') {
           // 2×2 quadrant plot: tinted quadrants + labels, center cross, axis
           // labels, and plotted points (x,y in 0..1; y up).
@@ -2611,6 +2624,7 @@
             ${propsText}
             ${methods.length ? `<line x1="${node.x}" y1="${methodsY}" x2="${node.x + node.width}" y2="${methodsY}" stroke="${COLORS.border}" stroke-width="1"/>` : ''}
             ${methodsText}
+            ${node.isPerson ? iconSvg('user', node.x + 6, node.y + 5, 16, COLORS.bg) : ''}
           `;
         } else {
           const { fill, style } = getFill(node, 'infill');
@@ -5612,6 +5626,14 @@
           ensure(from); ensure(to);
           const conn = { from, to, label: techn ? `${label} [${techn}]` : label, markerEnd: 'arrow' };
           if (/^BiRel/i.test(m[1])) conn.markerStart = 'arrow';
+          // directional Rel_U/D/L/R (and _Up/_Down/_Left/_Right): set + lock sides
+          // so the layout honours the requested direction.
+          const dirm = m[1].match(/_(U|Up|D|Down|L|Left|R|Right)$/i);
+          if (dirm) {
+            const d = dirm[1][0].toUpperCase();
+            const SIDES = { U: ['top', 'bottom'], D: ['bottom', 'top'], L: ['left', 'right'], R: ['right', 'left'] }[d];
+            if (SIDES) { conn.fromSide = SIDES[0]; conn.toSide = SIDES[1]; conn.fromSideLocked = true; conn.toSideLocked = true; }
+          }
           result.connections.push(conn);
           continue;
         }
@@ -5622,6 +5644,7 @@
           const node = ensure(a[0]);
           node.label = unq(a[1]) || a[0];
           node.stereotype = type.replace(/_/g, ' ');
+          if (/^Person/i.test(type)) { node.isPerson = true; node.icon = 'user'; }   // person figure
           node.properties = [];
           a.slice(2).map(unq).filter(Boolean).forEach(e => wrap(e).forEach(l => node.properties.push(l)));
           if (stack.length) stack[stack.length - 1].children.push(node.id);
@@ -7297,6 +7320,7 @@
             node.properties = n.properties || [];
             node.methods = n.methods || [];
             node.stereotype = n.stereotype || '';
+            if (n.isPerson) node.isPerson = true;   // C4 Person → person figure
           }
 
           // Mark as sequence participant with lifeline
@@ -7388,13 +7412,17 @@
               const fromNode = nodes.find(n => n.id === idMap[c.from]);
               const toNode = nodes.find(n => n.id === idMap[c.to]);
               if (fromNode && toNode) {
-                const { fromSide, toSide } = getOptimalSides(fromNode, toNode);
+                const auto = getOptimalSides(fromNode, toNode);
+                // Honour parser-locked sides (e.g. C4 directional Rel_U/D/L/R) so
+                // the layout's re-seat pass doesn't override the requested direction.
                 connections.push({
                   id: generateId(),
                   from: idMap[c.from],
                   to: idMap[c.to],
-                  fromSide,
-                  toSide,
+                  fromSide: c.fromSideLocked ? c.fromSide : auto.fromSide,
+                  toSide: c.toSideLocked ? c.toSide : auto.toSide,
+                  fromSideLocked: c.fromSideLocked,
+                  toSideLocked: c.toSideLocked,
                   fromIdx: 1,
                   toIdx: 1,
                   label: c.label || '',

@@ -1803,6 +1803,39 @@ group('Mermaid gantt import (#25): dependency arrows + weekly axis');
   check('gantt: bars keep fixed geometry', design.fixed === true && code2.fixed === true);
 }
 
+group('Mermaid C4 import (#28): directional Rel + person figure');
+{
+  const { win, doc, E } = boot();
+  const code = 'C4Context\n  Person(user, "User")\n  System(sys, "App")\n  Rel_D(user, sys, "uses")\n  Rel(sys, user, "replies")';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const cD = p.connections.find(c => c.from === 'user' && c.to === 'sys');
+  const cPlain = p.connections.find(c => c.from === 'sys' && c.to === 'user');
+  check('c4: Rel_D locks a downward (bottom→top) route', cD.fromSide === 'bottom' && cD.toSide === 'top' && cD.fromSideLocked === true && cD.toSideLocked === true);
+  check('c4: plain Rel is unchanged (no locked sides)', !cPlain.fromSide && !cPlain.fromSideLocked);
+  // per-direction sides pinned (review #28: the suite must check each variant)
+  const dirSides = (dir) => {
+    const pp = E(`parseMermaid(${JSON.stringify('C4Context\n  System(a, "A")\n  System(b, "B")\n  ' + dir + '(a, b, "x")')})`);
+    const c = pp.connections.find(x => x.from === 'a');
+    return c.fromSideLocked && c.toSideLocked ? c.fromSide + '/' + c.toSide : 'unlocked';
+  };
+  check('c4: Rel_R → right/left (locked)', dirSides('Rel_R') === 'right/left');
+  check('c4: Rel_L → left/right (locked)', dirSides('Rel_L') === 'left/right');
+  check('c4: Rel_U → top/bottom (locked)', dirSides('Rel_U') === 'top/bottom');
+  check('c4: Rel_D → bottom/top (locked)', dirSides('Rel_D') === 'bottom/top');
+  check('c4: long-form Rel_Right matches Rel_R', dirSides('Rel_Right') === 'right/left');
+  check('c4: Person box flagged for the figure', p.nodes.find(n => n.id === 'user').isPerson === true);
+  // render: the person figure (user icon) draws inside the box
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  const person = E(`nodes.find(n=>n.isPerson)`);
+  const el = doc.querySelector(`#nodes .node[data-id="${person.id}"]`);
+  check('c4: person figure renders in the box', !!el && /path|circle/.test(el.innerHTML));
+  // the locked direction must SURVIVE import + render (the re-seat pass must not
+  // override it) — this is what the logic-only parse check missed (review #28).
+  doc.getElementById('mermaidEditor').value = 'C4Context\n  System(a, "A")\n  System(b, "B")\n  Rel_R(a, b, "x")';
+  win.importMermaid(true); win.render();
+  check('c4: Rel_R leaves the right edge after import+render (lock survives)', E(`connections[0].fromSide`) === 'right' && E(`connections[0].fromSideLocked`) === true);
+}
+
 group('Mermaid timeline import (#29): horizontal lanes + title + section tint');
 {
   const { win, doc, E } = boot();
@@ -1852,6 +1885,24 @@ group('Mermaid quadrant import (#33): per-point radius/color styling');
   check('quadrant: styled dot uses custom radius', radii.includes('10'));
   check('quadrant: default dot still r=5', radii.includes('5'));
   check('quadrant: custom color rendered', /fill="#ff0000"/.test(el.innerHTML));
+}
+
+group('Mermaid pie import (#30): donut variant + leader lines');
+{
+  const { win, doc, E } = boot();
+  const code = 'pie title Browsers\n  "Chrome" : 60\n  "Safari" : 25\n  "Other" : 15';
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true);
+  check('pie: one pie node imported', E(`nodes.length`) === 1 && E(`nodes[0].type === 'pie'`));
+  // default (non-donut): slices are wedge paths + leader % labels present
+  win.render();
+  const elDef = doc.querySelector('#nodes .node');
+  check('pie: default renders slice paths', !!elDef && (elDef.innerHTML.match(/<path/g) || []).length === 3);
+  check('pie: leader lines show slice percentages', /\d+%/.test(elDef.textContent));
+  // donut flag → annulus paths (inner-arc reverse sweep), default parse unchanged
+  E(`nodes[0].donut = true`); win.render();
+  const el = doc.querySelector('#nodes .node');
+  check('pie: donut renders annulus paths', !!el && /A[\d.]+,[\d.]+ 0 \d 0/.test(el.innerHTML));
+  check('pie: donut flag does not alter the parsed slices', E(`nodes[0].slices.length`) === 3);
 }
 
 process.exit(report() ? 0 : 1);
