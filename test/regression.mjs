@@ -1483,4 +1483,37 @@ group('v2: Mermaid block diagram import (block-beta)');
   check('block with no columns lays out one row', p2.nodes.length === 3 && p2.nodes[0].y === p2.nodes[1].y && p2.nodes[1].y === p2.nodes[2].y);
 }
 
+group('v2: Mermaid XY chart import (xychart-beta)');
+{
+  const { win, doc, E } = boot();
+  const code = [
+    'xychart-beta',
+    '    title "Sales Revenue"',
+    '    x-axis "Month" [jan, feb, mar, apr]',
+    '    y-axis "Revenue" 0 --> 12000',
+    '    bar [5000, 6000, 7500, 8200]',
+    '    line [4000, 5000, 6000, 9000]',
+  ].join('\n');
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('xychart diagramType is xychart', p.diagramType === 'xychart');
+  check('xychart collapses to one fixed chart node', p.nodes.length === 1 && p.nodes[0].type === 'xychart' && p.nodes[0].fixed === true);
+  const x = p.nodes[0];
+  check('xychart parses the title', x.title === 'Sales Revenue');
+  check('xychart parses x-axis label + categories', x.xAxis.label === 'Month' && x.xAxis.categories.length === 4 && x.xAxis.categories[0] === 'jan' && x.xAxis.categories[3] === 'apr');
+  check('xychart parses y-axis label + range', x.yAxis.label === 'Revenue' && x.yAxis.min === 0 && x.yAxis.max === 12000);
+  check('xychart parses bar + line series with values', x.series.length === 2 && x.series[0].type === 'bar' && x.series[0].values[2] === 7500 && x.series[1].type === 'line' && x.series[1].values[3] === 9000);
+  // numeric-only x-axis range + missing categories synthesised
+  const code2 = ['xychart-beta', '  line [3, 1, 4, 1, 5]'].join('\n');
+  const p2 = E(`parseMermaid(${JSON.stringify(code2)})`);
+  check('xychart synthesises x categories when none given', p2.nodes[0].xAxis.categories.length === 5);
+  // full import renders the chart figure
+  const ed = doc.getElementById('mermaidEditor');
+  ed.value = code; win.importMermaid(true);
+  check('xychart import makes one xychart node', E(`nodes.length`) === 1 && E(`nodes[0].type==='xychart'`));
+  win.render();
+  const el = doc.querySelector(`#nodes .node[data-id="${E('nodes[0].id')}"]`);
+  check('xychart renders bars (rects) + a line (polyline)', !!el && el.querySelectorAll('rect').length >= 5 && el.querySelectorAll('polyline').length === 1);
+  check('xychart renders the title text', !!el && /Sales Revenue/.test(el.textContent));
+}
+
 process.exit(report() ? 0 : 1);

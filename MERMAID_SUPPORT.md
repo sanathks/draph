@@ -29,7 +29,7 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
 | Block | `block-beta` | 🟡 | **NEW.** `columns N` grid that wraps blocks left-to-right; column spans `id:N`, blank cells `space`/`space:N`; shapes `["sq"]`→rect, `("round")`→rect, `(("circ"))`→circle, `{"dia"}`→diamond, `>"flag"]`→rect; `x --> y` (optionally labelled) → arrows. Fixed grid geometry. TODO: nested `block:id … end` as containers (currently flattened), block arrows/edge routing between spans |
 | Architecture | `architecture-beta` | ⬜ | groups, services, edges |
 | Sankey | `sankey-beta` | ⬜ | weighted flows (custom render) |
-| XY chart | `xychart-beta` | ⬜ | bar/line chart (custom render) |
+| XY chart | `xychart-beta` | 🟡 | **NEW.** one `xychart` node renders a real chart: `bar [..]` series → bars (grouped when multiple), `line [..]` series → polylines, over a category x-axis + numeric y-axis with gridlines/ticks; parses `title`, axis labels, and `min --> max` ranges (auto-range from data otherwise). Synthesises x categories when none given. TODO: horizontal variant, multiple-axis, legend, point markers |
 
 ## Approach notes
 - Graph-shaped diagrams (state, ER, mindmap, gitGraph, C4, requirement,
@@ -42,6 +42,11 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
   line, any needed render tweaks, and regression tests in `test/regression.mjs`.
 
 ## Changelog
+- **XY chart (first cut):** new `xychart` node type — `parseXyChart` reads title,
+  x-axis (categories or `min --> max` + label), y-axis (label + range), and
+  `bar`/`line` series; renderNodes draws a real chart figure (grouped bars,
+  polylines, gridlines, ticks, axis labels). Auto-ranges from data and synthesises
+  x categories when omitted. Covered by regression tests.
 - **Block (first cut):** `parseBlock` — `block-beta` blocks flow into a grid that
   wraps at `columns N`; column spans (`id:N`) widen a block, `space`/`space:N`
   leave empty cells, shapes map to rect/circle/diamond, and `x --> y` arrows

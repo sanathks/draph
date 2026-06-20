@@ -2412,6 +2412,59 @@
             (ay.top ? `<text x="${node.x + 16}" y="${py}" fill="${COLORS.fg}" opacity="0.7" font-size="11" font-family="system-ui, sans-serif" transform="rotate(-90 ${node.x + 16} ${py})" style="pointer-events:none">${esc(ay.top)}</text>` : '');
           const titleEl = node.title ? `<text x="${node.x + node.width / 2}" y="${node.y + 17}" fill="${COLORS.fg}" font-size="13" font-weight="600" font-family="system-ui, sans-serif" text-anchor="middle" style="pointer-events:none">${esc(node.title)}</text>` : '';
           shape = `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="8" fill="${COLORS.bg2}" stroke="${isSelected ? COLORS.accent : COLORS.border}" stroke-width="${isSelected ? 2 : 1.5}" class="node-border"/>${titleEl}${cells}${qlabels}${frame}${pts}${axis}`;
+        } else if (node.type === 'xychart') {
+          // XY chart: bar/line series over a category x-axis and numeric y-axis.
+          const series = node.series || [];
+          const cats = (node.xAxis && node.xAxis.categories) || [];
+          const N = Math.max(cats.length, ...series.map(s => s.values.length), 1);
+          const allVals = series.flatMap(s => s.values);
+          const ay = node.yAxis || {};
+          let yMin = ay.min != null ? ay.min : Math.min(0, ...(allVals.length ? allVals : [0]));
+          let yMax = ay.max != null ? ay.max : Math.max(...(allVals.length ? allVals : [1]));
+          if (yMax === yMin) yMax = yMin + 1;
+          const titleH = node.title ? 26 : 8, mL = 52, mB = node.xAxis && node.xAxis.label ? 44 : 28, mR = 16;
+          const px = node.x + mL, py = node.y + titleH + 6;
+          const pw = node.width - mL - mR, ph = node.height - titleH - 6 - mB;
+          const yOf = (v) => py + ph - ((v - yMin) / (yMax - yMin)) * ph;
+          const slot = pw / N;
+          const barSeries = series.filter(s => s.type === 'bar'), lineSeries = series.filter(s => s.type === 'line');
+          const palette = ['#7aa2f7', '#9ece6a', '#bb9af7', '#e0af68', '#f7768e'];
+          // gridlines + y tick labels (min, mid, max)
+          let grid = '', ticks = '';
+          [0, 0.5, 1].forEach(f => {
+            const v = yMin + f * (yMax - yMin), gy = yOf(v);
+            grid += `<line x1="${px}" y1="${gy.toFixed(1)}" x2="${px + pw}" y2="${gy.toFixed(1)}" stroke="${COLORS.border}" stroke-width="1" opacity="0.4"/>`;
+            ticks += `<text x="${px - 6}" y="${(gy + 4).toFixed(1)}" fill="${COLORS.fg}" opacity="0.7" font-size="10" font-family="system-ui, sans-serif" text-anchor="end" style="pointer-events:none">${Math.round(v)}</text>`;
+          });
+          // bars (grouped if multiple bar series)
+          let bars = '';
+          const baseY = yOf(Math.max(yMin, 0));
+          barSeries.forEach((s, si) => {
+            const gw = slot * 0.7, bw = gw / barSeries.length;
+            s.values.forEach((v, i) => {
+              const bx = px + i * slot + (slot - gw) / 2 + si * bw, by = yOf(v);
+              bars += `<rect x="${bx.toFixed(1)}" y="${Math.min(by, baseY).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.abs(baseY - by).toFixed(1)}" fill="${palette[si % palette.length]}" opacity="0.85"/>`;
+            });
+          });
+          // lines
+          let polylines = '';
+          lineSeries.forEach((s, si) => {
+            const color = palette[(barSeries.length + si) % palette.length];
+            const pts = s.values.map((v, i) => `${(px + i * slot + slot / 2).toFixed(1)},${yOf(v).toFixed(1)}`).join(' ');
+            polylines += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2"/>`;
+          });
+          // x category labels (skip some if crowded)
+          let xlabels = '';
+          const step = Math.ceil(N / 12);
+          cats.forEach((c, i) => {
+            if (i % step !== 0) return;
+            xlabels += `<text x="${(px + i * slot + slot / 2).toFixed(1)}" y="${(py + ph + 14).toFixed(1)}" fill="${COLORS.fg}" opacity="0.7" font-size="10" font-family="system-ui, sans-serif" text-anchor="middle" style="pointer-events:none">${esc(c)}</text>`;
+          });
+          const axisLine = `<line x1="${px}" y1="${py + ph}" x2="${px + pw}" y2="${py + ph}" stroke="${COLORS.border}" stroke-width="1.5"/><line x1="${px}" y1="${py}" x2="${px}" y2="${py + ph}" stroke="${COLORS.border}" stroke-width="1.5"/>`;
+          const xLabelEl = node.xAxis && node.xAxis.label ? `<text x="${px + pw / 2}" y="${node.y + node.height - 8}" fill="${COLORS.fg}" opacity="0.7" font-size="11" font-family="system-ui, sans-serif" text-anchor="middle" style="pointer-events:none">${esc(node.xAxis.label)}</text>` : '';
+          const yLabelEl = ay.label ? `<text x="${node.x + 14}" y="${py + ph / 2}" fill="${COLORS.fg}" opacity="0.7" font-size="11" font-family="system-ui, sans-serif" text-anchor="middle" transform="rotate(-90 ${node.x + 14} ${py + ph / 2})" style="pointer-events:none">${esc(ay.label)}</text>` : '';
+          const titleEl = node.title ? `<text x="${node.x + node.width / 2}" y="${node.y + 17}" fill="${COLORS.fg}" font-size="13" font-weight="600" font-family="system-ui, sans-serif" text-anchor="middle" style="pointer-events:none">${esc(node.title)}</text>` : '';
+          shape = `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="8" fill="${COLORS.bg2}" stroke="${isSelected ? COLORS.accent : COLORS.border}" stroke-width="${isSelected ? 2 : 1.5}" class="node-border"/>${titleEl}${grid}${bars}${polylines}${axisLine}${ticks}${xlabels}${xLabelEl}${yLabelEl}`;
         } else if (node.type === 'line') {
           // Standalone arrow/line shape
           const x1 = node.x;
@@ -5396,6 +5449,9 @@
       if (firstLine.match(/^block-beta/i)) {
         return parseBlock(lines.slice(1));
       }
+      if (firstLine.match(/^xychart-beta/i)) {
+        return parseXyChart(lines.slice(1));
+      }
 
       // Default: flowchart
       return parseFlowchart(lines);
@@ -5538,6 +5594,49 @@
       }
 
       return result;
+    }
+
+    // XY charts (xychart-beta). Collapses to a single `xychart` node holding the
+    // title, x-axis (categories or numeric range + label), y-axis (label + range),
+    // and bar/line series; rendered as a static chart figure (see renderNodes).
+    // `bar [..]` / `line [..]` are data series; ranges via `min --> max`.
+    function parseXyChart(lines) {
+      const node = {
+        id: 'xy1', type: 'xychart', fixed: true, x: 100, y: 100, width: 540, height: 360,
+        label: 'XY Chart', title: '',
+        xAxis: { categories: [], label: '', min: null, max: null },
+        yAxis: { label: '', min: null, max: null },
+        series: [],
+      };
+      const nums = (s) => s.replace(/^\[|\]$/g, '').split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
+      const cats = (s) => s.replace(/^\[|\]$/g, '').split(',').map(v => v.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith('%%') || /^xychart-beta/i.test(line)) continue;
+        let m;
+        if ((m = line.match(/^title\s+(.+)$/i))) { node.title = m[1].trim().replace(/^["']|["']$/g, ''); continue; }
+        if ((m = line.match(/^x-axis\s+(.+)$/i))) {
+          let rest = m[1].trim();
+          const lm = rest.match(/^"([^"]*)"\s*(.*)$/); if (lm) { node.xAxis.label = lm[1]; rest = lm[2].trim(); }
+          if (rest.includes('[')) node.xAxis.categories = cats(rest);
+          else { const r = rest.match(/(-?\d+(?:\.\d+)?)\s*-->\s*(-?\d+(?:\.\d+)?)/); if (r) { node.xAxis.min = parseFloat(r[1]); node.xAxis.max = parseFloat(r[2]); } }
+          continue;
+        }
+        if ((m = line.match(/^y-axis\s+(.+)$/i))) {
+          let rest = m[1].trim();
+          const lm = rest.match(/^"([^"]*)"\s*(.*)$/); if (lm) { node.yAxis.label = lm[1]; rest = lm[2].trim(); }
+          const r = rest.match(/(-?\d+(?:\.\d+)?)\s*-->\s*(-?\d+(?:\.\d+)?)/); if (r) { node.yAxis.min = parseFloat(r[1]); node.yAxis.max = parseFloat(r[2]); }
+          continue;
+        }
+        if ((m = line.match(/^bar\s+(\[.*\])/i))) { node.series.push({ type: 'bar', values: nums(m[1]) }); continue; }
+        if ((m = line.match(/^line\s+(\[.*\])/i))) { node.series.push({ type: 'line', values: nums(m[1]) }); continue; }
+      }
+      // if no categories were given but series exist, synthesize 1..N indices
+      if (!node.xAxis.categories.length && node.series.length) {
+        const n = Math.max(...node.series.map(s => s.values.length), 0);
+        node.xAxis.categories = Array.from({ length: n }, (_, i) => String(i + 1));
+      }
+      return { nodes: [node], connections: [], errors: [], diagramType: 'xychart' };
     }
 
     // Requirement diagrams. Requirements & elements become class-style boxes
@@ -6350,7 +6449,7 @@
       const startY = 100;
 
       // These carry their own absolute geometry — don't re-layout.
-      if (diagramType === 'gantt' || diagramType === 'pie' || diagramType === 'journey' || diagramType === 'gitgraph' || diagramType === 'quadrant' || diagramType === 'block') return parsedNodes;
+      if (diagramType === 'gantt' || diagramType === 'pie' || diagramType === 'journey' || diagramType === 'gitgraph' || diagramType === 'quadrant' || diagramType === 'block' || diagramType === 'xychart') return parsedNodes;
 
       // Sequence diagram: horizontal layout at top
       if (diagramType === 'sequence') {
@@ -6808,6 +6907,7 @@
           if (isFixed) { if (n.color) node.color = n.color; if (n.fillStyle) node.fillStyle = n.fillStyle; }
           if (n.type === 'pie') { node.slices = n.slices; node.title = n.title; }
           if (n.type === 'quadrant') { node.title = n.title; node.xAxis = n.xAxis; node.yAxis = n.yAxis; node.quadrants = n.quadrants; node.points = n.points; }
+          if (n.type === 'xychart') { node.title = n.title; node.xAxis = n.xAxis; node.yAxis = n.yAxis; node.series = n.series; }
 
           // Store class properties/methods
           if (isClass) {
