@@ -1028,6 +1028,10 @@
       palette: ['#7aa2f7', '#9ece6a', '#f7768e', '#e0af68', '#bb9af7', '#7dcfff', '#ff9e64'],
       arrow: { length: 11, width: 5.5 },  // arrowhead size (px)
       node: { minWidth: 40, minHeight: 20 },
+      // Label wrapping (#36): a single unbreakable token (long URL/identifier)
+      // wider than maxWidth px is hard-broken at the character level so the node
+      // respects the cap instead of stretching into one ultra-wide box.
+      wrap: { maxWidth: 240 },
     };
 
     // Curated monochrome icon set (Lucide-style, 24×24 inner markup only — the
@@ -1707,6 +1711,9 @@
       // 'text' and 'container' render their label on a single line, so they don't wrap.
       const prefMax = (node.type === 'text' || node.type === 'container') ? Infinity : 140;
       let textW = Math.max(longestWord * charW, Math.min(longestSegW, prefMax));
+      // Cap the width for wrapping shapes: a single very long token hard-breaks
+      // (wrapLabel) instead of stretching the node past CONFIG.wrap.maxWidth (#36).
+      if (prefMax !== Infinity) textW = Math.min(textW, CONFIG.wrap.maxWidth);
       // Reserve room for an inline icon (drawn left of the label).
       if (node.icon && ICONS[node.icon]) textW += Math.round(fs * 1.3) + 6;
       let numLines = 0;
@@ -2845,15 +2852,33 @@
     // Wrap label text into lines that fit within a given pixel width. Explicit
     // newlines (\n) are honored as hard breaks first, then each segment is
     // word-wrapped to maxWidth.
-    function wrapLabel(label, maxWidth, fontSize) {
+    function wrapLabel(label, maxWidth, fontSize = 12) {
       if (!label) return [''];
       const charW = fontSize * 0.6; // approximate character width
       const maxChars = Math.max(4, Math.floor(maxWidth / charW));
+      // A single token wider than the line cap can't wrap on a space, so hard-break
+      // it into cap-sized chunks (#36). Array.from keeps code-points intact so we
+      // never split mid-emoji / mid-surrogate-pair.
+      const hardBreak = (word) => {
+        if (Array.from(word).length <= maxChars) return [word];
+        const cps = Array.from(word), chunks = [];
+        for (let i = 0; i < cps.length; i += maxChars) chunks.push(cps.slice(i, i + maxChars).join(''));
+        return chunks;
+      };
       const out = [];
       for (const segment of String(label).split('\n')) {
         const words = segment.split(' ');
         let cur = '';
         for (const w of words) {
+          const pieces = hardBreak(w);
+          if (pieces.length > 1) {
+            // Flush the current line, emit all but the last chunk as full lines,
+            // and carry the remainder so following words can still pack onto it.
+            if (cur) { out.push(cur); cur = ''; }
+            for (let i = 0; i < pieces.length - 1; i++) out.push(pieces[i]);
+            cur = pieces[pieces.length - 1];
+            continue;
+          }
           const test = cur ? cur + ' ' + w : w;
           if (test.length > maxChars && cur) { out.push(cur); cur = w; }
           else cur = test;
