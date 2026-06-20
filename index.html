@@ -3025,6 +3025,15 @@
           ${resizeHandle}
         </g>`;
       }).join('');
+      // Group-resize handle (#101): a single handle at the bottom-right of a 2+
+      // node selection's bounding box; dragging it scales the whole group.
+      const grNodes = (selectedIds.length > 1 ? selectedIds : [])
+        .map(id => nodes.find(n => n.id === id)).filter(n => n && n.type !== 'line' && n.type !== 'pencil');
+      if (grNodes.length > 1) {
+        const maxX = Math.max(...grNodes.map(n => n.x + n.width));
+        const maxY = Math.max(...grNodes.map(n => n.y + n.height));
+        nodesGroup.innerHTML += `<rect class="group-resize-handle" x="${maxX - 5}" y="${maxY - 5}" width="10" height="10" fill="${COLORS.accent}" stroke="${COLORS.bg}" stroke-width="1.5" rx="2" style="cursor:nwse-resize"/>`;
+      }
     }
 
     // === Screen-reader semantics (#59) ===
@@ -3069,6 +3078,7 @@
     // most-specific-first so a click on a handle/connector wins over the node.
     function bindCanvasEvents() {
       nodesGroup.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('.group-resize-handle')) return onGroupResizeMouseDown(e);
         if (e.target.closest('.resize-handle')) return onResizeMouseDown(e);
         if (e.target.closest('.line-handle')) return onLineHandleMouseDown(e);
         if (e.target.closest('.lifeline-connector')) return onLifelineConnectorMouseDown(e);
@@ -4407,6 +4417,47 @@
       e.preventDefault();
       e.stopPropagation();
     }
+
+    // === Group resize of a multi-selection (#101) ===
+    // The members in the selection that can be scaled (lines/pencil strokes skip).
+    function _groupResizeNodes() {
+      return selectedNodeIds().map(id => nodes.find(n => n.id === id))
+        .filter(n => n && n.type !== 'line' && n.type !== 'pencil');
+    }
+    // Scale the selection by `factor` about the bounding box's top-left origin, so
+    // each member grows and its position scales too (relative layout preserved).
+    // One undo unit. Returns false for <2 nodes or a bad factor.
+    function resizeSelection(factor) {
+      const ns = _groupResizeNodes();
+      if (ns.length < 2 || !(factor > 0)) return false;
+      const minX = Math.min(...ns.map(n => n.x)), minY = Math.min(...ns.map(n => n.y));
+      saveState();
+      ns.forEach(n => {
+        n.x = snap(minX + (n.x - minX) * factor);
+        n.y = snap(minY + (n.y - minY) * factor);
+        n.width = Math.max(40, snap(n.width * factor));
+        n.height = Math.max(20, snap(n.height * factor));
+        n.manuallyResized = true;
+      });
+      render();
+      return true;
+    }
+
+    let groupResizing = null;   // in-progress bbox drag: origin + each member's start geometry
+    function onGroupResizeMouseDown(e) {
+      const ns = _groupResizeNodes();
+      if (ns.length < 2) return;
+      const minX = Math.min(...ns.map(n => n.x)), minY = Math.min(...ns.map(n => n.y));
+      const maxX = Math.max(...ns.map(n => n.x + n.width)), maxY = Math.max(...ns.map(n => n.y + n.height));
+      groupResizing = {
+        originX: minX, originY: minY,
+        startW: Math.max(1, maxX - minX), startH: Math.max(1, maxY - minY),
+        items: ns.map(n => ({ node: n, x0: n.x, y0: n.y, w0: n.width, h0: n.height })),
+      };
+      saveState();   // one undo unit for the whole drag
+      e.preventDefault();
+      e.stopPropagation();
+    }
     
     // Canvas events
     // Double-click empty canvas to drop a rectangle (and start labeling it)
@@ -4563,6 +4614,22 @@
         }
         if (selectedId === dragging.node.id) positionToolbar(dragging.node);
         scheduleDragRender();
+      }
+
+      // Group resize (#101): scale the captured selection about its bbox origin.
+      if (groupResizing) {
+        const g = groupResizing;
+        const p = screenToCanvas(e.clientX, e.clientY);
+        const factor = Math.max(0.1, Math.min((p.x - g.originX) / g.startW, (p.y - g.originY) / g.startH));
+        g.items.forEach(it => {
+          it.node.x = snap(g.originX + (it.x0 - g.originX) * factor);
+          it.node.y = snap(g.originY + (it.y0 - g.originY) * factor);
+          it.node.width = Math.max(40, snap(it.w0 * factor));
+          it.node.height = Math.max(20, snap(it.h0 * factor));
+          it.node.manuallyResized = true;
+        });
+        scheduleRender();
+        return;
       }
 
       // Resizing
@@ -4750,6 +4817,7 @@
       
       if (dragging) { saveState(); dragging = null; clearGuides(); render(); }
       if (resizing) { saveState(); resizing = null; render(); }
+      if (groupResizing) { groupResizing = null; render(); updateUrlHash(); }   // #101 (saveState ran on mousedown)
       if (lineResizing) { saveState(); lineResizing = null; render(); }
       
       // Finish connection
