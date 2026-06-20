@@ -361,6 +361,14 @@
       padding: 1px 6px; background: var(--bg2); border: 1px solid var(--border); border-radius: 4px;
       font-size: 11px; color: var(--fg); font-family: 'JetBrains Mono', Consolas, monospace;
     }
+    /* Minimap / overview (#82): fixed bottom-left, click/drag to pan the main viewport. */
+    #minimap {
+      position: absolute; bottom: 16px; left: 16px; z-index: 15;
+      background: color-mix(in srgb, var(--bg2) 85%, transparent);
+      border: 1px solid var(--border); border-radius: 6px;
+      cursor: pointer; backdrop-filter: blur(4px); box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    }
+    #minimap .mm-viewport { pointer-events: none; }
     /* Find box (#83): node label search, top-center. */
     #findBox {
       position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 30;
@@ -740,6 +748,8 @@
       <span id="zoomLevel">100%</span>
     </div>
 
+    <!-- Minimap / overview (#82): node markers + viewport rect; click/drag to pan -->
+    <svg id="minimap" width="180" height="120" viewBox="0 0 180 120" style="display:none"></svg>
     <!-- Find box (#83): Cmd/Ctrl+F to search nodes by label; Enter cycles matches, Esc closes -->
     <div id="findBox" class="hidden">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity:.6;flex:none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -1888,8 +1898,9 @@
         gridBg.setAttribute('width', viewBox.w + mx * 2);
         gridBg.setAttribute('height', viewBox.h + my * 2);
       }
+      renderMinimap();   // #82: keep the viewport indicator tracking pan/zoom
     }
-    
+
     function screenToCanvas(x, y) {
       const rect = canvas.getBoundingClientRect();
       return {
@@ -2351,7 +2362,71 @@
       renderConnections();
       renderNodes();
       updateEmptyState();
+      renderMinimap();
     }
+
+    // === Minimap / overview (#82) ===
+    // A corner SVG showing every node as a scaled marker within the content
+    // bounds, plus a rectangle marking the current viewBox. Click/drag pans the
+    // main viewport. Hidden when the canvas is empty.
+    const MINIMAP = { w: 180, h: 120, pad: 8 };
+    let _mmTransform = null;   // world→minimap mapping { scale, ox, oy } for click inversion
+    function renderMinimap() {
+      const mm = document.getElementById('minimap');
+      if (!mm) return;
+      if (!nodes.length) { mm.style.display = 'none'; _mmTransform = null; return; }
+      mm.style.display = 'block';
+      // Bounds = content union the current viewport, so the indicator is always in frame.
+      let minX = viewBox.x, minY = viewBox.y;
+      let maxX = viewBox.x + viewBox.w, maxY = viewBox.y + viewBox.h;
+      for (const n of nodes) {
+        const w = n.width || 120, h = n.height || 60;
+        minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+        maxX = Math.max(maxX, n.x + w); maxY = Math.max(maxY, n.y + h);
+      }
+      const cw = (maxX - minX) || 1, ch = (maxY - minY) || 1;
+      const innerW = MINIMAP.w - 2 * MINIMAP.pad, innerH = MINIMAP.h - 2 * MINIMAP.pad;
+      const scale = Math.min(innerW / cw, innerH / ch);
+      const ox = MINIMAP.pad + (innerW - cw * scale) / 2 - minX * scale;
+      const oy = MINIMAP.pad + (innerH - ch * scale) / 2 - minY * scale;
+      _mmTransform = { scale, ox, oy };
+      const sx = x => (x * scale + ox), sy = y => (y * scale + oy);
+      let svg = '';
+      for (const n of nodes) {
+        const w = Math.max(1.5, (n.width || 120) * scale), h = Math.max(1.5, (n.height || 60) * scale);
+        svg += `<rect data-mm-node="${n.id}" x="${sx(n.x).toFixed(1)}" y="${sy(n.y).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="1" fill="${COLORS.accent}" opacity="0.65"/>`;
+      }
+      svg += `<rect class="mm-viewport" x="${sx(viewBox.x).toFixed(1)}" y="${sy(viewBox.y).toFixed(1)}" width="${(viewBox.w * scale).toFixed(1)}" height="${(viewBox.h * scale).toFixed(1)}" fill="none" stroke="${COLORS.fg}" stroke-width="1.5"/>`;
+      mm.innerHTML = svg;
+    }
+    // Center the main viewport on a world-space point (used by minimap click/drag).
+    function minimapPanTo(worldX, worldY) {
+      viewBox.x = worldX - viewBox.w / 2;
+      viewBox.y = worldY - viewBox.h / 2;
+      updateViewBox();
+      render();
+    }
+    // Map a minimap pointer event to world coords and pan there.
+    function minimapPanFromEvent(e) {
+      if (!_mmTransform) return;
+      const mm = document.getElementById('minimap');
+      const r = mm.getBoundingClientRect();
+      const px = e.clientX - r.left, py = e.clientY - r.top;
+      minimapPanTo((px - _mmTransform.ox) / _mmTransform.scale, (py - _mmTransform.oy) / _mmTransform.scale);
+    }
+    (() => {
+      const mm = document.getElementById('minimap');
+      if (!mm) return;
+      let mmDragging = false;
+      mm.addEventListener('pointerdown', (e) => {
+        mmDragging = true; e.preventDefault(); e.stopPropagation();
+        try { mm.setPointerCapture(e.pointerId); } catch (_) {}
+        minimapPanFromEvent(e);
+      });
+      mm.addEventListener('pointermove', (e) => { if (mmDragging) { e.preventDefault(); minimapPanFromEvent(e); } });
+      mm.addEventListener('pointerup', () => { mmDragging = false; });
+      mm.addEventListener('pointercancel', () => { mmDragging = false; });
+    })();
 
     // === Viewport culling (#71) ===
     // True when a node's bounding box intersects the visible viewBox, expanded by
