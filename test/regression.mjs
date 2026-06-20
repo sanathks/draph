@@ -1695,4 +1695,28 @@ group('Mermaid state import (#22): composite / fork-join-choice / notes');
   check('note links to its state (dashed)', p3.connections.some(c => c.to === 'A' && c.strokeStyle === 'dashed'));
 }
 
+group('Selection → Mermaid (#2): selection-scoped export');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 0, 0); E(`nodes.find(n=>n.id==='${a.id}').label='A'`);
+  const b = win.createNode('rect', 200, 0); E(`nodes.find(n=>n.id==='${b.id}').label='B'`);
+  const c = win.createNode('rect', 400, 0); E(`nodes.find(n=>n.id==='${c.id}').label='C'`);
+  E(`connections.push({ id:'ab', from:'${a.id}', to:'${b.id}' })`);   // internal to {A,B}
+  E(`connections.push({ id:'bc', from:'${b.id}', to:'${c.id}' })`);   // dangles outside {A,B}
+  E(`selectedIds = ['${a.id}','${b.id}']; selectedId = null;`);
+  const code = E(`generateMermaid({ selectionOnly: true })`);
+  check('selection export includes both selected nodes', /\bA\b/.test(code) && /\bB\b/.test(code));
+  check('selection export excludes the unselected node', !/\bC\b/.test(code));
+  check('internal edge kept, dangling edge dropped', (code.match(/-->/g) || []).length === 1);
+  const reparsed = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('selection export round-trips to 2 nodes + 1 edge', reparsed.nodes.length === 2 && reparsed.connections.length === 1);
+  // copyAsMermaid loads the selection code into the sidebar editor (reuses highlighter)
+  win.copyAsMermaid();
+  const ev = doc.getElementById('mermaidEditor').value;
+  check('copyAsMermaid populates the editor with selection code', /\bA\b/.test(ev) && !/\bC\b/.test(ev));
+  // no selection → wrapper falls back to whole-canvas export
+  E(`selectedIds = []; selectedId = null;`);
+  check('no selection falls back to whole-canvas export', /\bC\b/.test(E(`generateMermaid({ selectionOnly: true })`)));
+}
+
 process.exit(report() ? 0 : 1);

@@ -2924,6 +2924,7 @@
       selectall: () => selectAllNodes(),
       group: () => groupSelected(),
       ungroup: () => ungroupSelected(),
+      copyMermaid: () => copyAsMermaid(),
     };
     function showContextMenu(clientX, clientY, items) {
       contextMenu.innerHTML = items.map(it => it.sep
@@ -2956,6 +2957,7 @@
         const items = [
           { act: 'edit', label: 'Edit label' },
           { act: 'duplicate', label: 'Duplicate', kbd: '⌘D' },
+          { act: 'copyMermaid', label: 'Copy as Mermaid' },
         ];
         if (selectedIds.length > 1) items.push({ act: 'group', label: 'Group', kbd: '⌘G' });
         if (n && n.groupId) items.push({ act: 'ungroup', label: 'Ungroup', kbd: '⌘⇧G' });
@@ -5263,7 +5265,20 @@
       // Sync scroll
       syncEditorScroll();
     }
-    
+
+    // Selection → Mermaid: export just the selected nodes (+ internal edges) into
+    // the code sidebar (reusing its highlighter) and copy it to the clipboard.
+    function copyAsMermaid() {
+      const code = generateMermaid({ selectionOnly: true });
+      const sidebar = document.getElementById('mermaidSidebar');
+      if (sidebar && sidebar.classList.contains('hidden')) toggleMermaidSidebar();
+      const editor = document.getElementById('mermaidEditor');
+      if (editor) { editor.value = code; updateEditorHighlight(); }
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).catch(() => {});
+      toast('Selection copied as Mermaid', 'success');
+      return code;
+    }
+
     function syncEditorScroll() {
       const editor = document.getElementById('mermaidEditor');
       const highlight = document.getElementById('editorHighlight');
@@ -5293,9 +5308,23 @@
     })();
     // --- End Syntax Highlighting ---
     
-    function generateMermaid() {
+    function generateMermaid(opts = {}) {
+      // Selection-scoped export: temporarily restrict nodes/connections to the
+      // current selection (plus edges whose BOTH ends are selected — danglers are
+      // dropped), reuse the normal generators, then restore. Keeps one code path.
+      if (opts && opts.selectionOnly) {
+        const sel = new Set(selectedIds.length ? selectedIds : (selectedId ? [selectedId] : []));
+        if (sel.size) {
+          const savedNodes = nodes, savedConns = connections;
+          try {
+            nodes = savedNodes.filter(n => sel.has(n.id));
+            connections = savedConns.filter(c => sel.has(c.from) && sel.has(c.to));
+            return generateMermaid();   // recurse on the filtered globals
+          } finally { nodes = savedNodes; connections = savedConns; }
+        }
+      }
       if (nodes.length === 0) return 'flowchart TD\n    %% Empty diagram';
-      
+
       // Detect diagram type
       const hasParticipants = nodes.some(n => n.isParticipant || n.hasLifeline);
       const hasSequenceMessages = connections.some(c => c.isSequenceMessage);
