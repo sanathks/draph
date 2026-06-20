@@ -5396,6 +5396,9 @@
       if (firstLine.match(/^architecture-beta/i)) {
         return parseArchitecture(lines.slice(1));
       }
+      if (firstLine.match(/^block-beta/i)) {
+        return parseBlock(lines.slice(1));
+      }
 
       // Default: flowchart
       return parseFlowchart(lines);
@@ -5513,6 +5516,91 @@
         }
       }
       if (!result.subgraphs.length) delete result.subgraphs;
+      return result;
+    }
+
+    // Block diagrams (block-beta). Blocks flow into a grid that wraps at the
+    // `columns N` count; column spans via `id:N`, blank cells via `space`/`space:N`.
+    // Shapes map: ["sq"]→rect, ("round")→rect, (("circ"))→circle, {"dia"}→diamond,
+    // >"flag"]→rect. `x --> y` (optionally labelled) become arrows. Nested
+    // `block:id … end` groups are flattened for now (TODO: render as containers).
+    // Fixed geometry — layoutNodes passes these nodes through untouched.
+    function parseBlock(lines) {
+      const result = { nodes: [], connections: [], errors: [], diagramType: 'block' };
+      const CELL_W = 150, CELL_H = 70, GAP = 22, X0 = 80, Y0 = 80;
+      let columns = 0;
+      const cells = [];        // ordered placeables: {kind:'block',…} | {kind:'space',span}
+      const arrowLines = [];
+      const unq = s => (s || '').replace(/^"|"$/g, '').trim();
+
+      // split a line into tokens, keeping bracketed/quoted spans intact
+      const tokenize = (line) => {
+        const out = []; let cur = '', depth = 0, q = false;
+        for (const ch of line) {
+          if (ch === '"') { q = !q; cur += ch; continue; }
+          if (!q && '([{<'.includes(ch)) depth++;
+          else if (!q && ')]}>'.includes(ch)) depth = Math.max(0, depth - 1);
+          if (!q && depth === 0 && /\s/.test(ch)) { if (cur) { out.push(cur); cur = ''; } continue; }
+          cur += ch;
+        }
+        if (cur) out.push(cur);
+        return out;
+      };
+      const parseToken = (tok) => {
+        let span = 1; const sm = tok.match(/:(\d+)$/); if (sm) { span = parseInt(sm[1], 10); tok = tok.slice(0, sm.index); }
+        if (/^space$/i.test(tok)) return { kind: 'space', span };
+        let m;
+        if ((m = tok.match(/^([A-Za-z0-9_]+)\(\((.*)\)\)$/))) return { kind: 'block', id: m[1], label: unq(m[2]), type: 'circle', span };
+        if ((m = tok.match(/^([A-Za-z0-9_]+)\{+(.*?)\}+$/))) return { kind: 'block', id: m[1], label: unq(m[2]), type: 'diamond', span };
+        if ((m = tok.match(/^([A-Za-z0-9_]+)\(\[(.*)\]\)$/))) return { kind: 'block', id: m[1], label: unq(m[2]), type: 'rect', span };
+        if ((m = tok.match(/^([A-Za-z0-9_]+)\((.*)\)$/))) return { kind: 'block', id: m[1], label: unq(m[2]), type: 'rect', span };
+        if ((m = tok.match(/^([A-Za-z0-9_]+)\[(.*)\]$/))) return { kind: 'block', id: m[1], label: unq(m[2]), type: 'rect', span };
+        if ((m = tok.match(/^([A-Za-z0-9_]+)>(.*)\]$/))) return { kind: 'block', id: m[1], label: unq(m[2]), type: 'rect', span };
+        if ((m = tok.match(/^([A-Za-z0-9_]+)$/))) return { kind: 'block', id: m[1], label: m[1], type: 'rect', span };
+        return null;
+      };
+
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith('%%') || /^block-beta/i.test(line)) continue;
+        let m;
+        if ((m = line.match(/^columns\s+(\d+)/i))) { columns = parseInt(m[1], 10); continue; }
+        if (/^block\b/i.test(line) || line === 'end') continue;     // flatten nested groups
+        if (/--+>?|==+>?|--[xo]/.test(line)) { arrowLines.push(line); continue; }
+        for (const tok of tokenize(line)) { const c = parseToken(tok); if (c) cells.push(c); }
+      }
+
+      if (!columns) columns = cells.reduce((s, c) => s + c.span, 0) || 1;
+
+      // place cells into a wrapping grid (spans widen a block / consume cells)
+      const map = {};
+      let col = 0, row = 0;
+      const advance = (span) => { if (col + span > columns) { col = 0; row++; } const x = X0 + col * (CELL_W + GAP), y = Y0 + row * (CELL_H + GAP); col += span; return { x, y }; };
+      for (const c of cells) {
+        const span = Math.max(1, Math.min(c.span, columns));
+        const { x, y } = advance(span);
+        if (c.kind === 'space' || map[c.id]) continue;
+        const cellW = span * CELL_W + (span - 1) * GAP;
+        let nx = x, ny = y, w = cellW, h = CELL_H;
+        // circles get normalised square by createNode; size them to the row height
+        // and centre them in the cell so they can't overflow into neighbouring rows.
+        if (c.type === 'circle') { const d = Math.min(CELL_H, cellW); w = d; h = d; nx = x + (cellW - d) / 2; ny = y + (CELL_H - d) / 2; }
+        map[c.id] = { id: c.id, type: c.type, label: c.label, fixed: true, x: nx, y: ny, width: w, height: h };
+        result.nodes.push(map[c.id]);
+      }
+
+      // arrows: `a -- "label" --> b`, `a --> |label| b`, or plain `a --> b`
+      for (const line of arrowLines) {
+        let m;
+        if ((m = line.match(/^([A-Za-z0-9_]+)\s*--+\s*"([^"]*)"\s*--+>?\s*([A-Za-z0-9_]+)/))) {
+          if (map[m[1]] && map[m[3]]) result.connections.push({ from: m[1], to: m[3], label: m[2], markerEnd: 'arrow' });
+        } else if ((m = line.match(/^([A-Za-z0-9_]+)\s*--+>?\s*\|([^|]*)\|\s*([A-Za-z0-9_]+)/))) {
+          if (map[m[1]] && map[m[3]]) result.connections.push({ from: m[1], to: m[3], label: m[2], markerEnd: 'arrow' });
+        } else if ((m = line.match(/^([A-Za-z0-9_]+)\s*(?:--+|==+)>?\s*([A-Za-z0-9_]+)/))) {
+          if (map[m[1]] && map[m[2]]) result.connections.push({ from: m[1], to: m[2], label: '', markerEnd: 'arrow' });
+        }
+      }
+
       return result;
     }
 
@@ -6326,7 +6414,7 @@
       const startY = 100;
 
       // These carry their own absolute geometry — don't re-layout.
-      if (diagramType === 'gantt' || diagramType === 'pie' || diagramType === 'journey' || diagramType === 'gitgraph' || diagramType === 'quadrant') return parsedNodes;
+      if (diagramType === 'gantt' || diagramType === 'pie' || diagramType === 'journey' || diagramType === 'gitgraph' || diagramType === 'quadrant' || diagramType === 'block') return parsedNodes;
 
       // Sequence diagram: horizontal layout at top
       if (diagramType === 'sequence') {
