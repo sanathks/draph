@@ -1904,4 +1904,26 @@ group('Mermaid pie import (#30): donut variant + leader lines');
   check('pie: donut flag does not alter the parsed slices', E(`nodes[0].slices.length`) === 3);
 }
 
+group('#36 label wrapping: hard-break long unbreakable words');
+{
+  const { win, E } = boot();
+  // A single token longer than the line cap hard-breaks across lines.
+  const lines = E(`wrapLabel('supercalifragilisticexpialidociousAndThenSomeMore', 120)`);
+  check('long unbreakable word hard-breaks to >=2 lines', lines.length >= 2);
+  check('each wrapped line stays within the cap-ish width', lines.every(l => l.length <= 30));
+  check('hard-break preserves all characters', lines.join('') === 'supercalifragilisticexpialidociousAndThenSomeMore');
+  // Normal multi-word labels still wrap on spaces (no regression).
+  const normal = E(`wrapLabel('the quick brown fox jumps', 120)`);
+  check('normal wrap still breaks on spaces', normal.join(' ').split(' ').length === 5);
+  // Code-point safe: an emoji token isn't split mid-surrogate.
+  const emoji = E(`wrapLabel('😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀', 60)`);
+  check('emoji hard-break keeps code-points intact', emoji.every(l => !/�/.test(l)) && emoji.length >= 2);
+  // fitNodeToLabel caps node width for a long token instead of stretching it.
+  const n = win.createNode('rect', 100, 100, 120, 44);
+  E(`(nd=>{nd.label='supercalifragilisticexpialidociousAndThenSomeMoreEvenLonger'; fitNodeToLabel(nd);})(nodes.find(x=>x.id==='${n.id}'))`);
+  const w = E(`nodes.find(x=>x.id==='${n.id}').width`);
+  check('long token does not force an ultra-wide node', w <= E('CONFIG.wrap.maxWidth') + 30);
+  check('cap lives in CONFIG (no magic number)', typeof E('CONFIG.wrap.maxWidth') === 'number');
+}
+
 process.exit(report() ? 0 : 1);

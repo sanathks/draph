@@ -56,8 +56,9 @@ and, when ready, implement + verify with `npm test`:
 - **`fitNodeToLabel` shrink-to-fit (opt-in):** currently grow-only, so deleting
   text leaves nodes oversized. Consider shrinking toward content unless the user
   manually resized (needs a `manuallyResized` flag).
-- **Hard-break very long words:** a single unbreakable token still forces a very
-  wide node; offer character-level wrapping past a width cap.
+- **Hard-break very long words:** ✅ DONE (#36) — `wrapLabel` hard-breaks a token
+  wider than the line cap at the character level (code-point safe); `fitNodeToLabel`
+  caps width at `CONFIG.wrap.maxWidth` instead of stretching the node.
 - **Export test coverage:** PNG/SVG/GIF export is untested (jsdom lacks canvas).
   Add SVG-string assertions (cropping, no UI chrome) which are testable.
 - **Deploy source reconciliation (ops):** `draph.sanath.dev` auto-deploys from
