@@ -2308,6 +2308,33 @@
             </g>
             <rect x="${x}" y="${y}" width="${w}" height="${node.height}" rx="8"
               fill="none" stroke="${isSelected ? COLORS.accent : COLORS.border}" stroke-width="${isSelected ? 2 : 1.5}" class="node-border"/>`;
+        } else if (node.type === 'pie') {
+          // Pie chart: slices + legend inside one card.
+          const slices = node.slices || [];
+          const total = slices.reduce((s, x) => s + (x.value || 0), 0) || 1;
+          const pad = 16, titleH = node.title ? 26 : 0;
+          const availH = node.height - titleH;
+          const R = Math.max(20, Math.min(availH / 2 - pad, node.width * 0.30));
+          const cx = node.x + pad + R, cy = node.y + titleH + availH / 2;
+          let ang = -Math.PI / 2, arcs = '';
+          slices.forEach(sl => {
+            const frac = (sl.value || 0) / total;
+            if (frac >= 0.999) { arcs += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="${sl.color}" stroke="${COLORS.bg2}" stroke-width="1.5"/>`; return; }
+            const a2 = ang + frac * 2 * Math.PI;
+            const x1 = cx + R * Math.cos(ang), y1 = cy + R * Math.sin(ang);
+            const x2 = cx + R * Math.cos(a2), y2 = cy + R * Math.sin(a2);
+            arcs += `<path d="M${cx},${cy} L${x1.toFixed(1)},${y1.toFixed(1)} A${R},${R} 0 ${frac > 0.5 ? 1 : 0} 1 ${x2.toFixed(1)},${y2.toFixed(1)} Z" fill="${sl.color}" stroke="${COLORS.bg2}" stroke-width="1.5"/>`;
+            ang = a2;
+          });
+          const lx = node.x + pad * 2 + 2 * R; let ly = node.y + titleH + pad + 4; let legend = '';
+          slices.forEach(sl => {
+            const pct = Math.round((sl.value || 0) / total * 100);
+            legend += `<rect x="${lx}" y="${ly - 9}" width="11" height="11" rx="2" fill="${sl.color}"/>`;
+            legend += `<text x="${lx + 18}" y="${ly}" fill="${COLORS.fg}" font-size="12" font-family="system-ui, sans-serif" style="pointer-events:none">${esc(sl.label)} — ${sl.value} (${pct}%)</text>`;
+            ly += 22;
+          });
+          const titleEl = node.title ? `<text x="${node.x + node.width / 2}" y="${node.y + 17}" fill="${COLORS.fg}" font-size="13" font-weight="600" font-family="system-ui, sans-serif" text-anchor="middle" style="pointer-events:none">${esc(node.title)}</text>` : '';
+          shape = `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="8" fill="${COLORS.bg2}" stroke="${isSelected ? COLORS.accent : COLORS.border}" stroke-width="${isSelected ? 2 : 1.5}" class="node-border"/>${titleEl}${arcs}${legend}`;
         } else if (node.type === 'line') {
           // Standalone arrow/line shape
           const x1 = node.x;
@@ -5273,9 +5300,37 @@
       if (firstLine.match(/^gantt\b/i)) {
         return parseGantt(lines.slice(1));
       }
+      if (firstLine.match(/^pie\b/i)) {
+        return parsePie(lines);
+      }
 
       // Default: flowchart
       return parseFlowchart(lines);
+    }
+
+    // Pie charts. Collapses to a single `pie` node holding all slices; rendered
+    // as an actual pie + legend (see renderNodes). Slice colors come from the
+    // palette. First cut: no donut/`showData` variants beyond value+percent.
+    function parsePie(lines) {
+      const slices = [];
+      let title = '';
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith('%%')) continue;
+        let m = line.match(/^pie(?:\s+showData)?(?:\s+title\s+(.+))?$/i);
+        if (m) { if (m[1]) title = m[1].trim(); continue; }
+        m = line.match(/^title\s+(.+)$/i);
+        if (m) { title = m[1].trim(); continue; }
+        m = line.match(/^"([^"]+)"\s*:\s*([\d.]+)$/) || line.match(/^([^:]+?)\s*:\s*([\d.]+)$/);
+        if (m) slices.push({ label: m[1].trim(), value: parseFloat(m[2]) });
+      }
+      slices.forEach((s, i) => { s.color = CONFIG.palette[i % CONFIG.palette.length]; });
+      const node = {
+        id: 'pie1', type: 'pie', title, slices, fixed: true,
+        x: 100, y: 100, width: 380, height: Math.max(220, 60 + slices.length * 22),
+        label: title || 'Pie',
+      };
+      return { nodes: [node], connections: [], errors: [], diagramType: 'pie' };
     }
 
     // Gantt charts. Each task becomes a horizontal bar (rect) positioned by its
@@ -5915,8 +5970,8 @@
       const startX = 100;
       const startY = 100;
 
-      // Gantt: parseGantt already assigned absolute x/y/width/height (time axis).
-      if (diagramType === 'gantt') return parsedNodes;
+      // Gantt/pie carry their own absolute geometry — don't re-layout.
+      if (diagramType === 'gantt' || diagramType === 'pie') return parsedNodes;
 
       // Sequence diagram: horizontal layout at top
       if (diagramType === 'sequence') {
@@ -6376,6 +6431,7 @@
           const node = createNode(nodeType, n.x, n.y, width, height);
           node.label = n.label;
           if (isFixed) { if (n.color) node.color = n.color; if (n.fillStyle) node.fillStyle = n.fillStyle; }
+          if (n.type === 'pie') { node.slices = n.slices; node.title = n.title; }
 
           // Store class properties/methods
           if (isClass) {

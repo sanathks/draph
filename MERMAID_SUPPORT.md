@@ -20,7 +20,7 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
 | Mindmap | `mindmap` | 🟡 | **NEW.** indentation-based tree → nodes + parent/child edges; shapes `((circle))`/`(round)`/`[square]`/`{{hex→rect}}`. TODO: radial layout (currently top-down tree), `::icon()` rendering, class styling |
 | Timeline | `timeline` | 🟡 | **NEW.** `period : event…` → period (pill) with event (rect) children; `: event` continues a period; `section` → grouping container. Laid out top-down (Mermaid is horizontal). TODO: title node, horizontal lane layout, section colors |
 | Gantt | `gantt` | 🟡 | **NEW.** tasks→horizontal bars on a 20px/day axis (start date → x, duration → width); `after <id>` deps resolve start; sections→left labels; milestones→diamonds. TODO: date-axis ticks, today marker, dependency arrows, weekends/excludes |
-| Pie | `pie` | ⬜ | needs a pie/chart render (not a node graph) |
+| Pie | `pie` | 🟡 | **NEW.** one `pie` node renders an actual pie (slice `<path>` arcs) + legend with values & percentages; slice colors from the palette. TODO: donut variant, label leader lines |
 | User Journey | `journey` | ⬜ | sections, tasks, actor scores |
 | Git graph | `gitGraph` | ⬜ | commits/branches/merges → DAG |
 | Quadrant | `quadrantChart` | ⬜ | 2×2 plot of points |
@@ -42,6 +42,9 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
   line, any needed render tweaks, and regression tests in `test/regression.mjs`.
 
 ## Changelog
+- **Pie (first cut):** new `pie` node type — `parsePie` collapses slices into one
+  node; renderNodes draws real slice arcs + a legend (label, value, percent).
+  First chart rendered natively (not via the node graph). Tests cover it.
 - **Gantt (first cut):** `parseGantt` lays tasks as horizontal bars on a fixed
   day scale (20px/day, grid-aligned so positions survive snap). Resolves start
   dates from explicit dates, `after <id>` deps, or sequential follow; durations

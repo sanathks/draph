@@ -1129,4 +1129,29 @@ group('v2: Mermaid gantt import (time-axis bars)');
   check('gantt import draws no dependency arrows', E('connections.length') === 0);
 }
 
+// ---------------------------------------------------------------------------
+group('v2: Mermaid pie chart import');
+{
+  const { win, doc, E } = boot();
+  const code = [
+    'pie title Pets adopted',
+    '    "Dogs" : 386',
+    '    "Cats" : 85',
+    '    "Rats" : 15',
+  ].join('\n');
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('pie collapses to a single pie node', p.nodes.length === 1 && p.nodes[0].type === 'pie');
+  check('pie keeps the title', p.nodes[0].title === 'Pets adopted');
+  check('pie parses all slices with values', p.nodes[0].slices.length === 3 && p.nodes[0].slices[0].label === 'Dogs' && p.nodes[0].slices[0].value === 386);
+  check('pie assigns slice colors', p.nodes[0].slices.every(s => /^#/.test(s.color)));
+  // full import renders pie slices (paths) + legend
+  const ed = doc.getElementById('mermaidEditor');
+  ed.value = code; win.importMermaid(true);
+  check('pie import makes one pie node carrying slices', E(`nodes.length`) === 1 && E(`nodes[0].type==='pie'`) && E('nodes[0].slices.length') === 3);
+  win.render();
+  const el = doc.querySelector(`#nodes .node[data-id="${E('nodes[0].id')}"]`);
+  check('pie renders slice <path> arcs', !!el && (el.querySelectorAll('path').length >= 2));
+  check('pie renders a legend with a percentage', !!el && /%/.test(el.textContent));
+}
+
 process.exit(report() ? 0 : 1);
