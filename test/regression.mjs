@@ -556,10 +556,10 @@ group('Nodes grow to fit their label (label-aware sizing)');
   const textW = 'Authenticated?'.length * (11 * 0.62);
   check('diamond widened to fit a long label', d.width >= textW / 0.6, `w=${d.width} need~${Math.ceil(textW/0.6)}`);
   check('diamond grew from its default', d.width > 90);
-  // fit never shrinks below the user's larger size
-  const big = win.createNode('rect', 0, 0, 400, 200); big.label = 'Hi';
+  // fit never shrinks a node the user manually resized (#35: guarded by the flag)
+  const big = win.createNode('rect', 0, 0, 400, 200); big.label = 'Hi'; big.manuallyResized = true;
   win.fitNodeToLabel(big);
-  check('fit does not shrink a manually-large node', big.width === 400 && big.height === 200);
+  check('fit does not shrink a manually-resized node', big.width === 400 && big.height === 200);
   // typing in the toolbar grows the selected node live
   const r = win.createNode('rect', 0, 0, 120, 44); r.label = 'x'; win.render(); win.selectNode(r.id);
   const inp = doc.getElementById('toolbarLabel');
@@ -1169,7 +1169,7 @@ group('v2: Mermaid user-journey import');
   ].join('\n');
   const p = E(`parseMermaid(${JSON.stringify(code)})`);
   check('journey makes a task node per task', p.nodes.filter(n => n.type === 'pill').length === 3);
-  check('journey shows actors in the label', p.nodes.some(n => /Do work \(Me, Cat\)/.test(n.label)));
+  check('journey carries actors as a list on the task (#31)', p.nodes.some(n => Array.isArray(n.actors) && n.actors.length === 2 && n.actors[0] === 'Me' && n.actors[1] === 'Cat'));
   check('journey chains tasks sequentially', p.connections.length === 2);
   // higher score => higher up (smaller y). "Make tea" (5) above "Do work" (1)
   const tea = p.nodes.find(n => /Make tea/.test(n.label));
@@ -1649,6 +1649,62 @@ group('Touch & pointer input (#21): multi-touch pinch/pan + palm rejection');
   check('penActive clears when the pen lifts', E3('penActive === false'));
 }
 
+group('Document store (#38): docStore CRUD against the in-memory backend');
+{
+  const { win, E } = boot();
+  E(`docStore._useMemory()`);                                       // swap to the test backend
+  // a real diagram to persist
+  win.createNode('rect', 100, 100);
+  E(`docStore.save({ title:'Auth flow', data: exportState() })`);
+  check('doc saved + listed', E(`docStore.list().length`) === 1);
+  check('list item carries title + timestamps', E(`(d=>d.title==='Auth flow' && typeof d.created==='number' && typeof d.updated==='number')(docStore.list()[0])`));
+  check('load round-trips the title + data', E(`(d=>d.title==='Auth flow' && Array.isArray(d.data.n) && d.data.n.length===1)(docStore.load(docStore.list()[0].id))`));
+  // duplicate → new id, same content
+  E(`docStore.duplicate(docStore.list()[0].id)`);
+  check('duplicate adds a 2nd doc with a new id', E(`docStore.list().length`) === 2 && E(`docStore.list()[0].id`) !== E(`docStore.list()[1].id`));
+  check('duplicate title is derived', E(`docStore.list().some(d=>/ copy$/.test(d.title))`));
+  // save with an existing id updates in place (no new doc), bumps updated, keeps created
+  const firstId = E(`docStore.list().find(d=>d.title==='Auth flow').id`);
+  const created0 = E(`docStore.load('${firstId}').created`);
+  E(`docStore.save({ id:'${firstId}', title:'Auth flow v2' })`);
+  check('save with id updates in place (count unchanged)', E(`docStore.list().length`) === 2);
+  check('update keeps created, changes title', E(`docStore.load('${firstId}').title`) === 'Auth flow v2' && E(`docStore.load('${firstId}').created`) === created0);
+  // remove
+  E(`docStore.remove('${firstId}')`);
+  check('remove drops the doc', E(`docStore.list().length`) === 1 && E(`docStore.load('${firstId}')`) === null);
+}
+
+group('Document library (#38): gallery UI + autosave write-through');
+{
+  const { win, doc, E } = boot();
+  E(`docStore._useMemory(); activeDocId = null;`);
+  // first edit autosaves through to a new active doc
+  win.createNode('rect', 100, 100);
+  win.updateUrlHash();
+  check('first edit creates an active library doc', E(`activeDocId !== null`) && E(`docStore.list().length`) === 1);
+  const id1 = E(`activeDocId`);
+  win.galleryRename(id1, 'Auth flow');
+  check('rename updates the doc title', E(`docStore.load('${id1}').title`) === 'Auth flow');
+  // "New" banks the current diagram and starts a fresh one (newest-first → 2 docs)
+  win.galleryNew();
+  check('New starts a 2nd doc and switches active', E(`docStore.list().length`) === 2 && E(`activeDocId`) !== id1);
+  // edit B, then open A → canvas restores A exactly
+  win.createNode('diamond', 200, 200); win.updateUrlHash();
+  win.galleryOpen(id1);
+  check('opening a doc restores its data + sets it active', E(`activeDocId`) === id1 && E(`nodes.length`) === 1 && E(`nodes[0].type`) === 'rect');
+  // autosave write-through bumps the active doc's data (B kept its diamond)
+  const other = E(`docStore.list().find(d=>d.id!=='${id1}').id`);
+  check('the other doc retained its own edited data', E(`docStore.load('${other}').data.n.some(n=>n.type==='diamond')`));
+  // duplicate + gallery DOM
+  win.galleryDuplicate(id1);
+  check('duplicate adds a 3rd card', E(`docStore.list().length`) === 3);
+  win.toggleGallery();
+  check('gallery opens and renders one card per doc', E(`galleryIsOpen()`) === true && doc.querySelectorAll('#galleryGrid .gallery-card').length === 3);
+  check('active doc card is highlighted', !!doc.querySelector(`#galleryGrid .gallery-card[data-id="${id1}"]`));
+  win.toggleGallery();
+  check('gallery toggles closed', E(`galleryIsOpen()`) === false);
+}
+
 group('Connection routing (#34): non-locked sides re-seat on render');
 {
   const { win, E } = boot();
@@ -1722,6 +1778,29 @@ group('Selection → Mermaid (#2): selection-scoped export');
   // no selection → wrapper falls back to whole-canvas export
   E(`selectedIds = []; selectedId = null;`);
   check('no selection falls back to whole-canvas export', /\bC\b/.test(E(`generateMermaid({ selectionOnly: true })`)));
+}
+
+group('SVG export (#37): buildExportSVG string assertions');
+{
+  const { win, E } = boot();
+  // empty canvas → null, no side effects
+  check('buildExportSVG returns null on an empty canvas', E(`buildExportSVG()`) === null);
+  const a = win.createNode('rect', 100, 100); E(`nodes.find(n=>n.id==='${a.id}').label='Alpha'`);
+  const b = win.createNode('rect', 400, 100); E(`nodes.find(n=>n.id==='${b.id}').label='Beta'`);
+  E(`connections.push({ id:'e', from:'${a.id}', to:'${b.id}' })`);
+  win.render();
+  const svg = E(`buildExportSVG()`);
+  check('export is a standalone <svg> with a viewBox', /^<svg[\s>]/.test(svg.trim()) && /viewBox=/.test(svg));
+  check('export includes every node label', /Alpha/.test(svg) && /Beta/.test(svg));
+  check('export includes the connection markup', /connection-group|class="connection"/.test(svg));
+  check('export omits UI chrome (connectors/hit-areas/grid/marquee)', !/connector|conn-hit|gridBg|selectBox|drawPreview|resize-handle/.test(svg));
+  // viewBox tightly bounds content (not the full 1200×800 canvas)
+  const vb = (svg.match(/viewBox="([^"]+)"/) || [])[1].split(/\s+/).map(Number);
+  check('viewBox crops to content, not the whole canvas', vb[2] < 1200 && vb[3] < 800 && vb[0] > 0);
+  // pure: calling it does not mutate state or trigger a download
+  const before = E(`nodes.length`);
+  E(`buildExportSVG()`);
+  check('buildExportSVG is side-effect free (node count unchanged)', E(`nodes.length`) === before);
 }
 
 group('Mermaid class import (#27): namespaces → grouping container');
@@ -1885,6 +1964,38 @@ group('Mermaid quadrant import (#33): per-point radius/color styling');
   check('quadrant: styled dot uses custom radius', radii.includes('10'));
   check('quadrant: default dot still r=5', radii.includes('5'));
   check('quadrant: custom color rendered', /fill="#ff0000"/.test(el.innerHTML));
+}
+
+group('fitNodeToLabel shrink-to-fit + manual-resize guard (#35)');
+{
+  const { win, E } = boot();
+  const n = win.createNode('rect', 100, 100, 'A very long label that makes the node quite wide indeed');
+  win.fitNodeToLabel(n); const wide = n.width;
+  E(`nodes.find(x=>x.id==='${n.id}').label='Hi'`); win.fitNodeToLabel(E(`nodes.find(x=>x.id==='${n.id}')`));
+  check('shrinks toward content when not manually resized', E(`nodes.find(x=>x.id==='${n.id}').width`) < wide);
+  check('does not shrink below the type minimum', E(`nodes.find(x=>x.id==='${n.id}').width`) >= E('CONFIG.node.minWidth'));
+  // manually-resized node is never auto-shrunk
+  const m = win.createNode('rect', 300, 300, 'x');
+  E(`(n=>{n.manuallyResized=true; n.width=400; n.label='y';})(nodes.find(x=>x.id==='${m.id}'))`);
+  win.fitNodeToLabel(E(`nodes.find(x=>x.id==='${m.id}')`));
+  check('manually-resized node keeps its width', E(`nodes.find(x=>x.id==='${m.id}').width`) === 400);
+}
+
+group('Mermaid journey import (#31): actor avatars + section bands');
+{
+  const { win, doc, E } = boot();
+  const code = 'journey\n  title My Day\n  section Morning\n    Wake: 3: Me\n    Coffee: 5: Me, Cat';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const coffee = p.nodes.find(n => /Coffee/.test(n.label));
+  check('journey: task carries its actor list', Array.isArray(coffee.actors) && coffee.actors.length === 2);
+  check('journey: each actor gets a distinct color', coffee.actorColors && coffee.actorColors[0] !== coffee.actorColors[1]);
+  check('journey: section band node present', p.nodes.some(n => /^jband/.test(n.id)));
+  // render: section label + actor glyphs draw
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  check('journey: section band/label rendered', /Morning/.test(doc.getElementById('nodes').textContent));
+  const cn = E(`nodes.find(n=>/Coffee/.test(n.label))`);
+  const el = doc.querySelector(`#nodes .node[data-id="${cn.id}"]`);
+  check('journey: actor glyphs render on the task', !!el && (el.innerHTML.match(/<circle/g) || []).length >= 2);
 }
 
 group('Mermaid pie import (#30): donut variant + leader lines');

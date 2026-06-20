@@ -550,6 +550,22 @@
       </div>
     </div>
     
+    <!-- "My diagrams" gallery (document library over docStore) -->
+    <div id="galleryOverlay" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.45)" onclick="if(event.target===this)toggleGallery()">
+      <div style="position:absolute;top:0;right:0;height:100%;width:380px;max-width:90vw;background:var(--bg);border-left:1px solid var(--border);display:flex;flex-direction:column;box-shadow:-4px 0 24px rgba(0,0,0,0.4)">
+        <div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:13px;font-weight:600;color:var(--fg)">My diagrams</span>
+          <div style="display:flex;gap:6px">
+            <button onclick="galleryNew()" style="padding:4px 8px;background:var(--accent);border:none;border-radius:4px;font-size:11px;font-weight:600;color:var(--bg);cursor:pointer">+ New</button>
+            <button onclick="saveActiveDoc(true)" title="Save the current diagram to your library" style="padding:4px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;font-size:11px;color:var(--fg);cursor:pointer">Save current</button>
+            <button onclick="toggleGallery()" title="Close (G)" style="width:24px;height:24px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--fg);cursor:pointer">✕</button>
+          </div>
+        </div>
+        <div id="galleryGrid" style="flex:1;overflow:auto;padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-content:start"></div>
+        <div id="galleryEmpty" style="display:none;padding:24px;text-align:center;color:var(--fg-dim);font-size:12px">No saved diagrams yet — “+ New” starts one.</div>
+      </div>
+    </div>
+
     <!-- Canvas area -->
     <div id="canvasContainer" class="flex-1 relative overflow-hidden">
     <svg id="canvas" class="w-full h-full" style="background: var(--bg); touch-action: none;">
@@ -1273,6 +1289,7 @@
       bindCanvasEvents();
       // Share-link hash wins; otherwise restore the last autosaved diagram.
       if (!loadFromUrl()) restoreAutosave();
+      docStore._open();   // hydrate the document library from IndexedDB (best-effort; no-op without IDB)
       saveState();
       render();
       // Restore the saved line-style preference (defaults to curved).
@@ -1336,6 +1353,10 @@
       history.replaceState(null, '', '#' + btoa(encodeURIComponent(json)));
       // Autosave locally so the diagram survives a reload even without the hash
       saveSetting('autosave', json);
+      // Write through to the document library (creates the active doc on first edit;
+      // updates its data + `updated` thereafter). Back-compat: a v1 URL-hash diagram
+      // becomes a library doc as soon as it's edited.
+      if (typeof saveActiveDoc === 'function') saveActiveDoc();
     }
     
     function loadFromUrl() {
@@ -1417,7 +1438,84 @@
         }
         return nodes.length > 0;
     }
-    
+
+    // Snapshot the live diagram as the persisted `{n, c, v}` payload (same shape
+    // as the share-link / autosave / .draph file). Used by the document store.
+    function exportState() {
+      return { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom } };
+    }
+
+    // === SECTION: DOCUMENT STORE ("My diagrams") ===============================
+    // A thin, SYNCHRONOUS document store over an in-memory cache, with optional
+    // IndexedDB write-through for persistence in the browser. jsdom has no
+    // IndexedDB, so the cache is the source of truth and IDB is best-effort:
+    // every mutation updates the cache immediately (sync) and fires an async IDB
+    // write; on load the cache is hydrated from IDB. Tests call `_useMemory()` to
+    // force the pure in-memory backend. Doc shape:
+    //   { id, title, created, updated, schemaVersion, data:{n,c,v} }
+    const docStore = (() => {
+      const STORE = 'docs', DB_NAME = 'draph-docs';
+      const cache = new Map();              // id -> doc (the synchronous view)
+      let idb = null;                       // IDBDatabase, or null = memory-only
+      let useIDB = (typeof indexedDB !== 'undefined' && indexedDB);
+      const now = () => Date.now();
+      const uid = () => 'doc-' + Math.random().toString(36).slice(2, 9) + now().toString(36);
+      const clone = (o) => (o == null ? o : JSON.parse(JSON.stringify(o)));
+
+      function _useMemory() { useIDB = false; idb = null; cache.clear(); }  // test hook
+
+      function _persist(doc) {
+        if (!useIDB || !idb) return;
+        try { idb.transaction(STORE, 'readwrite').objectStore(STORE).put(clone(doc)); } catch (e) {}
+      }
+      function _evict(id) {
+        if (!useIDB || !idb) return;
+        try { idb.transaction(STORE, 'readwrite').objectStore(STORE).delete(id); } catch (e) {}
+      }
+      // Open IndexedDB and hydrate the cache. Returns a Promise; safe to ignore.
+      function _open() {
+        if (!useIDB) return Promise.resolve(false);
+        return new Promise((resolve) => {
+          let req;
+          try { req = indexedDB.open(DB_NAME, 1); } catch (e) { useIDB = false; return resolve(false); }
+          req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' }); };
+          req.onsuccess = () => {
+            idb = req.result;
+            try {
+              const all = idb.transaction(STORE, 'readonly').objectStore(STORE).getAll();
+              all.onsuccess = () => { (all.result || []).forEach(d => cache.set(d.id, d)); resolve(true); };
+              all.onerror = () => resolve(false);
+            } catch (e) { resolve(false); }
+          };
+          req.onerror = () => { useIDB = false; resolve(false); };
+        });
+      }
+
+      // Create or update. Pass {id} to update; omit for a new doc. Returns the rec.
+      function save(doc = {}) {
+        const id = doc.id || uid();
+        const prev = cache.get(id);
+        const rec = {
+          id,
+          title: doc.title != null ? doc.title : (prev ? prev.title : 'Untitled'),
+          created: prev ? prev.created : (doc.created || now()),
+          updated: now(),
+          schemaVersion: doc.schemaVersion || (prev && prev.schemaVersion) || 1,
+          data: doc.data !== undefined ? doc.data : (prev ? prev.data : null),
+        };
+        cache.set(id, rec); _persist(rec); return clone(rec);
+      }
+      function list() { return [...cache.values()].sort((a, b) => b.updated - a.updated).map(clone); }
+      function load(id) { return cache.has(id) ? clone(cache.get(id)) : null; }
+      function duplicate(id) {
+        const src = cache.get(id); if (!src) return null;
+        return save({ title: src.title + ' copy', data: clone(src.data), schemaVersion: src.schemaVersion });
+      }
+      function remove(id) { const had = cache.delete(id); if (had) _evict(id); return had; }
+
+      return { save, list, load, duplicate, remove, _open, _useMemory };
+    })();
+
     // The full share URL (hash-encoded diagram) WITHOUT touching the address bar,
     // so we can measure its length before committing.
     function diagramShareUrl() {
@@ -1620,8 +1718,18 @@
       else if (node.type === 'note') { padX = 22; padY = 22; }
       else if (node.type === 'container') { padX = 24; padY = 14; }
 
-      node.width = Math.max(node.width, Math.ceil(textW / ratio) + padX);
-      node.height = Math.max(node.height, Math.ceil(textH / ratio) + padY);
+      const fitW = Math.ceil(textW / ratio) + padX;
+      const fitH = Math.ceil(textH / ratio) + padY;
+      if (node.manuallyResized) {
+        // User chose this size — only grow to avoid overflow, never shrink.
+        node.width = Math.max(node.width, fitW);
+        node.height = Math.max(node.height, fitH);
+      } else {
+        // Shrink-to-fit (as well as grow), down to the type's minimum, so deleting
+        // text reclaims the space instead of leaving an oversized box.
+        node.width = Math.max(CONFIG.node.minWidth, fitW);
+        node.height = Math.max(CONFIG.node.minHeight, fitH);
+      }
       if (node.type === 'circle') { const s = Math.max(node.width, node.height); node.width = s; node.height = s; }
     }
 
@@ -2636,9 +2744,20 @@
           const clipId = 'clip-' + node.id;
           const pad = 8;
           shape = `${customPattern}<defs><clipPath id="${clipId}"><rect x="${node.x + pad}" y="${node.y + 2}" width="${node.width - pad*2}" height="${node.height - 4}" rx="${rx}"/></clipPath></defs>
-            <rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${rx}" 
+            <rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${rx}"
             fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>
             <g clip-path="url(#${clipId})">${renderWrappedText(node.label, rcx, rcy, node.width - pad*2, 12, txtColor, '', node.icon)}</g>`;
+          // journey actor avatars: one color-coded glyph per actor, above the pill
+          if (node.actors && node.actors.length) {
+            const gr = 7, gap = 4, gy = node.y - gr - 3;
+            let gx = node.x + gr + 2;
+            node.actors.forEach((a, i) => {
+              const col = (node.actorColors && node.actorColors[i]) || COLORS.accent;
+              shape += `<circle cx="${gx}" cy="${gy}" r="${gr}" fill="${col}" stroke="${COLORS.bg2}" stroke-width="1.5" style="pointer-events:none"/>`;
+              shape += `<text x="${gx}" y="${gy + 3}" fill="${COLORS.bg}" font-size="8" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle" style="pointer-events:none">${esc((a[0] || '?').toUpperCase())}</text>`;
+              gx += gr * 2 + gap;
+            });
+          }
         }
         
         // Add lifeline for sequence participants with clickable connection zones
@@ -3339,7 +3458,96 @@
         toast('Canvas cleared', 'success');
       }, { danger: true, okLabel: 'Clear' });
     }
-    
+
+    // === SECTION: "MY DIAGRAMS" GALLERY (document library UI over docStore) =====
+    let activeDocId = null;   // the library doc the canvas currently represents
+
+    function deriveTitle() {
+      const labeled = nodes.find(n => n.label && n.label.trim());
+      return labeled ? labeled.label.trim().slice(0, 40) : 'Untitled diagram';
+    }
+    // Write the live diagram through to its library doc. Creates the active doc on
+    // first save; `force` saves even an empty canvas (the "Save current" button).
+    function saveActiveDoc(force) {
+      if (!force && nodes.length === 0 && connections.length === 0) return null;
+      if (activeDocId && docStore.load(activeDocId)) {
+        docStore.save({ id: activeDocId, data: exportState() });   // keep title, refresh data+updated
+      } else {
+        activeDocId = docStore.save({ title: deriveTitle(), data: exportState() }).id;
+      }
+      if (galleryIsOpen()) renderGallery();
+      return activeDocId;
+    }
+    function galleryIsOpen() { const o = document.getElementById('galleryOverlay'); return !!o && o.style.display !== 'none' && o.style.display !== ''; }
+    function toggleGallery() {
+      const o = document.getElementById('galleryOverlay'); if (!o) return;
+      if (galleryIsOpen()) { o.style.display = 'none'; }
+      else { renderGallery(); o.style.display = 'block'; }
+    }
+    function relTime(ts) {
+      const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+      if (s < 60) return 'just now';
+      const m = Math.round(s / 60); if (m < 60) return m + 'm ago';
+      const h = Math.round(m / 60); if (h < 24) return h + 'h ago';
+      return Math.round(h / 24) + 'd ago';
+    }
+    function renderGallery() {
+      const grid = document.getElementById('galleryGrid'); if (!grid) return;
+      const docs = docStore.list();
+      const empty = document.getElementById('galleryEmpty');
+      if (empty) empty.style.display = docs.length ? 'none' : 'block';
+      grid.style.display = docs.length ? 'grid' : 'none';
+      const swatch = ['#7aa2f7', '#9ece6a', '#bb9af7', '#e0af68', '#f7768e'];
+      grid.innerHTML = docs.map((d, i) => `
+        <div class="gallery-card" data-id="${d.id}" style="border:1px solid ${d.id === activeDocId ? 'var(--accent)' : 'var(--border)'};border-radius:8px;overflow:hidden;background:var(--bg2)">
+          <div onclick="galleryOpen('${d.id}')" title="Open" style="height:72px;background:${swatch[i % swatch.length]};opacity:0.85;cursor:pointer"></div>
+          <div style="padding:8px">
+            <div class="gallery-title" style="font-size:12px;font-weight:600;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.title)}</div>
+            <div style="font-size:10px;color:var(--fg-dim);margin-top:2px">${relTime(d.updated)}</div>
+            <div style="display:flex;gap:4px;margin-top:6px">
+              <button onclick="galleryRenamePrompt('${d.id}')" style="flex:1;padding:2px;font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:3px;color:var(--fg);cursor:pointer">Rename</button>
+              <button onclick="galleryDuplicate('${d.id}')" style="flex:1;padding:2px;font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:3px;color:var(--fg);cursor:pointer">Dup</button>
+              <button onclick="galleryDelete('${d.id}')" style="flex:1;padding:2px;font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:3px;color:var(--danger);cursor:pointer">Del</button>
+            </div>
+          </div>
+        </div>`).join('');
+    }
+    function galleryNew() {
+      saveActiveDoc();                        // bank the current diagram first
+      nodes = []; connections = []; deselectAll();
+      activeDocId = docStore.save({ title: 'Untitled diagram', data: exportState() }).id;
+      saveState(); render();
+      if (galleryIsOpen()) renderGallery();
+    }
+    function galleryOpen(id) {
+      const d = docStore.load(id); if (!d) return;
+      saveActiveDoc();                        // bank current before switching
+      loadDiagramJson(JSON.stringify(d.data || { n: [], c: [], v: null }));
+      activeDocId = id;
+      saveState(); render();
+      if (galleryIsOpen()) toggleGallery();
+    }
+    function galleryDuplicate(id) { if (docStore.duplicate(id)) renderGallery(); }
+    function galleryDelete(id) {
+      confirmDialog('Delete this diagram from your library?', () => {
+        docStore.remove(id);
+        if (activeDocId === id) activeDocId = null;
+        renderGallery();
+        toast('Diagram deleted', 'success');
+      }, { danger: true, okLabel: 'Delete' });
+    }
+    function galleryRename(id, title) { docStore.save({ id, title }); if (galleryIsOpen()) renderGallery(); }
+    function galleryRenamePrompt(id) {
+      const card = document.querySelector(`.gallery-card[data-id="${id}"]`); if (!card) return;
+      const titleEl = card.querySelector('.gallery-title'); if (!titleEl) return;
+      const cur = (docStore.load(id) || {}).title || '';
+      titleEl.innerHTML = `<input class="gallery-rename-input" value="${esc(cur)}" style="width:100%;font-size:12px;font-weight:600;background:var(--bg);color:var(--fg);border:1px solid var(--accent);border-radius:3px;padding:1px 3px">`;
+      const input = titleEl.querySelector('input'); input.focus(); input.select();
+      const commit = () => galleryRename(id, input.value.trim() || cur);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } else if (e.key === 'Escape') renderGallery(); });
+      input.addEventListener('blur', commit);
+    }
+
     // Smart auto-arrange based on diagram type
     // === SECTION: LAYOUT (auto-arrange algorithms per diagram type) ===
 
@@ -4041,6 +4249,7 @@
         const dy = e.clientY - resizing.startY;
         resizing.node.width = Math.max(60, snap(resizing.startW + dx / zoom));
         resizing.node.height = Math.max(40, snap(resizing.startH + dy / zoom));
+        resizing.node.manuallyResized = true;   // never auto-shrink a user-sized node (#35)
         scheduleRender();
       }
       
@@ -4444,6 +4653,7 @@
       '0': () => shareDiagram(),
       a: () => arrangeDiagram(),
       m: () => toggleMermaidSidebar(),
+      g: () => toggleGallery(),
     };
 
     document.addEventListener('keydown', (e) => {
@@ -4658,31 +4868,33 @@
     // === SECTION: EXPORT (SVG / PNG / GIF) ===
 
     // Export
-    function downloadSVG() {
+    // Build the export SVG as a string — content-cropped, UI chrome stripped,
+    // background filled — WITHOUT triggering a download. Returns null if the
+    // canvas is empty. Pure/testable; downloadSVG() wraps it for the file save.
+    function buildExportSVG() {
       const bounds = getContentBounds();
-      if (!bounds) {
-        toast('Nothing to export yet — add a shape first', 'error');
-        return;
-      }
-      
+      if (!bounds) return null;
+
       const padding = 40;
       const cropX = bounds.minX - padding;
       const cropY = bounds.minY - padding;
       const cropW = (bounds.maxX - bounds.minX) + padding * 2;
       const cropH = (bounds.maxY - bounds.minY) + padding * 2;
-      
+
       const clone = canvas.cloneNode(true);
-      clone.querySelectorAll('.connector, .resize-handle, #selectBox, #drawPreview, .lifeline-connector, .line-handle').forEach(el => el.remove());
+      // Strip all interaction chrome: connectors, resize/line handles, marquee &
+      // draw previews, lifeline connectors, and the transparent conn-hit overlays.
+      clone.querySelectorAll('.connector, .resize-handle, #selectBox, #drawPreview, .lifeline-connector, .line-handle, .conn-hit').forEach(el => el.remove());
       const gridBg = clone.querySelector('#gridBg');
       if (gridBg) gridBg.remove();
-      
-      // Set viewBox and dimensions to cropped area
+
+      // Crop the viewport to the content
       clone.setAttribute('viewBox', `${cropX} ${cropY} ${cropW} ${cropH}`);
       clone.setAttribute('width', cropW);
       clone.setAttribute('height', cropH);
       clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-      
-      // Add background
+
+      // Solid background behind the content
       const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
       bg.setAttribute('x', cropX);
       bg.setAttribute('y', cropY);
@@ -4690,8 +4902,14 @@
       bg.setAttribute('height', cropH);
       bg.setAttribute('fill', COLORS.bg);
       clone.insertBefore(bg, clone.firstChild);
-      
-      const blob = new Blob([clone.outerHTML], { type: 'image/svg+xml' });
+
+      return clone.outerHTML;
+    }
+
+    function downloadSVG() {
+      const svg = buildExportSVG();
+      if (!svg) { toast('Nothing to export yet — add a shape first', 'error'); return; }
+      const blob = new Blob([svg], { type: 'image/svg+xml' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = 'diagram.svg';
@@ -6024,21 +6242,36 @@
         let m = line.match(/^section\s+(.+)$/i);
         if (m) { sections.push({ name: m[1].trim(), at: tasks.length }); continue; }
         m = line.match(/^(.+?)\s*:\s*(\d+)\s*:\s*(.+)$/);          // name : score : actors
-        if (m) { tasks.push({ name: m[1].trim(), score: +m[2], actors: m[3].trim() }); continue; }
+        if (m) { tasks.push({ name: m[1].trim(), score: +m[2], actors: m[3].split(',').map(s => s.trim()).filter(Boolean) }); continue; }
         m = line.match(/^(.+?)\s*:\s*(\d+)\s*$/);                  // name : score
-        if (m) tasks.push({ name: m[1].trim(), score: +m[2], actors: '' });
+        if (m) tasks.push({ name: m[1].trim(), score: +m[2], actors: [] });
       }
+      // stable per-actor color across the whole journey
+      const actorColor = {}; let aci = 0;
+      const colorOf = (a) => (actorColor[a] || (actorColor[a] = CONFIG.palette[aci++ % CONFIG.palette.length]));
+      tasks.forEach(t => t.actors.forEach(colorOf));
+
+      // Section bands first (drawn behind the tasks): a tinted rect spanning the
+      // section's task columns.
+      sections.forEach((s, si) => {
+        const start = s.at;
+        const end = (sections[si + 1] ? sections[si + 1].at : tasks.length) - 1;
+        if (end < start) return;
+        const bx = baseX + start * PXT - 20;
+        const bw = (end - start) * PXT + Math.max(120, 140);
+        result.nodes.push({ id: 'jband' + si, type: 'rect', label: '', fixed: true, x: bx, y: baseY - 5 * scoreUnit - 20, width: bw, height: 5 * scoreUnit + 90, color: CONFIG.palette[si % CONFIG.palette.length], fillStyle: 'outline' });
+        result.nodes.push({ id: 'jsec' + s.at, type: 'text', label: s.name, fixed: true, x: bx + 8, y: baseY + 50, width: 160, height: 24 });
+      });
+
       let prev = null;
       tasks.forEach((t, i) => {
         const id = 'jt' + i;
-        const label = t.actors ? `${t.name} (${t.actors})` : t.name;
         const score = Math.min(5, Math.max(1, t.score || 1));
-        result.nodes.push({ id, type: 'pill', label, fixed: true, x: baseX + i * PXT, y: baseY - score * scoreUnit, width: Math.max(120, label.length * 7 + 24), height: taskH });
+        const node = { id, type: 'pill', label: t.name, fixed: true, x: baseX + i * PXT, y: baseY - score * scoreUnit, width: Math.max(120, t.name.length * 7 + 24), height: taskH };
+        if (t.actors.length) { node.actors = t.actors.slice(); node.actorColors = t.actors.map(colorOf); }
+        result.nodes.push(node);
         if (prev) result.connections.push({ from: prev, to: id });
         prev = id;
-      });
-      sections.forEach(s => {
-        result.nodes.push({ id: 'jsec' + s.at, type: 'text', label: s.name, fixed: true, x: baseX + s.at * PXT, y: baseY + 40, width: 160, height: 24 });
       });
       return result;
     }
@@ -7311,6 +7544,7 @@
           if (n.type === 'quadrant') { node.title = n.title; node.xAxis = n.xAxis; node.yAxis = n.yAxis; node.quadrants = n.quadrants; node.points = n.points; }
           if (n.type === 'xychart') { node.title = n.title; node.xAxis = n.xAxis; node.yAxis = n.yAxis; node.series = n.series; }
           if (n.icon) node.icon = n.icon;   // mindmap ::icon(...) → node icon
+          if (n.actors) { node.actors = n.actors; node.actorColors = n.actorColors; }   // journey actor glyphs
           if (n.tag) node.tag = n.tag;                 // gitGraph commit tag
           if (n.commitType) node.commitType = n.commitType;   // gitGraph HIGHLIGHT/REVERSE
 
