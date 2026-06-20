@@ -1752,11 +1752,27 @@
 
     // Build the full route between two connectors. Returns the polyline (ending
     // exactly on the target connector) plus the inward arrow direction there.
-    function routeConnection(from, to, fromSide, toSide, fromFrac = 0.5, toFrac = 0.5) {
+    function routeConnection(from, to, fromSide, toSide, fromFrac = 0.5, toFrac = 0.5, waypoints = null) {
       const p1 = sidePoint(from, fromSide, fromFrac);
       const p2 = sidePoint(to, toSide, toFrac);
       const n1 = SIDE_NORMAL[fromSide] || { x:0, y:0 };
       const n2 = SIDE_NORMAL[toSide]  || { x:0, y:0 };
+
+      // Manual waypoints (#70): route an orthogonal path that passes THROUGH each
+      // user-placed bend. Leave the source stub, thread the waypoints with L-jogs,
+      // then enter the target stub square-on. (Auto-route below when none.)
+      if (waypoints && waypoints.length) {
+        const e1 = { x: p1.x + n1.x * ROUTE_CFG.maxClear, y: p1.y + n1.y * ROUTE_CFG.maxClear };
+        const e2 = { x: p2.x + n2.x * ROUTE_CFG.maxClear, y: p2.y + n2.y * ROUTE_CFG.maxClear };
+        const anchors = [p1, e1, ...waypoints.map(w => ({ x: w.x, y: w.y })), e2, p2];
+        const chain = [anchors[0]];
+        for (let i = 1; i < anchors.length; i++) {
+          const a = chain[chain.length - 1], b = anchors[i];
+          if (a.x !== b.x && a.y !== b.y) chain.push({ x: b.x, y: a.y });   // orthogonal corner
+          chain.push(b);
+        }
+        return { points: simplifyPath(chain), fromSide, toSide, endX: p2.x, endY: p2.y, inDir: { x: -n2.x, y: -n2.y } };
+      }
 
       // Perpendicular stub off each node, capped so the two stubs can never
       // overshoot past each other (which is what produced the strange hook).
@@ -2116,10 +2132,12 @@
           </g>`;
         }
         
-        // Smart routing — respects manually-locked sides, auto-distributes the rest
-        const lineStyle = conn.lineStyle || 'curved';   // curved is the default
+        // Smart routing — respects manually-locked sides, auto-distributes the rest.
+        // A waypoint'd edge renders orthogonally (rounded) so its bends are honored
+        // — 'curved' threads one bezier end-to-end and would smooth the bend away.
+        const lineStyle = (conn.waypoints && conn.waypoints.length) ? 'rounded' : (conn.lineStyle || 'curved');
         const cg = connGeom.sideOf.get(conn.id) || getOptimalSides(from, to);
-        const { points, endX, endY, inDir } = routeConnection(from, to, cg.fromSide, cg.toSide);
+        const { points, endX, endY, inDir } = routeConnection(from, to, cg.fromSide, cg.toSide, 0.5, 0.5, conn.waypoints);
         const [x1, y1] = [points[0].x, points[0].y];
         const [x2, y2] = [points[points.length-1].x, points[points.length-1].y];
         
@@ -2219,7 +2237,12 @@
         
         const connDashArray = conn.strokeStyle === 'dashed' ? '5,3' : 'none';
         // Endpoint drag-handles are drawn in the #connHandles overlay (above nodes)
-        if (isConnSelected) selHandles = { fromX: x1, fromY: y1, toX: endX, toY: endY };
+        if (isConnSelected) {
+          // midpoint handle = the existing waypoint, else the geometric middle of the route
+          const wp = conn.waypoints && conn.waypoints[0];
+          const mid = wp || points[Math.floor(points.length / 2)] || { x: (x1 + endX) / 2, y: (y1 + endY) / 2 };
+          selHandles = { fromX: x1, fromY: y1, toX: endX, toY: endY, midX: mid.x, midY: mid.y, hasWp: !!wp };
+        }
         return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" style="cursor:pointer">${hitArea}${arrowHit}<path class="connection" d="${path}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${connDashArray}" style="pointer-events:none"/>${startMarkerSvg}${endMarkerSvg}${labelEl}</g>`;
       }).join('');
 
@@ -2227,8 +2250,12 @@
       const handle = (end, cx, cy) => `
         <circle class="conn-endpoint" data-conn="${selectedConnId}" data-end="${end}" cx="${cx}" cy="${cy}" r="13" fill="transparent" style="cursor:grab;pointer-events:all"/>
         <circle class="conn-endpoint" data-conn="${selectedConnId}" data-end="${end}" cx="${cx}" cy="${cy}" r="6" fill="${COLORS.accent}" stroke="${COLORS.bg}" stroke-width="2" style="cursor:grab;pointer-events:all"/>`;
+      // Midpoint handle: drag to create/move a waypoint, double-click to remove (#70).
+      const midHandle = (cx, cy, hasWp) => `
+        <rect class="conn-waypoint" data-conn="${selectedConnId}" x="${cx - 12}" y="${cy - 12}" width="24" height="24" fill="transparent" style="cursor:move;pointer-events:all"/>
+        <rect class="conn-waypoint" data-conn="${selectedConnId}" x="${cx - 5}" y="${cy - 5}" width="10" height="10" rx="2" fill="${hasWp ? COLORS.accent : COLORS.bg2}" stroke="${COLORS.accent}" stroke-width="2" style="cursor:move;pointer-events:all"/>`;
       connHandlesGroup.innerHTML = selHandles
-        ? handle('from', selHandles.fromX, selHandles.fromY) + handle('to', selHandles.toX, selHandles.toY)
+        ? handle('from', selHandles.fromX, selHandles.fromY) + handle('to', selHandles.toX, selHandles.toY) + midHandle(selHandles.midX, selHandles.midY, selHandles.hasWp)
         : '';
     }
 
@@ -2701,8 +2728,17 @@
         if (e.target.closest('[data-conn]')) onConnectionMouseDown(e);
       });
       connHandlesGroup.addEventListener('pointerdown', (e) => {
+        const wp = e.target.closest('.conn-waypoint');
+        if (wp) { e.preventDefault(); e.stopPropagation(); connWaypointDrag = { connId: wp.dataset.conn, moved: false }; return; }
         const ep = e.target.closest('.conn-endpoint');
         if (ep) startEndpointDrag(e, ep);
+      });
+      // Double-click a waypoint handle → remove the waypoint (edge re-auto-routes).
+      connHandlesGroup.addEventListener('dblclick', (e) => {
+        const wp = e.target.closest('.conn-waypoint');
+        if (!wp) return;
+        const conn = connections.find(c => c.id === wp.dataset.conn);
+        if (conn && conn.waypoints && conn.waypoints.length) { delete conn.waypoints; saveState(); render(); }
       });
     }
     
@@ -3661,6 +3697,7 @@
     // onConnectionMouseDown). The side change is only committed if the pointer
     // actually moves — a plain click just selects, it never silently re-routes.
     let connEndpointDrag = null;
+    let connWaypointDrag = null;   // dragging the midpoint handle to place a waypoint (#70)
     let _snapTargetEl = null;
     function beginEndpointDrag(connId, end, fixedPoint, downPos) {
       connEndpointDrag = { connId, end, fixed: fixedPoint || null, moved: false, downPos: downPos || null };
@@ -3947,6 +3984,13 @@
         return;
       }
 
+      // Dragging the midpoint handle: place/move the connection's waypoint at the cursor.
+      if (connWaypointDrag) {
+        const conn = connections.find(c => c.id === connWaypointDrag.connId);
+        if (conn) { conn.waypoints = [{ x: snap(pos.x), y: snap(pos.y) }]; connWaypointDrag.moved = true; scheduleRender(); }
+        return;
+      }
+
       // Re-routing a connection endpoint: show a guide line + highlight the
       // connector we'd snap to so the target is obvious.
       if (connEndpointDrag) {
@@ -4125,6 +4169,12 @@
     
     document.addEventListener('pointerup', (e) => {
       const pos = screenToCanvas(e.clientX, e.clientY);
+
+      // Commit a waypoint drag (#70): persist + snapshot for undo.
+      if (connWaypointDrag) {
+        if (connWaypointDrag.moved) { saveState(); render(); }
+        connWaypointDrag = null;
+      }
 
       // Commit a connection endpoint re-route (only if the pointer actually
       // moved — a plain click near an endpoint just selects, no silent re-route)
