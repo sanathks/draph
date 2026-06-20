@@ -2331,6 +2331,34 @@ group('#36 label wrapping: hard-break long unbreakable words');
   check('cap lives in CONFIG (no magic number)', typeof E('CONFIG.wrap.maxWidth') === 'number');
 }
 
+group('Gallery thumbnails (#79): generate helper + doc-record field + card render');
+{
+  const { win, doc, E } = boot();
+  check('thumbnail helper exists', typeof win.generateThumbnail === 'function');
+
+  // docStore persists a thumbnail field through save/load (jsdom has no canvas,
+  // so the raster itself is untestable — assert the storage wiring).
+  E(`docStore._useMemory()`);
+  const id = E(`docStore.save({ title: 't', data: exportState(), thumbnail: 'data:image/png;base64,AAAA' }).id`);
+  check('doc record stores a thumbnail field', /^data:image/.test(E(`docStore.load('${id}').thumbnail`)));
+
+  // A save without a thumbnail keeps the field null (placeholder path), no error.
+  const id2 = E(`docStore.save({ title: 'n', data: exportState() }).id`);
+  check('missing thumbnail is null (placeholder)', E(`docStore.load('${id2}').thumbnail`) === null);
+
+  // updating a doc without passing thumbnail preserves the existing one
+  E(`docStore.save({ id: '${id}', title: 't2' })`);
+  check('thumbnail preserved across a partial save', /^data:image/.test(E(`docStore.load('${id}').thumbnail`)));
+
+  // Gallery card renders an <img> when a thumbnail is present.
+  E(`activeDocId = '${id}'`); win.toggleGallery();
+  const card = doc.querySelector(`#galleryGrid .gallery-card[data-id="${id}"]`);
+  check('gallery card renders the thumbnail image', !!card && !!card.querySelector('img[src^="data:image"]'));
+  const card2 = doc.querySelector(`#galleryGrid .gallery-card[data-id="${id2}"]`);
+  check('thumbnail-less card shows no img (placeholder)', !!card2 && !card2.querySelector('img'));
+  win.toggleGallery();
+}
+
 group('Coach-marks (#56): spotlight steps + shared onboarding flag');
 {
   const { win, doc, E } = boot();
