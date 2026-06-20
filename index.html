@@ -236,6 +236,19 @@
       background: var(--overlay); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
     }
     #cheatsheetOverlay.hidden { display: none; }
+    #onboardingOverlay {
+      position: fixed; inset: 0; z-index: 410; display: flex; align-items: center; justify-content: center;
+      background: var(--overlay); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+    }
+    #onboardingOverlay.hidden { display: none; }
+    #onboardingCard {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      width: 420px; max-width: 92vw; padding: 0; box-shadow: 0 12px 40px rgba(0,0,0,0.45); overflow: hidden;
+    }
+    #onboardingCard .ob-icon { font-size: 30px; line-height: 1; }
+    #onboardingCard .ob-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); display: inline-block; }
+    #onboardingCard .ob-dot.on { background: var(--accent); }
+    #onboardingCard button { cursor: pointer; font-family: inherit; }
     #cheatsheetCard {
       background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
       padding: 18px 20px; width: 420px; max-width: 90vw; max-height: 80vh; overflow: auto;
@@ -488,6 +501,11 @@
             <div class="dropdown-item" onclick="openDiagramFile();closeDropdowns()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
               Open file
+            </div>
+            <div class="menu-sep"></div>
+            <div class="dropdown-item" onclick="startOnboarding();closeDropdowns()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              Show onboarding
             </div>
             <div class="menu-sep"></div>
             <div class="dropdown-item danger" onclick="clearCanvas();closeDropdowns()">
@@ -802,6 +820,25 @@
         <button onclick="toggleCheatsheet(false)" title="Close" class="cheatsheet-close">✕</button>
       </div>
       <div id="cheatsheetBody"></div>
+    </div>
+  </div>
+
+  <!-- First-run onboarding walkthrough -->
+  <div id="onboardingOverlay" class="hidden" onclick="if(event.target===this)skipOnboarding()">
+    <div id="onboardingCard">
+      <div style="padding:22px 22px 8px;text-align:center">
+        <div class="ob-icon" id="obIcon">👋</div>
+        <div id="obTitle" style="font-size:16px;font-weight:700;color:var(--fg);margin-top:10px"></div>
+        <div id="obBody" style="font-size:13px;color:var(--fg-dim);margin-top:8px;line-height:1.5;min-height:42px"></div>
+      </div>
+      <div id="obDots" style="display:flex;gap:6px;justify-content:center;padding:6px 0 14px"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg)">
+        <button onclick="skipOnboarding()" style="padding:6px 10px;background:transparent;border:none;color:var(--fg-dim);font-size:12px">Skip</button>
+        <div style="display:flex;gap:8px">
+          <button id="obBack" onclick="onboardingBack()" style="padding:6px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:12px">Back</button>
+          <button id="obNext" onclick="onboardingNext()" style="padding:6px 14px;background:var(--accent);border:none;border-radius:6px;color:var(--bg);font-weight:600;font-size:12px">Next</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1298,6 +1335,8 @@
       render();
       // Restore the saved line-style preference (defaults to curved).
       setGlobalLineStyle(loadSetting('lineStyle', 'curved'));
+      // First run only: show the guided walkthrough (flag persisted on finish/skip).
+      if (shouldShowOnboarding()) startOnboarding();
     }
     
     function generateId() { return 'n' + (++idCounter); }
@@ -3192,6 +3231,49 @@
       }
     }
     cheatsheetOverlay.addEventListener('mousedown', (e) => { if (e.target === cheatsheetOverlay) toggleCheatsheet(false); });
+
+    // === SECTION: FIRST-RUN ONBOARDING (one-time guided walkthrough) ===========
+    // Completion is persisted under a VERSIONED key so the walkthrough can be
+    // re-shown later by bumping the version. Replayable from the ⋯ menu (ignores
+    // the flag). Self-contained: inline text + an emoji glyph per step, no assets.
+    const ONBOARDING_KEY = 'draph.onboarding.v1';
+    const ONBOARDING_STEPS = [
+      { icon: '👋', title: 'Welcome to Draph', body: 'A fast, single-file diagram editor — flowcharts, UML, sequence, state, ER, and more. Here\'s the 30-second tour.' },
+      { icon: '✏️', title: 'Draw a shape', body: 'Pick a tool (keys 1–6, P for pencil, N for note) and drag on the canvas to create a shape.' },
+      { icon: '🔗', title: 'Connect shapes', body: 'Hover a node, then drag from its connector dot to another node to draw an arrow.' },
+      { icon: '🎨', title: 'Edit & style', body: 'Double-click to rename. Use the selection toolbar for color / fill / outline, and the handles to resize.' },
+      { icon: '〽️', title: 'Mermaid, two ways', body: 'Press M (or ⋯ → Mermaid) for the code panel — paste Mermaid and it renders to the canvas, and back.' },
+      { icon: '📤', title: 'Export & share', body: 'Export PNG/SVG, or "copy share link" — the whole diagram lives in the URL.' },
+      { icon: '⌨️', title: 'More shortcuts', body: 'Press ? anytime for the full keyboard cheatsheet. That\'s it — enjoy!' },
+    ];
+    let onboardingStep = 0;
+    function shouldShowOnboarding() {
+      try { return !localStorage.getItem(ONBOARDING_KEY); } catch (e) { return false; }
+    }
+    function renderOnboarding() {
+      const s = ONBOARDING_STEPS[onboardingStep];
+      document.getElementById('obIcon').textContent = s.icon;
+      document.getElementById('obTitle').textContent = s.title;
+      document.getElementById('obBody').textContent = s.body;
+      document.getElementById('obDots').innerHTML = ONBOARDING_STEPS.map((_, i) => `<span class="ob-dot${i === onboardingStep ? ' on' : ''}"></span>`).join('');
+      document.getElementById('obBack').style.visibility = onboardingStep === 0 ? 'hidden' : 'visible';
+      document.getElementById('obNext').textContent = onboardingStep === ONBOARDING_STEPS.length - 1 ? 'Finish' : 'Next';
+    }
+    function startOnboarding() {
+      onboardingStep = 0;
+      renderOnboarding();
+      document.getElementById('onboardingOverlay').classList.remove('hidden');
+    }
+    function onboardingNext() {
+      if (onboardingStep >= ONBOARDING_STEPS.length - 1) { finishOnboarding(); return; }
+      onboardingStep++; renderOnboarding();
+    }
+    function onboardingBack() { if (onboardingStep > 0) { onboardingStep--; renderOnboarding(); } }
+    function finishOnboarding() {
+      try { localStorage.setItem(ONBOARDING_KEY, String(Date.now())); } catch (e) {}
+      document.getElementById('onboardingOverlay').classList.add('hidden');
+    }
+    function skipOnboarding() { finishOnboarding(); }   // skip also writes the flag (don't nag again)
 
     // Connection toolbar functions
     const connToolbar = document.getElementById('connToolbar');
