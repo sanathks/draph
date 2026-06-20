@@ -55,6 +55,29 @@ export function boot() {
   // connection-drop handler) falls back to geometry (nodeAt) instead of throwing.
   if (typeof doc.elementFromPoint !== 'function') doc.elementFromPoint = () => null;
 
+  // jsdom lacks PointerEvent + pointer capture. Polyfill a PointerEvent (subclass
+  // of MouseEvent so clientX/Y/button work) that carries pointerId/pointerType/
+  // pressure, and stub the capture methods as no-ops, so the app's pointer-event
+  // input layer is exercisable in tests.
+  if (!win.PointerEvent) {
+    win.PointerEvent = class PointerEvent extends win.MouseEvent {
+      constructor(type, p = {}) {
+        super(type, p);
+        this.pointerId = p.pointerId ?? 1;
+        this.pointerType = p.pointerType ?? 'mouse';
+        this.pressure = p.pressure ?? (p.buttons ? 0.5 : 0);
+        this.isPrimary = p.isPrimary ?? true;
+        this.width = p.width ?? 1;
+        this.height = p.height ?? 1;
+      }
+    };
+  }
+  for (const proto of [win.Element.prototype]) {
+    if (!proto.setPointerCapture) proto.setPointerCapture = () => {};
+    if (!proto.releasePointerCapture) proto.releasePointerCapture = () => {};
+    if (!proto.hasPointerCapture) proto.hasPointerCapture = () => false;
+  }
+
   const errors = [];
   win.addEventListener('error', (e) => errors.push(e.error?.stack || e.message));
 
@@ -66,11 +89,36 @@ export function boot() {
   return { win, doc, E, errors, VIEW };
 }
 
-/** Dispatch a mouse event on a target (defaults to document). */
+// The app's canvas input layer is driven by Pointer events. Real browsers fire
+// pointer events for mice too; jsdom does not, so `mouse()` now dispatches the
+// pointer equivalent (pointerType:'mouse') for the down/move/up trio — this keeps
+// every existing mouse-driven test exercising the real (pointer) code path. Other
+// event types (dblclick, contextmenu) stay as MouseEvents.
+const POINTER_MAP = { mousedown: 'pointerdown', mousemove: 'pointermove', mouseup: 'pointerup' };
+
+/** Dispatch a pointer/mouse interaction on a target. */
 export function mouse(target, type, x, y, opts = {}) {
   const win = target.ownerDocument?.defaultView || target.defaultView || target;
-  const Ctor = win.MouseEvent;
-  target.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, ...opts }));
+  const mapped = POINTER_MAP[type];
+  if (mapped && win.PointerEvent) {
+    const buttons = type === 'mouseup' ? 0 : 1;
+    target.dispatchEvent(new win.PointerEvent(mapped, {
+      bubbles: true, cancelable: true, clientX: x, clientY: y,
+      pointerType: 'mouse', pointerId: 1, isPrimary: true, button: 0, buttons, ...opts,
+    }));
+    return;
+  }
+  target.dispatchEvent(new win.MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, ...opts }));
+}
+
+/** Dispatch a Pointer event (pen/touch/mouse) on a target. */
+export function pointer(target, type, x, y, opts = {}) {
+  const win = target.ownerDocument?.defaultView || target.defaultView || target;
+  const Ctor = win.PointerEvent || win.MouseEvent;
+  target.dispatchEvent(new Ctor(type, {
+    bubbles: true, cancelable: true, clientX: x, clientY: y,
+    pointerId: 1, pointerType: 'pen', pressure: 0.5, isPrimary: true, ...opts,
+  }));
 }
 
 /** Dispatch a keydown on document. */
