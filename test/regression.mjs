@@ -2361,6 +2361,71 @@ group('Minimap / overview (#82): markers + viewport rect + click-to-pan');
   check('minimap re-hidden when emptied', mm.style.display === 'none');
 }
 
+group('Find nodes by label (#83): match + focus-center, Cmd+F box');
+{
+  const { win, doc, E } = boot();
+  const far = win.createNode('rect', 5000, 5000, 80, 40);
+  E(`nodes.find(n=>n.id==='${far.id}').label = 'FarNode'`);
+  win.createNode('rect', 0, 0, 80, 40);
+  win.render();
+
+  // case-insensitive substring match
+  check('find matches by label (case-insensitive)', E(`findNodes('farnode').length`) === 1);
+  check('find returns nothing for a non-match', E(`findNodes('zzz').length`) === 0);
+  check('empty query matches nothing', E(`findNodes('').length`) === 0);
+
+  // focusNode selects + centers the viewport on the node
+  win.focusNode(far.id);
+  const cx = 5000 + 80 / 2, cy = 5000 + 40 / 2;
+  check('focus selects the node', E(`selectedId === '${far.id}'`));
+  check('focus centers viewport on the node',
+    E('viewBox.x') <= cx && cx <= E('viewBox.x') + E('viewBox.w') &&
+    E('viewBox.y') <= cy && cy <= E('viewBox.y') + E('viewBox.h'));
+
+  // Cmd/Ctrl+F opens the find box; Esc closes it.
+  const box = doc.getElementById('findBox');
+  check('find box starts hidden', box.classList.contains('hidden'));
+  win.openFind();
+  check('openFind reveals the box', !box.classList.contains('hidden'));
+  win.closeFind();
+  check('closeFind hides the box', box.classList.contains('hidden'));
+}
+
+group('Keyboard nudge (#94): arrow moves selection, Shift = fine, undoable');
+{
+  const { win, doc, E } = boot();
+  const n = win.createNode('rect', 100, 100, 80, 40); win.selectNode(n.id);
+  const x0 = n.x;
+  key(doc, 'ArrowRight');
+  check('arrow nudges selection right by a grid step', n.x - x0 === E('GRID_SIZE'));
+  const x1 = n.x;
+  key(doc, 'ArrowRight', { shiftKey: true });
+  check('shift+arrow is a 1px fine step', n.x - x1 === 1);
+  const y0 = n.y;
+  key(doc, 'ArrowDown');
+  check('arrow down moves on Y', n.y - y0 === E('GRID_SIZE'));
+
+  // undoable — undo reverts the most recent nudge (undo swaps in fresh node
+  // objects from the snapshot, so re-read by id rather than the stale ref)
+  win.undo();
+  check('nudge is undoable', E(`nodes.find(x=>x.id==='${n.id}').y`) === y0);
+
+  // multi-selection nudges together
+  const a = win.createNode('rect', 300, 300, 80, 40);
+  const b = win.createNode('rect', 500, 300, 80, 40);
+  E(`selectedId = null; selectedIds = ['${a.id}','${b.id}']`);
+  const ax = a.x, bx = b.x;
+  key(doc, 'ArrowLeft');
+  check('multi-selection nudges together', a.x - ax === -E('GRID_SIZE') && b.x - bx === -E('GRID_SIZE'));
+
+  // no nudge while typing in an input
+  const before = a.x;
+  const inp = doc.createElement('input'); doc.body.appendChild(inp);
+  inp.dispatchEvent(new win.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'ArrowLeft' }));
+  check('no nudge while an input is focused', a.x === before);
+  inp.remove();
+}
+
 group('Gallery thumbnails (#79): generate helper + doc-record field + card render');
 {
   const { win, doc, E } = boot();
@@ -2488,6 +2553,39 @@ group('Screen-reader semantics (#59): node/conn aria-labels + live region');
 
   // no visual regression: node groups still render their shape markup
   check('node still renders its shape', !!doc.querySelector(`#nodes .node[data-id="${b.id}"] rect, #nodes .node[data-id="${b.id}"] path`));
+}
+
+group('Group resize of a multi-selection (#101): scale + reposition, undoable');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 0, 0, 100, 50);
+  const b = win.createNode('rect', 300, 0, 100, 50);
+  win.saveState();   // baseline snapshot (both nodes present) so undo has somewhere to land
+  E(`selectedIds = ['${a.id}','${b.id}']; selectedId = null;`);
+  const wA = a.width, gap0 = b.x - a.x;
+  check('resizeSelection scales members', win.resizeSelection(1.5) === true && a.width > wA && b.width > wA);
+  check('resizeSelection scales spacing (proportional layout)', (b.x - a.x) > gap0);
+  check('scale is about the bbox origin (a stays at min)', a.x === 0 && a.y === 0);
+
+  // undoable — one undo reverts the whole group resize
+  win.undo();
+  check('group resize is undoable', E(`nodes.find(n=>n.id==='${a.id}').width`) === wA && E(`nodes.find(n=>n.id==='${b.id}').x`) === 300);
+
+  // group-resize handle renders only for a 2+ selection
+  E(`selectedIds = ['${a.id}','${b.id}']; selectedId = null;`); win.render();
+  check('group-resize handle renders for 2+ selection', !!doc.querySelector('.group-resize-handle'));
+  E(`selectedIds = []; selectedId = '${a.id}'`); win.render();
+  check('no group handle for a single selection', !doc.querySelector('.group-resize-handle'));
+
+  // guards: <2 nodes or bad factor is a no-op
+  E(`selectedIds = ['${a.id}']; selectedId = null;`);
+  check('resizeSelection no-ops under 2 nodes', win.resizeSelection(2) === false);
+  E(`selectedIds = ['${a.id}','${b.id}']`);
+  check('resizeSelection rejects a non-positive factor', win.resizeSelection(0) === false);
+
+  // single-node resize still works (no regression) — width changes via direct field
+  const before = E(`nodes.find(n=>n.id==='${a.id}').width`);
+  check('single-node geometry untouched by failed group ops', before === wA);
 }
 
 process.exit(report() ? 0 : 1);
