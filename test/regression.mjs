@@ -1649,6 +1649,62 @@ group('Touch & pointer input (#21): multi-touch pinch/pan + palm rejection');
   check('penActive clears when the pen lifts', E3('penActive === false'));
 }
 
+group('Document store (#38): docStore CRUD against the in-memory backend');
+{
+  const { win, E } = boot();
+  E(`docStore._useMemory()`);                                       // swap to the test backend
+  // a real diagram to persist
+  win.createNode('rect', 100, 100);
+  E(`docStore.save({ title:'Auth flow', data: exportState() })`);
+  check('doc saved + listed', E(`docStore.list().length`) === 1);
+  check('list item carries title + timestamps', E(`(d=>d.title==='Auth flow' && typeof d.created==='number' && typeof d.updated==='number')(docStore.list()[0])`));
+  check('load round-trips the title + data', E(`(d=>d.title==='Auth flow' && Array.isArray(d.data.n) && d.data.n.length===1)(docStore.load(docStore.list()[0].id))`));
+  // duplicate → new id, same content
+  E(`docStore.duplicate(docStore.list()[0].id)`);
+  check('duplicate adds a 2nd doc with a new id', E(`docStore.list().length`) === 2 && E(`docStore.list()[0].id`) !== E(`docStore.list()[1].id`));
+  check('duplicate title is derived', E(`docStore.list().some(d=>/ copy$/.test(d.title))`));
+  // save with an existing id updates in place (no new doc), bumps updated, keeps created
+  const firstId = E(`docStore.list().find(d=>d.title==='Auth flow').id`);
+  const created0 = E(`docStore.load('${firstId}').created`);
+  E(`docStore.save({ id:'${firstId}', title:'Auth flow v2' })`);
+  check('save with id updates in place (count unchanged)', E(`docStore.list().length`) === 2);
+  check('update keeps created, changes title', E(`docStore.load('${firstId}').title`) === 'Auth flow v2' && E(`docStore.load('${firstId}').created`) === created0);
+  // remove
+  E(`docStore.remove('${firstId}')`);
+  check('remove drops the doc', E(`docStore.list().length`) === 1 && E(`docStore.load('${firstId}')`) === null);
+}
+
+group('Document library (#38): gallery UI + autosave write-through');
+{
+  const { win, doc, E } = boot();
+  E(`docStore._useMemory(); activeDocId = null;`);
+  // first edit autosaves through to a new active doc
+  win.createNode('rect', 100, 100);
+  win.updateUrlHash();
+  check('first edit creates an active library doc', E(`activeDocId !== null`) && E(`docStore.list().length`) === 1);
+  const id1 = E(`activeDocId`);
+  win.galleryRename(id1, 'Auth flow');
+  check('rename updates the doc title', E(`docStore.load('${id1}').title`) === 'Auth flow');
+  // "New" banks the current diagram and starts a fresh one (newest-first → 2 docs)
+  win.galleryNew();
+  check('New starts a 2nd doc and switches active', E(`docStore.list().length`) === 2 && E(`activeDocId`) !== id1);
+  // edit B, then open A → canvas restores A exactly
+  win.createNode('diamond', 200, 200); win.updateUrlHash();
+  win.galleryOpen(id1);
+  check('opening a doc restores its data + sets it active', E(`activeDocId`) === id1 && E(`nodes.length`) === 1 && E(`nodes[0].type`) === 'rect');
+  // autosave write-through bumps the active doc's data (B kept its diamond)
+  const other = E(`docStore.list().find(d=>d.id!=='${id1}').id`);
+  check('the other doc retained its own edited data', E(`docStore.load('${other}').data.n.some(n=>n.type==='diamond')`));
+  // duplicate + gallery DOM
+  win.galleryDuplicate(id1);
+  check('duplicate adds a 3rd card', E(`docStore.list().length`) === 3);
+  win.toggleGallery();
+  check('gallery opens and renders one card per doc', E(`galleryIsOpen()`) === true && doc.querySelectorAll('#galleryGrid .gallery-card').length === 3);
+  check('active doc card is highlighted', !!doc.querySelector(`#galleryGrid .gallery-card[data-id="${id1}"]`));
+  win.toggleGallery();
+  check('gallery toggles closed', E(`galleryIsOpen()`) === false);
+}
+
 group('Connection routing (#34): non-locked sides re-seat on render');
 {
   const { win, E } = boot();
@@ -1670,6 +1726,37 @@ group('Connection routing (#34): non-locked sides re-seat on render');
   E(`nodes.find(n=>n.id==='${b.id}').x = 900`);          // move b far right again
   win.render();
   check('locked toSide is left untouched', E(`connections.find(c=>c.id==='r34').toSide`) === locked);
+}
+
+group('Shape library panel (#40): placeShape + slide-out panel');
+{
+  const { win, doc, E } = boot();
+  const c = win.placeShape('class', 200, 200);
+  check('class box created with UML flag', c.isClass === true);
+  check('class box has default members', ((c.properties || []).length + (c.methods || []).length) > 0);
+  const i = win.placeShape('interface', 400, 200);
+  check('interface variant sets stereotype', i.isClass === true && i.stereotype === 'interface');
+  const en = win.placeShape('enumeration', 600, 200);
+  check('enum variant sets stereotype + values', en.stereotype === 'enumeration' && en.properties.length >= 1);
+  const p = win.placeShape('participant', 800, 200);
+  check('participant has a lifeline', p.hasLifeline === true && p.isParticipant === true);
+  const ent = win.placeShape('entity', 1000, 200);
+  check('entity is a class box with attribute rows', ent.isClass === true && ent.properties.length >= 1);
+  const t = win.placeShape('terminal', 100, 400);
+  check('terminal is a small pseudo dot', t.isPseudo === true && t.width <= 24);
+  check('placed shape lands on the requested point (within its bounds)', c.x <= 200 && 200 <= c.x + c.width && c.y <= 200 && 200 <= c.y + c.height);
+  win.render();
+  const cEl = doc.querySelector(`#nodes .node[data-id="${c.id}"]`);
+  check('placed class renders with its members', !!cEl && cEl.textContent.length > 0);
+  check('placed participant renders', !!doc.querySelector(`#nodes .node[data-id="${p.id}"]`));
+  // panel toggles open/closed + reflects state in className
+  win.toggleShapePanel(true);
+  check('shape panel opens', /\bopen\b/.test(doc.getElementById('shapePanel').className) && doc.getElementById('shapePanel').style.display === 'flex');
+  win.toggleShapePanel(false);
+  check('shape panel closes', !/\bopen\b/.test(doc.getElementById('shapePanel').className));
+  // no regression: basic shape tool still works
+  win.setTool('rect');
+  check('basic rect tool still selects', E(`currentTool`) === 'rect');
 }
 
 group('Mermaid state import (#22): composite / fork-join-choice / notes');
@@ -1746,6 +1833,35 @@ group('Mermaid append import (#46): feedback on silent failures');
   const before4 = doc.querySelectorAll('.toast').length;
   win.importMermaid(true, { code: 'kanban\n x', append: false });
   check('replace-mode unsupported does not toast (errorDiv path unchanged)', doc.querySelectorAll('.toast').length === before4);
+}
+
+group('First-run onboarding (#44): walkthrough + versioned flag');
+{
+  const { win, doc, E } = boot();
+  const ov = doc.getElementById('onboardingOverlay');
+  // fresh jsdom → flag absent → should show (init already auto-showed; flag still absent)
+  check('first run: flag absent and should show', E(`!localStorage.getItem('draph.onboarding.v1') && shouldShowOnboarding()`) === true);
+  win.startOnboarding();
+  check('overlay visible on start', !!ov && !ov.classList.contains('hidden'));
+  check('starts at step 0 with all 7 step dots', E(`onboardingStep`) === 0 && doc.querySelectorAll('#obDots .ob-dot').length === 7);
+  win.onboardingNext();
+  check('Next advances the step', E(`onboardingStep`) === 1);
+  win.onboardingBack();
+  check('Back goes up a step', E(`onboardingStep`) === 0);
+  win.finishOnboarding();
+  check('finish writes the versioned flag', E(`localStorage.getItem('draph.onboarding.v1')`) !== null);
+  check('overlay hidden after finish', ov.classList.contains('hidden'));
+  check('does not auto-show once completed', E(`shouldShowOnboarding()`) === false);
+  win.startOnboarding();
+  check('manual replay reopens despite the flag', !ov.classList.contains('hidden'));
+  // skip also writes the flag (not just finish)
+  E(`localStorage.removeItem('draph.onboarding.v1')`);
+  win.startOnboarding(); win.skipOnboarding();
+  check('skip closes and writes the flag too', ov.classList.contains('hidden') && E(`localStorage.getItem('draph.onboarding.v1')`) !== null);
+  // Next on the last step acts as Finish
+  E(`localStorage.removeItem('draph.onboarding.v1')`);
+  win.startOnboarding(); E(`onboardingStep = 6`); win.onboardingNext();
+  check('Next on the last step finishes (overlay closed + flag set)', ov.classList.contains('hidden') && E(`shouldShowOnboarding()`) === false);
 }
 
 group('SVG export (#37): buildExportSVG string assertions');
@@ -1916,6 +2032,40 @@ group('Mermaid gitGraph import (#26): tags, commit types, cherry-pick');
   check('gitgraph: import carries tag + commitType onto nodes', E(`nodes.some(n=>n.tag==='v1.0')`) && E(`nodes.some(n=>n.commitType==='HIGHLIGHT')`));
 }
 
+group('Mermaid quadrant import (#33): per-point radius/color styling');
+{
+  const { win, doc, E } = boot();
+  const code = 'quadrantChart\n  x-axis Low --> High\n  y-axis Low --> High\n  Campaign A: [0.3, 0.6] radius: 10, color: #ff0000\n  Plain B: [0.5, 0.5]';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const a = p.nodes[0].points[0], b = p.nodes[0].points[1];
+  check('quadrant: per-point radius parsed', a.radius === 10);
+  check('quadrant: per-point color parsed', a.color === '#ff0000');
+  check('quadrant: unstyled point keeps defaults', b.radius === undefined && b.color === undefined);
+  // render: styled dot uses its custom radius + color, default dot stays r=5
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  const el = doc.querySelector('#nodes .node');
+  const radii = [...el.querySelectorAll('circle')].map(c => c.getAttribute('r'));
+  check('quadrant: styled dot uses custom radius', radii.includes('10'));
+  check('quadrant: default dot still r=5', radii.includes('5'));
+  check('quadrant: custom color rendered', /fill="#ff0000"/.test(el.innerHTML));
+}
+
+group('Mermaid requirement import (#32): containment diamond glyph');
+{
+  const { win, doc, E } = boot();
+  const code = 'requirementDiagram\n  requirement r1 { id: 1 text: top }\n  requirement r2 { id: 2 text: child }\n  r1 - contains -> r2\n  r2 - satisfies -> r1';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const c = p.connections.find(x => x.from === 'r1' && x.to === 'r2');
+  const s = p.connections.find(x => x.label === 'satisfies');
+  check('req: contains edge gets a filled diamond at the parent end', c && c.relType === 'contains' && c.markerStart === 'diamond-filled');
+  check('req: contains is solid (not dashed)', c && c.strokeStyle !== 'dashed');
+  check('req: other typed links stay dashed + arrow', s && s.strokeStyle === 'dashed' && s.markerEnd === 'arrow');
+  // render: the diamond glyph draws (inline umlMarker → polygon)
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  check('req: diamond marker rendered on the connection', /polygon/.test(doc.getElementById('connections').innerHTML));
+  check('req: contains markerStart carried through import', E(`connections.some(c=>c.markerStart==='diamond-filled')`));
+}
+
 group('fitNodeToLabel shrink-to-fit + manual-resize guard (#35)');
 {
   const { win, E } = boot();
@@ -1964,6 +2114,28 @@ group('Mermaid pie import (#30): donut variant + leader lines');
   const el = doc.querySelector('#nodes .node');
   check('pie: donut renders annulus paths', !!el && /A[\d.]+,[\d.]+ 0 \d 0/.test(el.innerHTML));
   check('pie: donut flag does not alter the parsed slices', E(`nodes[0].slices.length`) === 3);
+}
+
+group('#36 label wrapping: hard-break long unbreakable words');
+{
+  const { win, E } = boot();
+  // A single token longer than the line cap hard-breaks across lines.
+  const lines = E(`wrapLabel('supercalifragilisticexpialidociousAndThenSomeMore', 120)`);
+  check('long unbreakable word hard-breaks to >=2 lines', lines.length >= 2);
+  check('each wrapped line stays within the cap-ish width', lines.every(l => l.length <= 30));
+  check('hard-break preserves all characters', lines.join('') === 'supercalifragilisticexpialidociousAndThenSomeMore');
+  // Normal multi-word labels still wrap on spaces (no regression).
+  const normal = E(`wrapLabel('the quick brown fox jumps', 120)`);
+  check('normal wrap still breaks on spaces', normal.join(' ').split(' ').length === 5);
+  // Code-point safe: an emoji token isn't split mid-surrogate.
+  const emoji = E(`wrapLabel('😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀', 60)`);
+  check('emoji hard-break keeps code-points intact', emoji.every(l => !/�/.test(l)) && emoji.length >= 2);
+  // fitNodeToLabel caps node width for a long token instead of stretching it.
+  const n = win.createNode('rect', 100, 100, 120, 44);
+  E(`(nd=>{nd.label='supercalifragilisticexpialidociousAndThenSomeMoreEvenLonger'; fitNodeToLabel(nd);})(nodes.find(x=>x.id==='${n.id}'))`);
+  const w = E(`nodes.find(x=>x.id==='${n.id}').width`);
+  check('long token does not force an ultra-wide node', w <= E('CONFIG.wrap.maxWidth') + 30);
+  check('cap lives in CONFIG (no magic number)', typeof E('CONFIG.wrap.maxWidth') === 'number');
 }
 
 process.exit(report() ? 0 : 1);
