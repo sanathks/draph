@@ -5387,9 +5387,54 @@
       if (firstLine.match(/^quadrantChart/i)) {
         return parseQuadrant(lines.slice(1));
       }
+      if (firstLine.match(/^requirementDiagram/i)) {
+        return parseRequirement(lines.slice(1));
+      }
 
       // Default: flowchart
       return parseFlowchart(lines);
+    }
+
+    // Requirement diagrams. Requirements & elements become class-style boxes
+    // (type as «stereotype», attributes as rows); typed links (satisfies, traces,
+    // contains, derives, refines, verifies, copies) become labeled edges (dashed
+    // except `contains`). Reuses the class box + connection-aware layout.
+    function parseRequirement(lines) {
+      const result = { nodes: [], connections: [], errors: [], diagramType: 'class' };
+      const map = {};
+      const ensure = (id, stereotype) => {
+        if (!map[id]) { map[id] = { id, type: 'class', label: id, stereotype: stereotype || '', properties: [], methods: [] }; result.nodes.push(map[id]); }
+        else if (stereotype) map[id].stereotype = stereotype;
+        return map[id];
+      };
+      const reqType = /^(requirement|functionalRequirement|interfaceRequirement|performanceRequirement|physicalRequirement|designConstraint)\s+(\S+)\s*\{/i;
+      let current = null;
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith('%%') || /^requirementDiagram/i.test(line)) continue;
+        if (line === '}') { current = null; continue; }
+        let m = line.match(reqType);
+        if (m) { current = ensure(m[2], m[1].toLowerCase()); continue; }
+        m = line.match(/^element\s+(\S+)\s*\{/i);
+        if (m) { current = ensure(m[1], 'element'); continue; }
+        if (current) {
+          const am = line.match(/^(\w+)\s*:\s*(.+)$/);
+          if (am) current.properties.push(am[1] + ': ' + am[2].trim());
+          continue;
+        }
+        // relationships: `src - type -> dest`  or  `dest <- type - src`
+        m = line.match(/^(\S+)\s*-\s*(\w+)\s*->\s*(\S+)$/);
+        if (m) { ensure(m[1]); ensure(m[3]); result.connections.push({ from: m[1], to: m[3], label: m[2], markerEnd: 'arrow', strokeStyle: m[2].toLowerCase() === 'contains' ? undefined : 'dashed' }); continue; }
+        m = line.match(/^(\S+)\s*<-\s*(\w+)\s*-\s*(\S+)$/);
+        if (m) { ensure(m[1]); ensure(m[3]); result.connections.push({ from: m[3], to: m[1], label: m[2], markerEnd: 'arrow', strokeStyle: m[2].toLowerCase() === 'contains' ? undefined : 'dashed' }); continue; }
+      }
+      result.nodes.forEach(n => {
+        const rows = [...n.properties, ...n.methods, n.label, n.stereotype ? '«' + n.stereotype + '»' : ''];
+        const longest = rows.reduce((mx, s) => Math.max(mx, (s || '').length), 0);
+        n.width = Math.max(170, longest * 7 + 24);
+        n.height = Math.max(70, (n.stereotype ? 42 : 28) + n.properties.length * 16 + n.methods.length * 16 + 8);
+      });
+      return result;
     }
 
     // Quadrant charts. Collapses to a single `quadrant` node holding the axes,

@@ -1368,4 +1368,37 @@ group('v2: class diagram UML relationship markers');
   check('flowchart edge keeps the default arrow (no UML markers)', f.E(`connections[0].markerEnd`) === undefined && f.doc.querySelectorAll('#connections polygon').length === 0);
 }
 
+// ---------------------------------------------------------------------------
+group('v2: Mermaid requirementDiagram import');
+{
+  const { win, E } = boot();
+  const code = [
+    'requirementDiagram',
+    '    requirement test_req {',
+    '        id: 1',
+    '        text: the test text.',
+    '        risk: high',
+    '        verifymethod: test',
+    '    }',
+    '    element test_entity {',
+    '        type: simulation',
+    '    }',
+    '    test_entity - satisfies -> test_req',
+    '    test_req - contains -> test_req2',
+  ].join('\n');
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const byId = {}; p.nodes.forEach(n => byId[n.id] = n);
+  check('requirement becomes a class-style box with its type as stereotype', byId['test_req'] && byId['test_req'].type === 'class' && byId['test_req'].stereotype === 'requirement');
+  check('requirement attributes become rows', byId['test_req'].properties.some(s => /risk: high/.test(s)) && byId['test_req'].properties.some(s => /id: 1/.test(s)));
+  check('element becomes a box with «element» stereotype', byId['test_entity'].stereotype === 'element' && byId['test_entity'].properties.some(s => /type: simulation/.test(s)));
+  check('typed relationship keeps its verb label', p.connections.some(c => c.from === 'test_entity' && c.to === 'test_req' && c.label === 'satisfies'));
+  check('non-contains relationships are dashed', p.connections.find(c => c.label === 'satisfies').strokeStyle === 'dashed');
+  check('contains relationship is solid', p.connections.find(c => c.label === 'contains').strokeStyle === undefined);
+  check('relationship target auto-created (test_req2)', !!byId['test_req2'] || p.nodes.some(n => n.id === 'test_req2'));
+  // full import
+  const ed = win.document.getElementById('mermaidEditor');
+  ed.value = code; win.importMermaid(true);
+  check('requirement import builds boxes + edges', E(`nodes.filter(n=>n.isClass).length`) >= 3 && E('connections.length') === 2);
+}
+
 process.exit(report() ? 0 : 1);

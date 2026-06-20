@@ -24,7 +24,7 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
 | User Journey | `journey` | 🟡 | **NEW.** tasks→points placed left-to-right, vertical position = satisfaction score (1–5), chained into the journey line; actors shown in label; sections→labels. TODO: actor avatars/faces, section bands |
 | Git graph | `gitGraph` | 🟡 | **NEW.** commits→dots on per-branch lanes (left→right), `branch` forks from current tip, `merge` joins a branch tip into a new 2-parent commit; dots colored per lane, labeled when an explicit id is set; lane labels. TODO: tags, commit types, cherry-pick source links, TB direction |
 | Quadrant | `quadrantChart` | 🟡 | **NEW.** one `quadrant` node renders a 2×2 plot: tinted quadrants + labels, center cross, x/y axis labels, and plotted points (x,y 0..1, y up). TODO: per-point radius/color styling |
-| Requirement | `requirementDiagram` | ⬜ | requirement boxes + relationships |
+| Requirement | `requirementDiagram` | 🟡 | **NEW.** requirements & elements → class-style boxes (type as «stereotype», attrs as rows); typed links (satisfies/traces/contains/derives/refines/verifies/copies) → labeled edges (dashed except contains). Connection-aware layout. TODO: containment diamond glyph |
 | C4 | `C4Context` etc. | ⬜ | persons/systems/boundaries → containers+nodes |
 | Block | `block-beta` | ⬜ | grid of blocks |
 | Architecture | `architecture-beta` | ⬜ | groups, services, edges |
@@ -42,6 +42,9 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
   line, any needed render tweaks, and regression tests in `test/regression.mjs`.
 
 ## Changelog
+- **Requirement (first cut):** `parseRequirement` — requirements/elements reuse
+  the class box (type as «stereotype», attributes as rows), typed relationships
+  become labeled edges (dashed except `contains`), connection-aware layout.
 - **Class diagram UML arrowheads:** relationships now render proper UML
   end-markers via a shared `umlMarker()` (hollow triangle for inheritance/
   realization, filled/hollow diamond for composition/aggregation, open arrow for
