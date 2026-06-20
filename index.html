@@ -1012,6 +1012,11 @@
       palette: ['#7aa2f7', '#9ece6a', '#f7768e', '#e0af68', '#bb9af7', '#7dcfff', '#ff9e64'],
       arrow: { length: 11, width: 5.5 },  // arrowhead size (px)
       node: { minWidth: 40, minHeight: 20 },
+      // Viewport culling (#71): for large diagrams, skip building DOM for nodes
+      // whose bbox is outside the visible viewBox. Off until a diagram exceeds
+      // cullThreshold nodes, so small diagrams render exactly as before.
+      cullThreshold: 300,  // node count above which off-screen nodes are culled
+      cullMargin: 1,       // extra rings of viewBox kept rendered around the visible rect (avoids edge popping on pan)
     };
 
     // Curated monochrome icon set (Lucide-style, 24×24 inner markup only — the
@@ -1895,6 +1900,30 @@
       updateEmptyState();
     }
 
+    // === Viewport culling (#71) ===
+    // True when a node's bounding box intersects the visible viewBox, expanded by
+    // cullMargin screens on every side. Used to drop off-screen nodes from the DOM
+    // for large diagrams; render() re-runs on pan/zoom so culled nodes return.
+    function isNodeInViewport(node) {
+      const mx = viewBox.w * CONFIG.cullMargin, my = viewBox.h * CONFIG.cullMargin;
+      const vx1 = viewBox.x - mx, vy1 = viewBox.y - my;
+      const vx2 = viewBox.x + viewBox.w + mx, vy2 = viewBox.y + viewBox.h + my;
+      return node.x <= vx2 && node.x + node.width >= vx1 &&
+             node.y <= vy2 && node.y + node.height >= vy1;
+    }
+    // A node is exempt from culling if it's selected or being label-edited — those
+    // must always be present (the edit overlay sits on top of the node's box).
+    function isCullExempt(node) {
+      return node.id === selectedId || selectedIds.includes(node.id) ||
+             (labelEditor && labelEditor.nodeId === node.id);
+    }
+    // Filter a node list to what should be in the DOM. Below the threshold the list
+    // is returned untouched, so small diagrams behave exactly as before.
+    function cullNodes(list) {
+      if (list.length <= CONFIG.cullThreshold) return list;
+      return list.filter(n => isCullExempt(n) || isNodeInViewport(n));
+    }
+
     // Fast path used while dragging nodes: instead of regenerating every node's
     // SVG markup (patterns, wrapped text, clip paths, connectors) each frame,
     // just translate the dragged node group(s) and redraw the cheap connection
@@ -2027,11 +2056,19 @@
       // Connections
       const connGeom = computeConnectionGeometry(nodeById);
       let selHandles = null;  // endpoint coords for the selected connection (drawn on top)
+      const cullActive = nodes.length > CONFIG.cullThreshold;
       connectionsGroup.innerHTML = framesSvg + connections.map(conn => {
         const from = nodeById.get(conn.from);
         const to = nodeById.get(conn.to);
         if (!from || !to) return '';
-        
+
+        // Viewport culling (#71): drop a connection only when both endpoints are
+        // off-screen and the edge itself isn't selected — so a line stays drawn
+        // whenever either end (or the edge) is visible.
+        if (cullActive && selectedConnId !== conn.id &&
+            !isCullExempt(from) && !isNodeInViewport(from) &&
+            !isCullExempt(to) && !isNodeInViewport(to)) return '';
+
         // Sequence diagram message
         if (conn.isSequenceMessage) {
           const fromX = from.x + from.width / 2;
@@ -2243,7 +2280,7 @@
         return (a.z || 0) - (b.z || 0);
       });
 
-      nodesGroup.innerHTML = sorted.map(node => {
+      nodesGroup.innerHTML = cullNodes(sorted).map(node => {
         const isSelected = node.id === selectedId || selectedIds.includes(node.id);
         const strokeColor = node.outlineColor || COLORS.fg;
         
@@ -2876,7 +2913,7 @@
         else if (ev.key === 'Escape') { ev.preventDefault(); commit(false); }
         // plain Enter falls through → inserts a newline
       });
-      labelEditor = { commit };
+      labelEditor = { commit, nodeId: node.id };
     }
 
     function deleteSelected() {
