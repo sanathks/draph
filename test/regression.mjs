@@ -1182,4 +1182,33 @@ group('v2: Mermaid user-journey import');
   check('journey import builds tasks + line', E(`nodes.filter(n=>n.type==='pill').length`) === 3 && E('connections.length') === 2);
 }
 
+// ---------------------------------------------------------------------------
+group('v2: Mermaid gitGraph import (commit DAG)');
+{
+  const { win, E } = boot();
+  const code = [
+    'gitGraph',
+    '   commit',
+    '   commit id: "A"',
+    '   branch develop',
+    '   commit',
+    '   checkout main',
+    '   commit',
+    '   merge develop',
+  ].join('\n');
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('gitGraph diagramType', p.diagramType === 'gitgraph');
+  check('gitGraph makes a dot per commit (incl. merge)', p.nodes.filter(n => n.type === 'circle').length === 5);
+  check('gitGraph labels only explicit-id commits', p.nodes.some(n => n.label === 'A') && p.nodes.filter(n => n.type === 'circle' && n.label === '').length === 4);
+  check('gitGraph puts branches on separate lanes (y)', new Set(p.nodes.filter(n => n.type === 'circle').map(n => n.y)).size === 2);
+  check('gitGraph adds branch lane labels', p.nodes.some(n => n.type === 'text' && n.label === 'develop'));
+  // merge commit has TWO incoming edges (from main tip + develop tip)
+  const merge = p.nodes.filter(n => n.type === 'circle').slice(-1)[0];
+  check('gitGraph merge commit has two parents', p.connections.filter(c => c.to === merge.id).length === 2);
+  // full import
+  const ed = win.document.getElementById('mermaidEditor');
+  ed.value = code; win.importMermaid(true);
+  check('gitGraph import builds commit dots + edges', E(`nodes.filter(n=>n.type==='circle').length`) === 5 && E('connections.length') >= 4);
+}
+
 process.exit(report() ? 0 : 1);

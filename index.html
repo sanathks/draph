@@ -5306,9 +5306,46 @@
       if (firstLine.match(/^journey\b/i)) {
         return parseJourney(lines.slice(1));
       }
+      if (firstLine.match(/^gitGraph/i)) {
+        return parseGitGraph(lines.slice(1));
+      }
 
       // Default: flowchart
       return parseFlowchart(lines);
+    }
+
+    // Git graphs. Each branch is a horizontal lane; commits are dots placed
+    // left-to-right in commit order; `branch` forks from the current tip,
+    // `merge` joins a branch's tip into a new commit. Dots colored per lane,
+    // labeled only when an explicit id is given. First cut: no tags/types/
+    // cherry-pick source links beyond a plain commit (see tracker).
+    function parseGitGraph(lines) {
+      const PXC = 90, baseX = 160, baseY = 80, laneH = 80;
+      const result = { nodes: [], connections: [], errors: [], diagramType: 'gitgraph' };
+      const lanes = { main: 0 }; let laneCount = 1, current = 'main', xi = 0, cnum = 0;
+      const tip = {};
+      const laneColor = (b) => CONFIG.palette[(lanes[b] || 0) % CONFIG.palette.length];
+      const addCommit = (id) => {
+        const nid = 'gc' + (++cnum);
+        result.nodes.push({ id: nid, type: 'circle', label: id || '', fixed: true, x: baseX + (xi++) * PXC, y: baseY + lanes[current] * laneH, width: 38, height: 38, color: laneColor(current), fillStyle: 'infill' });
+        if (tip[current]) result.connections.push({ from: tip[current], to: nid });
+        tip[current] = nid;
+        return nid;
+      };
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith('%%') || /^gitGraph/i.test(line)) continue;
+        let m;
+        if ((m = line.match(/^commit\b(.*)$/i))) { const idm = m[1].match(/id:\s*"([^"]*)"/i); addCommit(idm ? idm[1] : ''); continue; }
+        if ((m = line.match(/^branch\s+(\S+)/i))) { const n = m[1]; if (!(n in lanes)) lanes[n] = laneCount++; tip[n] = tip[current]; current = n; continue; }
+        if ((m = line.match(/^(?:checkout|switch)\s+(\S+)/i))) { current = m[1]; if (!(current in lanes)) lanes[current] = laneCount++; continue; }
+        if ((m = line.match(/^merge\s+(\S+)/i))) { const from = m[1]; const nid = addCommit(''); if (tip[from]) result.connections.push({ from: tip[from], to: nid }); continue; }
+        if (/^cherry-pick\b/i.test(line)) { addCommit(''); continue; }
+      }
+      Object.keys(lanes).forEach(b => {
+        result.nodes.push({ id: 'glane_' + b, type: 'text', label: b, fixed: true, x: 10, y: baseY + lanes[b] * laneH + 8, width: 140, height: 24 });
+      });
+      return result;
     }
 
     // User-journey diagrams. Tasks become points placed left-to-right; vertical
@@ -6006,8 +6043,8 @@
       const startX = 100;
       const startY = 100;
 
-      // Gantt/pie/journey carry their own absolute geometry — don't re-layout.
-      if (diagramType === 'gantt' || diagramType === 'pie' || diagramType === 'journey') return parsedNodes;
+      // These carry their own absolute geometry — don't re-layout.
+      if (diagramType === 'gantt' || diagramType === 'pie' || diagramType === 'journey' || diagramType === 'gitgraph') return parsedNodes;
 
       // Sequence diagram: horizontal layout at top
       if (diagramType === 'sequence') {

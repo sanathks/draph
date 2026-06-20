@@ -22,7 +22,7 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
 | Gantt | `gantt` | 🟡 | **NEW.** tasks→horizontal bars on a 20px/day axis (start date → x, duration → width); `after <id>` deps resolve start; sections→left labels; milestones→diamonds. TODO: date-axis ticks, today marker, dependency arrows, weekends/excludes |
 | Pie | `pie` | 🟡 | **NEW.** one `pie` node renders an actual pie (slice `<path>` arcs) + legend with values & percentages; slice colors from the palette. TODO: donut variant, label leader lines |
 | User Journey | `journey` | 🟡 | **NEW.** tasks→points placed left-to-right, vertical position = satisfaction score (1–5), chained into the journey line; actors shown in label; sections→labels. TODO: actor avatars/faces, section bands |
-| Git graph | `gitGraph` | ⬜ | commits/branches/merges → DAG |
+| Git graph | `gitGraph` | 🟡 | **NEW.** commits→dots on per-branch lanes (left→right), `branch` forks from current tip, `merge` joins a branch tip into a new 2-parent commit; dots colored per lane, labeled when an explicit id is set; lane labels. TODO: tags, commit types, cherry-pick source links, TB direction |
 | Quadrant | `quadrantChart` | ⬜ | 2×2 plot of points |
 | Requirement | `requirementDiagram` | ⬜ | requirement boxes + relationships |
 | C4 | `C4Context` etc. | ⬜ | persons/systems/boundaries → containers+nodes |
@@ -42,6 +42,9 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
   line, any needed render tweaks, and regression tests in `test/regression.mjs`.
 
 ## Changelog
+- **Git graph (first cut):** `parseGitGraph` — commits as per-lane dots, branch
+  forks from current tip, merge creates a 2-parent commit, lane labels, dots
+  colored per branch. Fixed geometry. Tags/types/cherry-pick links TODO. Tested.
 - **Journey (first cut):** `parseJourney` — tasks placed left-to-right with
   vertical position by satisfaction score (the journey line), chained
   sequentially, actors in the label, sections labeled. Fixed geometry. Tested.
