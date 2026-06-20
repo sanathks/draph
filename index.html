@@ -7774,6 +7774,16 @@
 
       if (!code || code === 'flowchart TD' || code === 'flowchart TD\n    %% Empty diagram') {
         if (!append) { errorDiv.textContent = 'No code to import'; errorDiv.style.display = 'block'; }
+        else toast('Nothing to import — no Mermaid code found.', 'error');
+        return false;
+      }
+
+      // Recognized-but-unsupported Mermaid diagram types: bail with a named toast
+      // rather than letting the flowchart fallback emit spurious nodes (append flow).
+      const firstKw = (code.split('\n').find(l => l.trim() && !l.trim().startsWith('%%')) || '').trim().split(/\s+/)[0];
+      const UNSUPPORTED_MERMAID = /^(zenuml|kanban|packet-beta|radar|treemap|mindmap-beta|sankey)$/i;
+      if (append && firstKw && UNSUPPORTED_MERMAID.test(firstKw)) {
+        toast(`Can't import "${firstKw}" yet — unsupported diagram type.`, 'error');
         return false;
       }
 
@@ -7789,6 +7799,7 @@
 
         if (parsed.nodes.length === 0) {
           if (!append) { errorDiv.textContent = 'No nodes found in code'; errorDiv.style.display = 'block'; }
+          else toast('Couldn\'t import that Mermaid — no recognizable diagram found.', 'error');
           return false;
         }
 
