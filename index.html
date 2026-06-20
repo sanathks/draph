@@ -5390,9 +5390,66 @@
       if (firstLine.match(/^requirementDiagram/i)) {
         return parseRequirement(lines.slice(1));
       }
+      if (firstLine.match(/^C4(Context|Container|Component|Dynamic|Deployment)/i)) {
+        return parseC4(lines.slice(1));
+      }
 
       // Default: flowchart
       return parseFlowchart(lines);
+    }
+
+    // C4 diagrams (C4Context/Container/Component/Dynamic/Deployment). Elements
+    // (Person/System/Container/Component/Node, incl. _Ext/Db/Queue) become
+    // class-style boxes with the element type as «stereotype» and tech/description
+    // as wrapped rows; Rel(...) become labeled edges (BiRel → both ends);
+    // *_Boundary(){} become grouping containers. Reuses class boxes + the
+    // flowchart-with-subgraphs layout.
+    function parseC4(lines) {
+      const result = { nodes: [], connections: [], errors: [], diagramType: 'flowchart', subgraphs: [] };
+      const map = {};
+      const ensure = (id) => { if (!map[id]) { map[id] = { id, type: 'class', label: id, stereotype: '', properties: [], methods: [] }; result.nodes.push(map[id]); } return map[id]; };
+      const unq = (s) => (s || '').replace(/^"|"$/g, '').trim();
+      const splitArgs = (s) => { const out = []; let cur = '', q = false; for (const ch of s) { if (ch === '"') { q = !q; cur += ch; } else if (ch === ',' && !q) { out.push(cur.trim()); cur = ''; } else cur += ch; } if (cur.trim()) out.push(cur.trim()); return out; };
+      const wrap = (txt, n = 30) => { const w = txt.split(/\s+/), out = []; let c = ''; for (const x of w) { if ((c + ' ' + x).trim().length > n && c) { out.push(c); c = x; } else c = (c + ' ' + x).trim(); } if (c) out.push(c); return out; };
+      const stack = [];
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith('%%') || /^C4(Context|Container|Component|Dynamic|Deployment)/i.test(line) || /^(title|UpdateLayoutConfig|UpdateElementStyle|UpdateRelStyle)\b/i.test(line)) continue;
+        if (line === '}') { stack.pop(); continue; }
+        // boundary open
+        let m = line.match(/^(\w*Boundary)\s*\(([^)]*)\)\s*\{/i);
+        if (m) { const a = splitArgs(m[2]); const sg = { id: a[0], label: unq(a[1]) || a[0], children: [] }; result.subgraphs.push(sg); stack.push(sg); continue; }
+        // relationship
+        m = line.match(/^(BiRel|Rel(?:_Back|_U|_D|_L|_R|_Up|_Down|_Left|_Right|_Neighbor)?)\s*\(([^)]*)\)\s*$/i);
+        if (m) {
+          const a = splitArgs(m[2]); const from = a[0], to = a[1];
+          const label = unq(a[2]); const techn = unq(a[3]);
+          ensure(from); ensure(to);
+          const conn = { from, to, label: techn ? `${label} [${techn}]` : label, markerEnd: 'arrow' };
+          if (/^BiRel/i.test(m[1])) conn.markerStart = 'arrow';
+          result.connections.push(conn);
+          continue;
+        }
+        // element: Type(id, "label"[, "techn"][, "descr"])
+        m = line.match(/^([A-Za-z]\w*)\s*\(([^)]*)\)\s*$/);
+        if (m) {
+          const type = m[1], a = splitArgs(m[2]);
+          const node = ensure(a[0]);
+          node.label = unq(a[1]) || a[0];
+          node.stereotype = type.replace(/_/g, ' ');
+          node.properties = [];
+          a.slice(2).map(unq).filter(Boolean).forEach(e => wrap(e).forEach(l => node.properties.push(l)));
+          if (stack.length) stack[stack.length - 1].children.push(node.id);
+        }
+      }
+      if (!result.subgraphs.length) delete result.subgraphs;
+      result.nodes.forEach(n => {
+        const rows = [...n.properties, ...n.methods, n.label, n.stereotype ? '«' + n.stereotype + '»' : ''];
+        const longest = rows.reduce((mx, s) => Math.max(mx, (s || '').length), 0);
+        n.width = Math.max(170, longest * 7 + 24);
+        n.height = Math.max(70, (n.stereotype ? 42 : 28) + n.properties.length * 16 + 8);
+      });
+      return result;
     }
 
     // Requirement diagrams. Requirements & elements become class-style boxes

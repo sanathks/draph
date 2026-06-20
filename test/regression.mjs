@@ -1401,4 +1401,37 @@ group('v2: Mermaid requirementDiagram import');
   check('requirement import builds boxes + edges', E(`nodes.filter(n=>n.isClass).length`) >= 3 && E('connections.length') === 2);
 }
 
+// ---------------------------------------------------------------------------
+group('v2: Mermaid C4 diagram import');
+{
+  const { win, E } = boot();
+  const code = [
+    'C4Context',
+    '    title System Context',
+    '    Person(customerA, "Banking Customer A", "A customer of the bank.")',
+    '    System(SystemAA, "Internet Banking", "Allows customers to view info.")',
+    '    System_Ext(SystemE, "Mainframe", "Stores core banking data")',
+    '    Rel(customerA, SystemAA, "Uses")',
+    '    Rel(SystemAA, SystemE, "Uses", "SOAP/XML")',
+    '    BiRel(customerA, SystemE, "Syncs")',
+  ].join('\n');
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const byId = {}; p.nodes.forEach(n => byId[n.id] = n);
+  check('C4 element becomes a class box with type as stereotype', byId['customerA'] && byId['customerA'].type === 'class' && byId['customerA'].stereotype === 'Person');
+  check('C4 element keeps its label (not the alias)', byId['customerA'].label === 'Banking Customer A');
+  check('C4 _Ext stereotype preserved', byId['SystemE'].stereotype === 'System Ext');
+  check('C4 description wrapped into rows', byId['customerA'].properties.length >= 1 && byId['customerA'].properties.join(' ').includes('customer of the bank'));
+  check('C4 Rel becomes a labeled edge', p.connections.some(c => c.from === 'customerA' && c.to === 'SystemAA' && c.label === 'Uses'));
+  check('C4 Rel tech appended to label', p.connections.some(c => /SOAP\/XML/.test(c.label)));
+  check('C4 BiRel marks both ends', p.connections.some(c => c.markerStart === 'arrow' && c.markerEnd === 'arrow'));
+  // boundary -> subgraph
+  const code2 = ['C4Context', '  System_Boundary(b1, "Bank") {', '    System(s1, "Core")', '  }'].join('\n');
+  const p2 = E(`parseMermaid(${JSON.stringify(code2)})`);
+  check('C4 boundary becomes a subgraph owning its child', Array.isArray(p2.subgraphs) && p2.subgraphs[0].children.includes('s1'));
+  // full import
+  const ed = win.document.getElementById('mermaidEditor');
+  ed.value = code; win.importMermaid(true);
+  check('C4 import builds boxes + relationships', E(`nodes.filter(n=>n.isClass).length`) === 3 && E('connections.length') === 3);
+}
+
 process.exit(report() ? 0 : 1);

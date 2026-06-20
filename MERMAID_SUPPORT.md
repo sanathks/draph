@@ -25,7 +25,7 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
 | Git graph | `gitGraph` | 🟡 | **NEW.** commits→dots on per-branch lanes (left→right), `branch` forks from current tip, `merge` joins a branch tip into a new 2-parent commit; dots colored per lane, labeled when an explicit id is set; lane labels. TODO: tags, commit types, cherry-pick source links, TB direction |
 | Quadrant | `quadrantChart` | 🟡 | **NEW.** one `quadrant` node renders a 2×2 plot: tinted quadrants + labels, center cross, x/y axis labels, and plotted points (x,y 0..1, y up). TODO: per-point radius/color styling |
 | Requirement | `requirementDiagram` | 🟡 | **NEW.** requirements & elements → class-style boxes (type as «stereotype», attrs as rows); typed links (satisfies/traces/contains/derives/refines/verifies/copies) → labeled edges (dashed except contains). Connection-aware layout. TODO: containment diamond glyph |
-| C4 | `C4Context` etc. | ⬜ | persons/systems/boundaries → containers+nodes |
+| C4 | `C4Context` etc. | 🟡 | **NEW.** Person/System/Container/Component/Node (incl. _Ext/Db/Queue) → class-style boxes (type as «stereotype», tech/descr wrapped rows); `Rel(...)`→labeled edges (BiRel→both ends, tech appended); `*_Boundary(){}`→grouping containers. TODO: directional Rel_U/D/L/R hints, person figure icon |
 | Block | `block-beta` | ⬜ | grid of blocks |
 | Architecture | `architecture-beta` | ⬜ | groups, services, edges |
 | Sankey | `sankey-beta` | ⬜ | weighted flows (custom render) |
