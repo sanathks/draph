@@ -1811,6 +1811,22 @@ group('Selection → Mermaid (#2): selection-scoped export');
   check('no selection falls back to whole-canvas export', /\bC\b/.test(E(`generateMermaid({ selectionOnly: true })`)));
 }
 
+group('Accessibility (#45): icon-button ARIA labels + pressed state');
+{
+  const { win, doc } = boot();
+  const btns = [...doc.querySelectorAll('.tool-btn')];
+  check('every tool button has a non-empty aria-label', btns.length >= 10 && btns.every(b => (b.getAttribute('aria-label') || '').trim().length > 0));
+  check('decorative button SVGs are aria-hidden', btns.every(b => { const s = b.querySelector('svg'); return !s || s.getAttribute('aria-hidden') === 'true'; }));
+  win.setTool('rect');
+  const rectBtn = doc.getElementById('tool-rect');
+  check('active tool is marked aria-pressed=true', rectBtn.getAttribute('aria-pressed') === 'true');
+  win.setTool('pencil');
+  check('previously-active tool clears aria-pressed', rectBtn.getAttribute('aria-pressed') === 'false');
+  check('newly-active tool is pressed', doc.getElementById('tool-pencil').getAttribute('aria-pressed') === 'true');
+  // exactly one tool is pressed at a time
+  check('exactly one tool button is pressed', [...doc.querySelectorAll('[id^="tool-"]')].filter(b => b.getAttribute('aria-pressed') === 'true').length === 1);
+}
+
 group('First-run onboarding (#44): walkthrough + versioned flag');
 {
   const { win, doc, E } = boot();
