@@ -1434,4 +1434,37 @@ group('v2: Mermaid C4 diagram import');
   check('C4 import builds boxes + relationships', E(`nodes.filter(n=>n.isClass).length`) === 3 && E('connections.length') === 3);
 }
 
+group('v2: Mermaid architecture diagram import (architecture-beta)');
+{
+  const { win, doc, E } = boot();
+  const code = [
+    'architecture-beta',
+    '  group api(cloud)[API]',
+    '  service db(database)[Database] in api',
+    '  service disk1(disk)[Storage] in api',
+    '  service server(server)[Server] in api',
+    '  service gateway(internet)[Gateway]',
+    '  junction jx in api',
+    '  db:L -- R:server',
+    '  disk1:T --> B:server',
+    '  server:T <--> B:gateway',
+  ].join('\n');
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const byId = {}; p.nodes.forEach(n => byId[n.id] = n);
+  check('architecture diagramType is flowchart (reuses layout)', p.diagramType === 'flowchart');
+  check('architecture services become nodes with their title', byId.db && byId.db.label === 'Database' && byId.server.label === 'Server');
+  check('architecture ungrouped service still imported', byId.gateway && byId.gateway.label === 'Gateway');
+  check('architecture junction becomes a small circle node', byId.jx && byId.jx.type === 'circle');
+  check('architecture group becomes a subgraph owning its services', Array.isArray(p.subgraphs) && p.subgraphs[0].id === 'api' && p.subgraphs[0].label === 'API' && p.subgraphs[0].children.includes('db') && p.subgraphs[0].children.includes('server') && p.subgraphs[0].children.includes('jx'));
+  check('architecture plain edge has no arrowheads', p.connections.some(c => c.from === 'db' && c.to === 'server' && !c.markerEnd && !c.markerStart));
+  check('architecture --> edge gets an end arrowhead', p.connections.some(c => c.from === 'disk1' && c.to === 'server' && c.markerEnd === 'arrow' && !c.markerStart));
+  check('architecture <--> edge gets both arrowheads', p.connections.some(c => c.from === 'server' && c.to === 'gateway' && c.markerStart === 'arrow' && c.markerEnd === 'arrow'));
+  check('architecture edge sides (L/R/T/B) are stripped, not ids', !byId['L'] && !byId['R'] && !byId['B'] && !byId['T']);
+  // full import builds nodes + a container + edges, no crash
+  const ed = doc.getElementById('mermaidEditor');
+  ed.value = code; win.importMermaid(true);
+  check('architecture import creates a group container', E(`nodes.some(n=>n.type==='container' && n.label==='API')`));
+  check('architecture import wires the edges', E('connections.length') === 3);
+}
+
 process.exit(report() ? 0 : 1);
