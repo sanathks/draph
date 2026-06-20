@@ -1588,4 +1588,27 @@ group('Touch & pointer input (#21): multi-touch pinch/pan + palm rejection');
   check('penActive clears when the pen lifts', E3('penActive === false'));
 }
 
+group('Connection routing (#34): non-locked sides re-seat on render');
+{
+  const { win, E } = boot();
+  const a = win.createNode('rect', 100, 100);
+  const b = win.createNode('rect', 400, 100);            // b starts to the right of a
+  E(`connections.push({ id:'r34', from:'${a.id}', to:'${b.id}' })`);
+  win.render();
+  const before = E(`connections.find(c=>c.id==='r34').toSide`);
+  check('initial toSide faces the source (left)', before === 'left');
+  // move b to the left of a — a non-locked edge should re-seat on the next render
+  E(`nodes.find(n=>n.id==='${b.id}').x = -300`);
+  win.render();
+  const after = E(`connections.find(c=>c.id==='r34').toSide`);
+  check('non-locked toSide re-seats after the node moves', after !== before);
+  check('re-seated to the optimal side (now entering from the right)', after === 'right');
+  // lock the side; it must never change again
+  E(`connections.find(c=>c.id==='r34').toSideLocked = true`);
+  const locked = E(`connections.find(c=>c.id==='r34').toSide`);
+  E(`nodes.find(n=>n.id==='${b.id}').x = 900`);          // move b far right again
+  win.render();
+  check('locked toSide is left untouched', E(`connections.find(c=>c.id==='r34').toSide`) === locked);
+}
+
 process.exit(report() ? 0 : 1);
