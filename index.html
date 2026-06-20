@@ -379,9 +379,16 @@
       font-size: 11px; color: var(--fg); cursor: pointer; text-align: center; transition: border-color .12s, background .12s;
     }
     .shape-item:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg2)); }
+    /* Visually-hidden, screen-reader-only (#59) */
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+    }
   </style>
 </head>
 <body class="h-screen flex flex-col">
+  <!-- Screen-reader live region (#59): announces structural edits (add/delete/connect) -->
+  <div id="a11yLive" class="sr-only" aria-live="polite" aria-atomic="true"></div>
   <!-- Top Toolbar -->
   <header class="h-14 flex items-center px-4 z-20 absolute top-0 left-0 right-0" style="background:transparent;pointer-events:none">
     <!-- Left: Logo -->
@@ -619,10 +626,18 @@
           <button class="shape-item" onclick="placeShape('terminal')">Start/End</button>
         </div>
         <div style="color:var(--fg-dim);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:2px 0 6px">ER</div>
-        <div class="shape-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px">
+        <div class="shape-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
           <button class="shape-item" onclick="placeShape('entity')">Entity</button>
         </div>
-        <div style="color:var(--fg-dim);font-size:10px;margin-top:10px">Fork/Join/Choice land with #22. Flowchart shape zoo is a follow-up.</div>
+        <div style="color:var(--fg-dim);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:2px 0 6px">Flowchart</div>
+        <div class="shape-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px">
+          <button class="shape-item" onclick="placeShape('cylinder')">Database</button>
+          <button class="shape-item" onclick="placeShape('hexagon')">Hexagon</button>
+          <button class="shape-item" onclick="placeShape('parallelogram')">I/O</button>
+          <button class="shape-item" onclick="placeShape('trapezoid')">Trapezoid</button>
+          <button class="shape-item" onclick="placeShape('subroutine')">Subroutine</button>
+        </div>
+        <div style="color:var(--fg-dim);font-size:10px;margin-top:10px">Fork/Join/Choice land with #22.</div>
       </div>
     </div>
 
@@ -1260,12 +1275,25 @@
     
     // === SECTION: TOOLS, PICKERS & LIFECYCLE (init, history, persistence) ===
 
+    // Accessibility: give every icon-only control an accessible name (derived from
+    // its existing title) and hide decorative inline SVGs from the a11y tree.
+    function applyA11yLabels() {
+      document.querySelectorAll('.tool-btn[title], button[title]').forEach(btn => {
+        const t = btn.getAttribute('title');
+        if (t && !btn.getAttribute('aria-label')) btn.setAttribute('aria-label', t);
+      });
+      document.querySelectorAll('.tool-btn svg, button svg').forEach(svg => svg.setAttribute('aria-hidden', 'true'));
+      // reflect the current tool's pressed state at load
+      document.querySelectorAll('[id^="tool-"]').forEach(btn => btn.setAttribute('aria-pressed', btn.id === 'tool-' + currentTool ? 'true' : 'false'));
+    }
+
     // Tool management
     function setTool(tool) {
       currentTool = tool;
-      // Update toolbar buttons
-      document.querySelectorAll('[id^="tool-"]').forEach(btn => btn.classList.remove('active'));
-      document.getElementById('tool-' + tool)?.classList.add('active');
+      // Update toolbar buttons (active class + aria-pressed for screen readers)
+      document.querySelectorAll('[id^="tool-"]').forEach(btn => { btn.classList.remove('active'); btn.setAttribute('aria-pressed', 'false'); });
+      const activeBtn = document.getElementById('tool-' + tool);
+      if (activeBtn) { activeBtn.classList.add('active'); activeBtn.setAttribute('aria-pressed', 'true'); }
       // Update cursor
       const container = document.getElementById('canvasContainer');
       if (SHAPE_TOOLS.includes(tool) || tool === 'pencil') {
@@ -1401,6 +1429,7 @@
       applyTheme(loadSetting('theme', 'dark'), false);
       buildPalettes();
       buildIconPicker();
+      applyA11yLabels();
       bindCanvasEvents();
       // Share-link hash wins; otherwise restore the last autosaved diagram.
       if (!loadFromUrl()) restoreAutosave();
@@ -1763,7 +1792,13 @@
         container: { w: 340, h: 220 },
         text: { w: 100, h: 24 },
         note: { w: 200, h: 150 },
-        line: { w: 100, h: 0 }  // width = dx, height = dy from start
+        line: { w: 100, h: 0 },  // width = dx, height = dy from start
+        // Flowchart shape zoo (#49)
+        cylinder: { w: 120, h: 80 },
+        hexagon: { w: 150, h: 70 },
+        parallelogram: { w: 170, h: 60 },
+        trapezoid: { w: 170, h: 70 },
+        subroutine: { w: 160, h: 60 },
       };
       const def = defaults[type] || { w: 120, h: 44 };
 
@@ -1799,6 +1834,7 @@
       }
       
       nodes.push(node);
+      announce(nodeTypeName(node) + ' added');   // #59: screen-reader edit announcement
       return node;
     }
 
@@ -1838,6 +1874,14 @@
           node.label = ''; node.isPseudo = true; node.width = 24; node.height = 24;
           node.fillStyle = 'infill'; node.color = COLORS.fg;
           break;
+        case 'cylinder': case 'hexagon': case 'parallelogram': case 'trapezoid': case 'subroutine': {
+          // Flowchart shape zoo (#49): created as their own node type; rendered by the
+          // matching renderNodes branch; behave like any other shape otherwise.
+          const k = kind.toLowerCase();
+          node = createNode(k, 0, 0);
+          node.label = { cylinder: 'Database', hexagon: 'Prepare', parallelogram: 'Input', trapezoid: 'Manual', subroutine: 'Process' }[k] || 'Node';
+          break;
+        }
         default: mkClass('NewClass', '', ['+ field: Type'], ['+ method() void']);
       }
       node.x = Math.round(x - node.width / 2);
@@ -2356,7 +2400,7 @@
             
             const arrowHit = `<circle class="conn-hit" cx="${fromX + 5}" cy="${endY}" r="15" fill="transparent" data-conn="${conn.id}" style="cursor:pointer;pointer-events:all"/>`;
             
-            return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" style="cursor:pointer">
+            return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" role="img" aria-label="${esc(connAriaLabel(conn, nodeById))}" style="cursor:pointer">
               <path class="conn-hit" d="${loopPath}" fill="none" stroke="transparent" stroke-width="20" data-conn="${conn.id}" style="cursor:pointer;pointer-events:stroke"/>
               ${arrowHit}
               <path d="${loopPath}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" style="pointer-events:none"/>
@@ -2389,7 +2433,7 @@
           // Hit area for arrow head (circle around arrow tip)
           const arrowHitX = toX - dir * 5;
           const arrowHit = `<circle class="conn-hit" cx="${arrowHitX}" cy="${y}" r="15" fill="transparent" data-conn="${conn.id}" style="cursor:pointer;pointer-events:all"/>`;
-          return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" style="cursor:pointer">
+          return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" role="img" aria-label="${esc(connAriaLabel(conn, nodeById))}" style="cursor:pointer">
             <line class="conn-hit" x1="${fromX}" y1="${y}" x2="${toX}" y2="${y}" stroke="transparent" stroke-width="20" data-conn="${conn.id}" style="cursor:pointer;pointer-events:stroke"/>
             ${arrowHit}
             <line x1="${fromX}" y1="${y}" x2="${arrowX}" y2="${y}" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" class="connection" style="pointer-events:none"/>
@@ -2502,7 +2546,7 @@
         const connDashArray = conn.strokeStyle === 'dashed' ? '5,3' : 'none';
         // Endpoint drag-handles are drawn in the #connHandles overlay (above nodes)
         if (isConnSelected) selHandles = { fromX: x1, fromY: y1, toX: endX, toY: endY };
-        return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" style="cursor:pointer">${hitArea}${arrowHit}<path class="connection" d="${path}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${connDashArray}" style="pointer-events:none"/>${startMarkerSvg}${endMarkerSvg}${labelEl}</g>`;
+        return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" role="img" aria-label="${esc(connAriaLabel(conn, nodeById))}" style="cursor:pointer">${hitArea}${arrowHit}<path class="connection" d="${path}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${connDashArray}" style="pointer-events:none"/>${startMarkerSvg}${endMarkerSvg}${labelEl}</g>`;
       }).join('');
 
       // Endpoint handles on top of everything, with a generous transparent hit area
@@ -2872,6 +2916,44 @@
           const w = isSelected ? 3 : 2;
           shape = `<path d="${d}" fill="none" stroke="transparent" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="${d}" fill="none" stroke="${stroke}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" class="node-border"/>`;
+        } else if (node.type === 'cylinder' || node.type === 'hexagon' || node.type === 'parallelogram' || node.type === 'trapezoid' || node.type === 'subroutine') {
+          // Flowchart shape zoo (#49): cylinder/hex/parallelogram/trapezoid as
+          // path/polygon, subroutine as a double-bordered rect. Label is wrapped
+          // and clipped to the shape, like the other branches.
+          const { fill, style } = getFill(node, 'infill');
+          const customPattern = getCustomPattern(node);
+          const txtColor = (style === 'outline' || style === 'stripe' || style === 'grid') ? (node.outlineColor || COLORS.fg) : textColor;
+          const x = node.x, y = node.y, w = node.width, h = node.height, cx = x + w / 2, cy = y + h / 2;
+          const clipId = 'clip-' + node.id;
+          let outline, clip;
+          if (node.type === 'cylinder') {
+            const ry = Math.min(14, h * 0.16);
+            clip = `<rect x="${x}" y="${y + ry}" width="${w}" height="${Math.max(1, h - ry * 2)}"/>`;
+            outline = `<path d="M${x},${y + ry} L${x},${y + h - ry} A${w / 2},${ry} 0 0 0 ${x + w},${y + h - ry} L${x + w},${y + ry} Z" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>
+              <ellipse cx="${cx}" cy="${y + ry}" rx="${w / 2}" ry="${ry}" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5"/>`;
+          } else if (node.type === 'hexagon') {
+            const n = Math.min(22, w * 0.2);
+            const pts = `${x + n},${y} ${x + w - n},${y} ${x + w},${cy} ${x + w - n},${y + h} ${x + n},${y + h} ${x},${cy}`;
+            clip = `<polygon points="${pts}"/>`;
+            outline = `<polygon points="${pts}" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>`;
+          } else if (node.type === 'parallelogram') {
+            const s = Math.min(26, w * 0.22);
+            const pts = `${x + s},${y} ${x + w},${y} ${x + w - s},${y + h} ${x},${y + h}`;
+            clip = `<polygon points="${pts}"/>`;
+            outline = `<polygon points="${pts}" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>`;
+          } else if (node.type === 'trapezoid') {
+            const s = Math.min(26, w * 0.22);
+            const pts = `${x + s},${y} ${x + w - s},${y} ${x + w},${y + h} ${x},${y + h}`;
+            clip = `<polygon points="${pts}"/>`;
+            outline = `<polygon points="${pts}" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>`;
+          } else { // subroutine: rect with a second vertical border on each side
+            const inset = 7;
+            clip = `<rect x="${x + inset}" y="${y}" width="${Math.max(1, w - inset * 2)}" height="${h}"/>`;
+            outline = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>
+              <line x1="${x + inset}" y1="${y}" x2="${x + inset}" y2="${y + h}" stroke="${strokeColor}" stroke-width="1.5"/>
+              <line x1="${x + w - inset}" y1="${y}" x2="${x + w - inset}" y2="${y + h}" stroke="${strokeColor}" stroke-width="1.5"/>`;
+          }
+          shape = `${customPattern}<defs><clipPath id="${clipId}">${clip}</clipPath></defs>${outline}<g clip-path="url(#${clipId})">${renderWrappedText(node.label, cx, cy, w * 0.7, 12, txtColor, '', node.icon)}</g>`;
         } else if (node.isClass) {
           // UML class box: header (with optional «stereotype»), then attribute
           // and method sections (each shown only when non-empty).
@@ -2968,13 +3050,49 @@
         const resizeHandle = (isSelected && node.type !== 'line' && node.type !== 'pencil') ?
           `<rect class="resize-handle" x="${node.x + node.width - 8}" y="${node.y + node.height - 8}" width="8" height="8" fill="${COLORS.accent}" rx="2"/>` : '';
         
-        return `<g class="node ${isSelected ? 'selected' : ''}" data-id="${node.id}">
+        return `<g class="node ${isSelected ? 'selected' : ''}" data-id="${node.id}" role="img" aria-label="${esc(nodeAriaLabel(node))}">
           ${lifeline}
           ${shape}
           ${connectors}
           ${resizeHandle}
         </g>`;
       }).join('');
+    }
+
+    // === Screen-reader semantics (#59) ===
+    // Human-readable type names for accessible labels.
+    const NODE_TYPE_NAMES = {
+      rect: 'Rectangle', pill: 'Pill', diamond: 'Diamond', circle: 'Circle', container: 'Group',
+      text: 'Text', note: 'Note', line: 'Line', pencil: 'Drawing', image: 'Image', link: 'Link',
+      cylinder: 'Database', hexagon: 'Hexagon', parallelogram: 'Input/Output', trapezoid: 'Trapezoid',
+      subroutine: 'Subroutine', pie: 'Pie chart', quadrant: 'Quadrant chart', xychart: 'XY chart', bar: 'Bar',
+    };
+    function nodeTypeName(node) {
+      if (node.isClass) return node.stereotype ? node.stereotype[0].toUpperCase() + node.stereotype.slice(1) : 'Class';
+      return NODE_TYPE_NAMES[node.type] || (node.type ? node.type[0].toUpperCase() + node.type.slice(1) : 'Node');
+    }
+    // Accessible name for a node group: "Type: label" (or just the type when unlabeled).
+    function nodeAriaLabel(node) {
+      const lbl = (node.label || '').trim();
+      return lbl ? `${nodeTypeName(node)}: ${lbl}` : nodeTypeName(node);
+    }
+    // Accessible name for a connection: "arrow from A to B" using endpoint labels.
+    function connAriaLabel(conn, nodeById) {
+      const from = nodeById ? nodeById.get(conn.from) : nodes.find(n => n.id === conn.from);
+      const to = nodeById ? nodeById.get(conn.to) : nodes.find(n => n.id === conn.to);
+      const name = (n) => n ? ((n.label || '').trim() || nodeTypeName(n)) : '?';
+      const verb = conn.label ? `${conn.label}: ` : '';
+      return `${verb}arrow from ${name(from)} to ${name(to)}`;
+    }
+    // Announce a structural edit through the visually-hidden aria-live region.
+    function announce(msg) {
+      const live = document.getElementById('a11yLive');
+      if (live) live.textContent = msg;
+    }
+    // Announce a new connection by endpoint names.
+    function announceConnect(fromId, toId) {
+      const nm = (id) => { const n = nodes.find(x => x.id === id); return n ? ((n.label || '').trim() || nodeTypeName(n)) : '?'; };
+      announce(`connected ${nm(fromId)} to ${nm(toId)}`);
     }
 
     // Event delegation: listeners are attached ONCE to the persistent group
@@ -3205,6 +3323,7 @@
         nodes = nodes.filter(n => !toDelete.includes(n.id));
         connections = connections.filter(c => !toDelete.includes(c.from) && !toDelete.includes(c.to));
         deselectAll();
+        announce(toDelete.length === 1 ? 'Node deleted' : toDelete.length + ' nodes deleted');   // #59
         saveState();
         render();
       }
@@ -4781,6 +4900,7 @@
                 lineStyle: globalLineStyle
               });
             }
+            announceConnect(connecting.from, toId);   // #59
             saveState();
             render();
           }
@@ -4801,6 +4921,7 @@
               toIdx: 1,
               lineStyle: globalLineStyle
             });
+            announceConnect(connecting.from, toNode.id);   // #59
             saveState();
             render();
           }
@@ -7767,6 +7888,16 @@
 
       if (!code || code === 'flowchart TD' || code === 'flowchart TD\n    %% Empty diagram') {
         if (!append) { errorDiv.textContent = 'No code to import'; errorDiv.style.display = 'block'; }
+        else toast('Nothing to import — no Mermaid code found.', 'error');
+        return false;
+      }
+
+      // Recognized-but-unsupported Mermaid diagram types: bail with a named toast
+      // rather than letting the flowchart fallback emit spurious nodes (append flow).
+      const firstKw = (code.split('\n').find(l => l.trim() && !l.trim().startsWith('%%')) || '').trim().split(/\s+/)[0];
+      const UNSUPPORTED_MERMAID = /^(zenuml|kanban|packet-beta|radar|treemap|mindmap-beta|sankey)$/i;
+      if (append && firstKw && UNSUPPORTED_MERMAID.test(firstKw)) {
+        toast(`Can't import "${firstKw}" yet — unsupported diagram type.`, 'error');
         return false;
       }
 
@@ -7782,6 +7913,7 @@
 
         if (parsed.nodes.length === 0) {
           if (!append) { errorDiv.textContent = 'No nodes found in code'; errorDiv.style.display = 'block'; }
+          else toast('Couldn\'t import that Mermaid — no recognizable diagram found.', 'error');
           return false;
         }
 

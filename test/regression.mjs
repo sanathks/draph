@@ -1811,6 +1811,46 @@ group('Selection → Mermaid (#2): selection-scoped export');
   check('no selection falls back to whole-canvas export', /\bC\b/.test(E(`generateMermaid({ selectionOnly: true })`)));
 }
 
+group('Mermaid append import (#46): feedback on silent failures');
+{
+  const { win, doc } = boot();
+  // recognized-but-unsupported keyword → named toast, returns false, nothing imported
+  const n0 = doc.querySelectorAll('.toast').length;
+  const r1 = win.importMermaid(true, { code: 'kanban\n  Todo\n  Doing', append: true });
+  check('unsupported append import returns false', r1 === false);
+  check('a feedback toast was shown', doc.querySelectorAll('.toast').length > n0);
+  check('toast names the unsupported type', /kanban/.test(doc.querySelector('.toast span').textContent));
+  check('nothing was imported on failure', win.eval('nodes.length') === 0);
+  // garbage / no recognizable diagram → generic toast, returns false
+  const before2 = doc.querySelectorAll('.toast').length;
+  const r2 = win.importMermaid(true, { code: '%% only a comment', append: true });
+  check('comment-only append import returns false + toasts', r2 === false && doc.querySelectorAll('.toast').length > before2);
+  // valid append import still succeeds with no error toast
+  const before3 = doc.querySelectorAll('.toast').length;
+  const r3 = win.importMermaid(true, { code: 'flowchart TD\n A-->B', append: true });
+  check('valid append import still succeeds, no new toast', r3 === true && doc.querySelectorAll('.toast').length === before3 && win.eval('nodes.length') === 2);
+  // replace-mode (non-append) still uses the editor errorDiv, not a toast (no regression)
+  const before4 = doc.querySelectorAll('.toast').length;
+  win.importMermaid(true, { code: 'kanban\n x', append: false });
+  check('replace-mode unsupported does not toast (errorDiv path unchanged)', doc.querySelectorAll('.toast').length === before4);
+}
+
+group('Accessibility (#45): icon-button ARIA labels + pressed state');
+{
+  const { win, doc } = boot();
+  const btns = [...doc.querySelectorAll('.tool-btn')];
+  check('every tool button has a non-empty aria-label', btns.length >= 10 && btns.every(b => (b.getAttribute('aria-label') || '').trim().length > 0));
+  check('decorative button SVGs are aria-hidden', btns.every(b => { const s = b.querySelector('svg'); return !s || s.getAttribute('aria-hidden') === 'true'; }));
+  win.setTool('rect');
+  const rectBtn = doc.getElementById('tool-rect');
+  check('active tool is marked aria-pressed=true', rectBtn.getAttribute('aria-pressed') === 'true');
+  win.setTool('pencil');
+  check('previously-active tool clears aria-pressed', rectBtn.getAttribute('aria-pressed') === 'false');
+  check('newly-active tool is pressed', doc.getElementById('tool-pencil').getAttribute('aria-pressed') === 'true');
+  // exactly one tool is pressed at a time
+  check('exactly one tool button is pressed', [...doc.querySelectorAll('[id^="tool-"]')].filter(b => b.getAttribute('aria-pressed') === 'true').length === 1);
+}
+
 group('First-run onboarding (#44): walkthrough + versioned flag');
 {
   const { win, doc, E } = boot();
@@ -2145,6 +2185,74 @@ group('Coach-marks (#56): spotlight steps + shared onboarding flag');
   E2(`localStorage.removeItem('draph.onboarding.v1')`);
   w2.startOnboarding(); E2(`onboardingStep = ONBOARDING_STEPS.length - 1`); w2.onboardingNext();
   check('carousel finish opens coach-marks', !d2.getElementById('coachmarkOverlay').classList.contains('hidden'));
+}
+
+group('Flowchart shapes (#49): placeShape + renderNodes branches');
+{
+  const { win, doc } = boot();
+  for (const kind of ['cylinder', 'hexagon', 'parallelogram', 'trapezoid', 'subroutine']) {
+    const n = win.placeShape(kind, 200, 200);
+    check(kind + ' node created with that type', n && n.type === kind);
+    check(kind + ' has a default size', n && n.width > 0 && n.height > 0);
+  }
+  win.render();
+  // cylinder renders a path + ellipse
+  const cyl = win.placeShape('cylinder', 400, 200); win.render();
+  const elc = doc.querySelector(`#nodes .node[data-id="${cyl.id}"]`);
+  check('cylinder renders a path/ellipse', !!elc && /<path|<ellipse/i.test(elc.innerHTML));
+  // hexagon / parallelogram / trapezoid render polygons
+  const hex = win.placeShape('hexagon', 600, 200); win.render();
+  const elh = doc.querySelector(`#nodes .node[data-id="${hex.id}"]`);
+  check('hexagon renders a polygon', !!elh && /<polygon/i.test(elh.innerHTML));
+  // subroutine renders a rect plus inner vertical border lines
+  const sub = win.placeShape('subroutine', 800, 200); win.render();
+  const els = doc.querySelector(`#nodes .node[data-id="${sub.id}"]`);
+  check('subroutine renders a double border (rect + lines)', !!els && /<rect/i.test(els.innerHTML) && (els.innerHTML.match(/<line/g) || []).length >= 2);
+  // label/connect parity: a flowchart shape carries a label and can be an edge endpoint
+  check('flowchart shape carries a default label', !!cyl.label);
+  const other = win.createNode('rect', 1000, 200, 80, 40);
+  win.eval(`connections.push({ id: 'fc', from: '${cyl.id}', to: '${other.id}' })`); win.render();
+  check('flowchart shape is connectable', win.eval(`connections.some(c=>c.from==='${cyl.id}')`));
+}
+
+group('Screen-reader semantics (#59): node/conn aria-labels + live region');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 100, 100, 120, 60);
+  E(`nodes.find(n=>n.id==='${a.id}').label = 'Login'`);
+  win.render();
+  const el = doc.querySelector(`#nodes .node[data-id="${a.id}"]`);
+  check('node group has role=img', !!el && el.getAttribute('role') === 'img');
+  check('node aria-label includes type + label', !!el && /Rectangle: Login/.test(el.getAttribute('aria-label') || ''));
+
+  // unlabeled node falls back to the type name
+  const u = win.createNode('diamond', 300, 100, 100, 60);
+  E(`nodes.find(n=>n.id==='${u.id}').label = ''`);
+  win.render();
+  const elu = doc.querySelector(`#nodes .node[data-id="${u.id}"]`);
+  check('unlabeled node aria-label is the type', (elu.getAttribute('aria-label') || '') === 'Diamond');
+
+  // connection accessible name describes from→to
+  const b = win.createNode('pill', 500, 100, 120, 60);
+  E(`nodes.find(n=>n.id==='${b.id}').label = 'Home'`);
+  E(`connections.push({ id: 'e1', from: '${a.id}', to: '${b.id}' })`);
+  win.render();
+  const ce = doc.querySelector(`.connection-group[data-id="e1"]`);
+  check('connection has role=img', !!ce && ce.getAttribute('role') === 'img');
+  check('connection aria-label describes from→to', !!ce && /from Login to Home/.test(ce.getAttribute('aria-label') || ''));
+
+  // live region exists and receives announcements
+  const live = doc.querySelector('[aria-live]');
+  check('an aria-live region exists', !!live);
+  win.createNode('rect', 700, 100, 80, 40);
+  check('add announces via the live region', /added/.test((live.textContent || '')));
+  E(`selectedId = '${a.id}'`); win.deleteSelected();
+  check('delete announces via the live region', /deleted/i.test((live.textContent || '')));
+  win.announceConnect(b.id, u.id);
+  check('connect announcement names endpoints', /connected Home to Diamond/.test(live.textContent || ''));
+
+  // no visual regression: node groups still render their shape markup
+  check('node still renders its shape', !!doc.querySelector(`#nodes .node[data-id="${b.id}"] rect, #nodes .node[data-id="${b.id}"] path`));
 }
 
 process.exit(report() ? 0 : 1);
