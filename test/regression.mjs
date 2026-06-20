@@ -1982,6 +1982,29 @@ group('Mermaid gantt import (#25): dependency arrows + weekly axis');
   check('gantt: bars keep fixed geometry', design.fixed === true && code2.fixed === true);
 }
 
+group('Keyboard a11y (#58): roving arrows + modal focus trap/restore');
+{
+  const { win, doc, E } = boot();
+  doc.getElementById('tool-select').focus();
+  key(doc, 'ArrowRight');
+  check('arrow cycles tool focus + selection', doc.activeElement === doc.getElementById('tool-rect') && E('currentTool') === 'rect');
+  key(doc, 'ArrowLeft');
+  check('arrow-left cycles back', doc.activeElement === doc.getElementById('tool-select') && E('currentTool') === 'select');
+  check('roving tabindex: active tool is the only tab stop', doc.getElementById('tool-select').getAttribute('tabindex') === '0' && doc.getElementById('tool-rect').getAttribute('tabindex') === '-1');
+  // modal focus trap + restore
+  const opener = doc.getElementById('tool-select'); opener.focus();
+  win.toggleCheatsheet(true);
+  check('opening a modal moves focus inside it', doc.getElementById('cheatsheetOverlay').contains(doc.activeElement));
+  key(doc, 'Tab');
+  check('Tab stays trapped within the modal', doc.getElementById('cheatsheetOverlay').contains(doc.activeElement));
+  key(doc, 'Escape');
+  check('Esc closes the modal', doc.getElementById('cheatsheetOverlay').classList.contains('hidden'));
+  check('focus restored to the opener on close', doc.activeElement === opener);
+  // no regression: single-key shortcuts still fire
+  key(doc, 'p');
+  check('single-key shortcut still works (P → pencil)', E('currentTool') === 'pencil');
+}
+
 group('Mermaid C4 import (#28): directional Rel + person figure');
 {
   const { win, doc, E } = boot();

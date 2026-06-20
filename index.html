@@ -176,6 +176,9 @@
     .tool-btn:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--fg-bright); }
     .tool-btn:active { transform: scale(0.92); }
     .tool-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    /* Visible focus ring on every interactive control (keyboard a11y, #58) */
+    button:focus-visible, .dropdown-item:focus-visible, [role="button"]:focus-visible,
+    a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
     .tool-btn.active { background: var(--accent); color: var(--bg); box-shadow: 0 2px 6px color-mix(in srgb, var(--accent) 35%, transparent); }
     .tool-btn svg { width: 20px; height: 20px; }
     /* keyboard-shortcut badge in the corner of a tool button */
@@ -1290,10 +1293,12 @@
     // Tool management
     function setTool(tool) {
       currentTool = tool;
-      // Update toolbar buttons (active class + aria-pressed for screen readers)
-      document.querySelectorAll('[id^="tool-"]').forEach(btn => { btn.classList.remove('active'); btn.setAttribute('aria-pressed', 'false'); });
-      const activeBtn = document.getElementById('tool-' + tool);
-      if (activeBtn) { activeBtn.classList.add('active'); activeBtn.setAttribute('aria-pressed', 'true'); }
+      // Update toolbar buttons: active class, roving tabindex (#58 — only the
+      // active tool is in the Tab order, arrows move focus within the group), and
+      // aria-pressed for screen readers (#45).
+      document.querySelectorAll('[id^="tool-"]').forEach(btn => { btn.classList.remove('active'); btn.setAttribute('tabindex', '-1'); btn.setAttribute('aria-pressed', 'false'); });
+      const activeToolBtn = document.getElementById('tool-' + tool);
+      if (activeToolBtn) { activeToolBtn.classList.add('active'); activeToolBtn.setAttribute('tabindex', '0'); activeToolBtn.setAttribute('aria-pressed', 'true'); }
       // Update cursor
       const container = document.getElementById('canvasContainer');
       if (SHAPE_TOOLS.includes(tool) || tool === 'pencil') {
@@ -1431,6 +1436,7 @@
       buildIconPicker();
       applyA11yLabels();
       bindCanvasEvents();
+      initKeyboardA11y();
       // Share-link hash wins; otherwise restore the last autosaved diagram.
       if (!loadFromUrl()) restoreAutosave();
       docStore._open();   // hydrate the document library from IndexedDB (best-effort; no-op without IDB)
@@ -3473,11 +3479,56 @@
           `<div class="grouphead">${g.group}</div>` + g.items.map(([k, v]) => `<div class="row"><span>${k}</span><kbd>${v}</kbd></div>`).join('')
         ).join('');
         cheatsheetOverlay.classList.remove('hidden');
+        trapModalFocus(cheatsheetOverlay);
       } else {
         cheatsheetOverlay.classList.add('hidden');
+        releaseModalFocus();
       }
     }
     cheatsheetOverlay.addEventListener('mousedown', (e) => { if (e.target === cheatsheetOverlay) toggleCheatsheet(false); });
+
+    // === Keyboard a11y (#58): modal focus trap/restore + toolbar arrow cycling ===
+    let _modalReturnFocus = null, _modalTrapHandler = null;
+    const focusablesIn = (root) => [...root.querySelectorAll('button, [href], input, textarea, select, [tabindex]')]
+      .filter(el => el.getAttribute('tabindex') !== '-1' && !el.disabled);
+    // Trap Tab within `overlay` (handler on document so it works regardless of
+    // where focus is) and remember the opener to restore on close.
+    function trapModalFocus(overlay) {
+      _modalReturnFocus = document.activeElement;
+      const items = focusablesIn(overlay);
+      if (items[0] && items[0].focus) items[0].focus();
+      _modalTrapHandler = (e) => {
+        if (e.key !== 'Tab') return;
+        const f = focusablesIn(overlay); if (!f.length) return;
+        const first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      };
+      document.addEventListener('keydown', _modalTrapHandler, true);
+    }
+    function releaseModalFocus() {
+      if (_modalTrapHandler) document.removeEventListener('keydown', _modalTrapHandler, true);
+      _modalTrapHandler = null;
+      if (_modalReturnFocus && _modalReturnFocus.focus) _modalReturnFocus.focus();
+      _modalReturnFocus = null;
+    }
+    // Roving-tabindex arrow cycling across the tool buttons.
+    function initKeyboardA11y() {
+      const tools = () => [...document.querySelectorAll('[id^="tool-"]')];
+      tools().forEach((b, i) => b.setAttribute('tabindex', b.classList.contains('active') ? '0' : '-1'));
+      if (!tools().some(b => b.getAttribute('tabindex') === '0') && tools()[0]) tools()[0].setAttribute('tabindex', '0');
+      document.addEventListener('keydown', (e) => {
+        if (!/^Arrow(Left|Right|Up|Down)$/.test(e.key)) return;
+        const btns = tools(); const i = btns.indexOf(document.activeElement);
+        if (i === -1) return;   // focus isn't on a tool button — leave arrows alone
+        e.preventDefault();
+        const dir = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : -1;
+        const next = btns[(i + dir + btns.length) % btns.length];
+        next.focus();
+        const toolName = next.id.replace(/^tool-/, '');
+        if (toolName) setTool(toolName);
+      });
+    }
 
     // === SECTION: FIRST-RUN ONBOARDING (one-time guided walkthrough) ===========
     // Completion is persisted under a VERSIONED key so the walkthrough can be
