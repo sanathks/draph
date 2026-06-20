@@ -5303,9 +5303,45 @@
       if (firstLine.match(/^pie\b/i)) {
         return parsePie(lines);
       }
+      if (firstLine.match(/^journey\b/i)) {
+        return parseJourney(lines.slice(1));
+      }
 
       // Default: flowchart
       return parseFlowchart(lines);
+    }
+
+    // User-journey diagrams. Tasks become points placed left-to-right; vertical
+    // position encodes the satisfaction score (1–5, higher = higher up) like
+    // Mermaid's journey line; consecutive tasks are chained; sections get a
+    // label. `task : score : actor1, actor2`. Actors shown in the label.
+    function parseJourney(lines) {
+      const PXT = 180, baseX = 120, baseY = 360, scoreUnit = 40, taskH = 44;
+      const result = { nodes: [], connections: [], errors: [], diagramType: 'journey' };
+      const tasks = [], sections = [];
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith('%%') || /^journey\b/i.test(line) || /^title\s/i.test(line)) continue;
+        let m = line.match(/^section\s+(.+)$/i);
+        if (m) { sections.push({ name: m[1].trim(), at: tasks.length }); continue; }
+        m = line.match(/^(.+?)\s*:\s*(\d+)\s*:\s*(.+)$/);          // name : score : actors
+        if (m) { tasks.push({ name: m[1].trim(), score: +m[2], actors: m[3].trim() }); continue; }
+        m = line.match(/^(.+?)\s*:\s*(\d+)\s*$/);                  // name : score
+        if (m) tasks.push({ name: m[1].trim(), score: +m[2], actors: '' });
+      }
+      let prev = null;
+      tasks.forEach((t, i) => {
+        const id = 'jt' + i;
+        const label = t.actors ? `${t.name} (${t.actors})` : t.name;
+        const score = Math.min(5, Math.max(1, t.score || 1));
+        result.nodes.push({ id, type: 'pill', label, fixed: true, x: baseX + i * PXT, y: baseY - score * scoreUnit, width: Math.max(120, label.length * 7 + 24), height: taskH });
+        if (prev) result.connections.push({ from: prev, to: id });
+        prev = id;
+      });
+      sections.forEach(s => {
+        result.nodes.push({ id: 'jsec' + s.at, type: 'text', label: s.name, fixed: true, x: baseX + s.at * PXT, y: baseY + 40, width: 160, height: 24 });
+      });
+      return result;
     }
 
     // Pie charts. Collapses to a single `pie` node holding all slices; rendered
@@ -5970,8 +6006,8 @@
       const startX = 100;
       const startY = 100;
 
-      // Gantt/pie carry their own absolute geometry — don't re-layout.
-      if (diagramType === 'gantt' || diagramType === 'pie') return parsedNodes;
+      // Gantt/pie/journey carry their own absolute geometry — don't re-layout.
+      if (diagramType === 'gantt' || diagramType === 'pie' || diagramType === 'journey') return parsedNodes;
 
       // Sequence diagram: horizontal layout at top
       if (diagramType === 'sequence') {

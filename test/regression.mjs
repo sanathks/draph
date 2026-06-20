@@ -1154,4 +1154,32 @@ group('v2: Mermaid pie chart import');
   check('pie renders a legend with a percentage', !!el && /%/.test(el.textContent));
 }
 
+// ---------------------------------------------------------------------------
+group('v2: Mermaid user-journey import');
+{
+  const { win, E } = boot();
+  const code = [
+    'journey',
+    '    title My day',
+    '    section Work',
+    '      Make tea: 5: Me',
+    '      Do work: 1: Me, Cat',
+    '    section Home',
+    '      Sit down: 5: Me',
+  ].join('\n');
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('journey makes a task node per task', p.nodes.filter(n => n.type === 'pill').length === 3);
+  check('journey shows actors in the label', p.nodes.some(n => /Do work \(Me, Cat\)/.test(n.label)));
+  check('journey chains tasks sequentially', p.connections.length === 2);
+  // higher score => higher up (smaller y). "Make tea" (5) above "Do work" (1)
+  const tea = p.nodes.find(n => /Make tea/.test(n.label));
+  const work = p.nodes.find(n => /Do work/.test(n.label));
+  check('journey positions higher score higher up', tea.y < work.y);
+  check('journey adds section labels', p.nodes.some(n => n.type === 'text' && n.label === 'Work'));
+  // full import
+  const ed = win.document.getElementById('mermaidEditor');
+  ed.value = code; win.importMermaid(true);
+  check('journey import builds tasks + line', E(`nodes.filter(n=>n.type==='pill').length`) === 3 && E('connections.length') === 2);
+}
+
 process.exit(report() ? 0 : 1);

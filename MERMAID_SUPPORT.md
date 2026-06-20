@@ -21,7 +21,7 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
 | Timeline | `timeline` | 🟡 | **NEW.** `period : event…` → period (pill) with event (rect) children; `: event` continues a period; `section` → grouping container. Laid out top-down (Mermaid is horizontal). TODO: title node, horizontal lane layout, section colors |
 | Gantt | `gantt` | 🟡 | **NEW.** tasks→horizontal bars on a 20px/day axis (start date → x, duration → width); `after <id>` deps resolve start; sections→left labels; milestones→diamonds. TODO: date-axis ticks, today marker, dependency arrows, weekends/excludes |
 | Pie | `pie` | 🟡 | **NEW.** one `pie` node renders an actual pie (slice `<path>` arcs) + legend with values & percentages; slice colors from the palette. TODO: donut variant, label leader lines |
-| User Journey | `journey` | ⬜ | sections, tasks, actor scores |
+| User Journey | `journey` | 🟡 | **NEW.** tasks→points placed left-to-right, vertical position = satisfaction score (1–5), chained into the journey line; actors shown in label; sections→labels. TODO: actor avatars/faces, section bands |
 | Git graph | `gitGraph` | ⬜ | commits/branches/merges → DAG |
 | Quadrant | `quadrantChart` | ⬜ | 2×2 plot of points |
 | Requirement | `requirementDiagram` | ⬜ | requirement boxes + relationships |
@@ -42,6 +42,9 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
   line, any needed render tweaks, and regression tests in `test/regression.mjs`.
 
 ## Changelog
+- **Journey (first cut):** `parseJourney` — tasks placed left-to-right with
+  vertical position by satisfaction score (the journey line), chained
+  sequentially, actors in the label, sections labeled. Fixed geometry. Tested.
 - **Pie (first cut):** new `pie` node type — `parsePie` collapses slices into one
   node; renderNodes draws real slice arcs + a legend (label, value, percent).
   First chart rendered natively (not via the node graph). Tests cover it.
