@@ -1672,4 +1672,27 @@ group('Connection routing (#34): non-locked sides re-seat on render');
   check('locked toSide is left untouched', E(`connections.find(c=>c.id==='r34').toSide`) === locked);
 }
 
+group('Mermaid state import (#22): composite / fork-join-choice / notes');
+{
+  const { win, doc, E } = boot();
+  const code = 'stateDiagram-v2\n  [*] --> Active\n  state Active {\n    [*] --> Idle\n    Idle --> Running\n  }\n  Active --> [*]';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const sg = (p.subgraphs || []).find(s => s.id === 'Active');
+  check('composite state becomes a container subgraph with its inner states', !!sg && sg.children.includes('Idle') && sg.children.includes('Running'));
+  check('composite name is not duplicated as a plain node', !p.nodes.some(n => n.id === 'Active'));
+  // import nests the children inside the container
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true);
+  check('import creates the Active container', E(`nodes.some(n=>n.type==='container'&&n.label==='Active')`));
+  check('inner state renders inside the composite container', E(`(()=>{const c=nodes.find(n=>n.type==='container'&&n.label==='Active');const i=nodes.find(n=>n.label==='Idle');return !!c&&!!i&&i.x>=c.x&&i.y>=c.y&&i.x+i.width<=c.x+c.width&&i.y+i.height<=c.y+c.height;})()`));
+  // fork / join → bar nodes; choice → diamond
+  const p2 = E(`parseMermaid(${JSON.stringify('stateDiagram-v2\n  state f1 <<fork>>\n  state j1 <<join>>\n  state c1 <<choice>>\n  A --> f1\n  c1 --> B')})`);
+  check('fork parses to a bar node', p2.nodes.some(n => n.id === 'f1' && n.stateKind === 'fork'));
+  check('join parses to a bar node', p2.nodes.some(n => n.id === 'j1' && n.stateKind === 'join'));
+  check('choice parses to a diamond', p2.nodes.some(n => n.id === 'c1' && n.type === 'diamond' && n.stateKind === 'choice'));
+  // note → note node linked (dashed) to its state
+  const p3 = E(`parseMermaid(${JSON.stringify('stateDiagram-v2\n  A --> B\n  note right of A : hello world')})`);
+  check('note becomes a note node', p3.nodes.some(n => n.type === 'note' && /hello world/.test(n.label)));
+  check('note links to its state (dashed)', p3.connections.some(c => c.to === 'A' && c.strokeStyle === 'dashed'));
+}
+
 process.exit(report() ? 0 : 1);

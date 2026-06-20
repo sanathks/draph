@@ -6145,45 +6145,79 @@
     // pseudo-state, rendered as a small circle. (First cut: notes, forks, and
     // composite-state nesting are flattened/ignored — see MERMAID_SUPPORT.md.)
     function parseStateDiagram(lines) {
-      const result = { nodes: [], connections: [], errors: [], diagramType: 'flowchart' };
+      const result = { nodes: [], connections: [], errors: [], diagramType: 'flowchart', subgraphs: [] };
       const nodeMap = {};
-      const ensure = (id, label) => {
-        if (!nodeMap[id]) { nodeMap[id] = { id, type: 'rect', label: label || id }; result.nodes.push(nodeMap[id]); }
-        else if (label) nodeMap[id].label = label;
-        return nodeMap[id].id;
-      };
-      let startId = null, endId = null;
-      const pseudo = (key) => {
-        const id = key === 'start' ? '__start' : '__end';
-        if (!nodeMap[id]) { nodeMap[id] = { id, type: 'circle', label: '', isPseudo: true }; result.nodes.push(nodeMap[id]); }
+      const stack = [];   // open composite states → subgraph containers
+      const addChild = (id) => { if (stack.length) stack[stack.length - 1].children.push(id); };
+      const ensure = (id, label, type, extra) => {
+        if (!nodeMap[id]) {
+          nodeMap[id] = Object.assign({ id, type: type || 'rect', label: label != null ? label : id }, extra || {});
+          result.nodes.push(nodeMap[id]); addChild(id);
+        } else if (label) nodeMap[id].label = label;
         return id;
       };
+      let pseudoN = 0;
+      const pseudo = () => {   // each [*] is its own start/end dot (scoped to its composite)
+        const id = '__p' + (pseudoN++);
+        nodeMap[id] = { id, type: 'circle', label: '', isPseudo: true };
+        result.nodes.push(nodeMap[id]); addChild(id);
+        return id;
+      };
+      const finalizeNote = (target, text) => {   // note → note node linked to its state (dashed)
+        const id = '__note' + result.nodes.filter(n => n.type === 'note').length;
+        nodeMap[id] = { id, type: 'note', label: text };
+        result.nodes.push(nodeMap[id]); addChild(id);
+        result.connections.push({ from: id, to: target, label: '', strokeStyle: 'dashed' });
+      };
+      let noteBuf = null;   // multi-line note accumulator: { target, lines }
 
       for (const raw of lines) {
         const line = raw.trim();
         if (!line || line.startsWith('%%')) continue;
         if (/^(stateDiagram(-v2)?|direction\b)/i.test(line)) continue;
-        if (/^note\b/i.test(line)) continue;                 // skip notes (first cut)
-        if (line === '}' ) continue;                          // composite close (flatten)
-        // state "Long description" as id
-        let m = line.match(/^state\s+"([^"]+)"\s+as\s+(\w+)/i);
-        if (m) { ensure(m[2], m[1]); continue; }
-        // composite open: `state Name {` — flatten (children parsed as transitions)
-        if (/^state\s+[\w"]+.*\{\s*$/i.test(line)) {
-          const cm = line.match(/^state\s+(\w+)/i); if (cm) ensure(cm[1]);
+        if (noteBuf) {
+          if (/^end\s+note$/i.test(line)) { finalizeNote(noteBuf.target, noteBuf.lines.join('\n')); noteBuf = null; }
+          else noteBuf.lines.push(line);
           continue;
         }
-        // bare state declaration: `state Foo` or `state Foo <<fork>>`
-        m = line.match(/^state\s+(\w+)\s*(<<\w+>>)?\s*$/i);
+        // note left/right of X [: text]   (multi-line until `end note`)
+        let m = line.match(/^note\s+(?:left|right)\s+of\s+(\w+)\s*(?::\s*(.+))?$/i);
+        if (m) { if (m[2]) finalizeNote(m[1], m[2].trim()); else noteBuf = { target: m[1], lines: [] }; continue; }
+        // composite close
+        if (line === '}') { if (stack.length) stack.pop(); continue; }
+        // composite open: `state Name {` → a container subgraph; inner states nest
+        m = line.match(/^state\s+(\w+)\s*\{\s*$/i);
+        if (m) { const sg = { id: m[1], label: m[1], children: [] }; result.subgraphs.push(sg); stack.push(sg); continue; }
+        // state "Long description" as id
+        m = line.match(/^state\s+"([^"]+)"\s+as\s+(\w+)/i);
+        if (m) { ensure(m[2], m[1]); continue; }
+        // fork / join → thin bar; choice → small diamond
+        m = line.match(/^state\s+(\w+)\s*<<(fork|join|choice)>>\s*$/i);
+        if (m) {
+          const kind = m[2].toLowerCase();
+          if (kind === 'choice') ensure(m[1], '', 'diamond', { stateKind: 'choice', width: 44, height: 44 });
+          else ensure(m[1], '', 'rect', { stateKind: kind, width: 90, height: 12, fillStyle: 'infill', color: COLORS.fg });
+          continue;
+        }
+        // bare state declaration: `state Foo`
+        m = line.match(/^state\s+(\w+)\s*$/i);
         if (m) { ensure(m[1]); continue; }
-        // transition: A --> B  optionally  : label   (A/B may be [*])
+        // transition: A --> B [: label]  (A/B may be [*] or a composite name)
         m = line.match(/^(\[\*\]|\w+)\s*-->\s*(\[\*\]|\w+)\s*(?::\s*(.+))?$/);
         if (m) {
-          const fromId = m[1] === '[*]' ? pseudo('start') : ensure(m[1]);
-          const toId = m[2] === '[*]' ? pseudo('end') : ensure(m[2]);
+          const fromId = m[1] === '[*]' ? pseudo() : ensure(m[1]);
+          const toId = m[2] === '[*]' ? pseudo() : ensure(m[2]);
           result.connections.push({ from: fromId, to: toId, label: (m[3] || '').trim() });
         }
       }
+      // A composite name referenced by a transition before its `state X {` block got
+      // ensured as a plain node — drop it so only the container represents it (the
+      // connection still resolves to the container via importMermaid's id map).
+      const sgIds = new Set(result.subgraphs.map(s => s.id));
+      if (sgIds.size) {
+        result.nodes = result.nodes.filter(n => !sgIds.has(n.id));
+        result.subgraphs.forEach(sg => { sg.children = sg.children.filter(c => !sgIds.has(c)); });
+      } else { delete result.subgraphs; }
       return result;
     }
     
