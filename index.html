@@ -361,6 +361,21 @@
       padding: 1px 6px; background: var(--bg2); border: 1px solid var(--border); border-radius: 4px;
       font-size: 11px; color: var(--fg); font-family: 'JetBrains Mono', Consolas, monospace;
     }
+    /* Find box (#83): node label search, top-center. */
+    #findBox {
+      position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 30;
+      display: flex; align-items: center; gap: 8px;
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+      padding: 6px 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); color: var(--fg);
+    }
+    #findBox.hidden { display: none; }
+    #findInput {
+      background: transparent; border: none; outline: none; color: var(--fg);
+      font-size: 13px; width: 180px;
+    }
+    #findCount { font-size: 11px; color: var(--fg-dim); min-width: 28px; text-align: right; }
+    #findClose { background: none; border: none; color: var(--fg-dim); cursor: pointer; font-size: 13px; padding: 0 2px; }
+    #findClose:hover { color: var(--fg); }
     /* Read-only / embed viewer (#77): hide all editing chrome, keep the diagram
        full-bleed and pan/zoom-able. Triggered by a `#view` URL flag (see loadFromUrl). */
     .read-only header,
@@ -741,7 +756,15 @@
     <div class="absolute bottom-4 right-4 bg-storm-bg2/80 backdrop-blur px-3 py-1 rounded text-sm text-storm-fg/60">
       <span id="zoomLevel">100%</span>
     </div>
-    
+
+    <!-- Find box (#83): Cmd/Ctrl+F to search nodes by label; Enter cycles matches, Esc closes -->
+    <div id="findBox" class="hidden">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity:.6;flex:none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="findInput" type="text" placeholder="Find node…" autocomplete="off" spellcheck="false">
+      <span id="findCount"></span>
+      <button id="findClose" title="Close (Esc)">✕</button>
+    </div>
+
     <!-- Empty state (shown when the canvas has no nodes) -->
     <div id="emptyState">
       <div class="es-card">
@@ -3289,6 +3312,15 @@
           ${resizeHandle}
         </g>`;
       }).join('');
+      // Group-resize handle (#101): a single handle at the bottom-right of a 2+
+      // node selection's bounding box; dragging it scales the whole group.
+      const grNodes = (selectedIds.length > 1 ? selectedIds : [])
+        .map(id => nodes.find(n => n.id === id)).filter(n => n && n.type !== 'line' && n.type !== 'pencil');
+      if (grNodes.length > 1) {
+        const maxX = Math.max(...grNodes.map(n => n.x + n.width));
+        const maxY = Math.max(...grNodes.map(n => n.y + n.height));
+        nodesGroup.innerHTML += `<rect class="group-resize-handle" x="${maxX - 5}" y="${maxY - 5}" width="10" height="10" fill="${COLORS.accent}" stroke="${COLORS.bg}" stroke-width="1.5" rx="2" style="cursor:nwse-resize"/>`;
+      }
     }
 
     // === Screen-reader semantics (#59) ===
@@ -3333,6 +3365,7 @@
     // most-specific-first so a click on a handle/connector wins over the node.
     function bindCanvasEvents() {
       nodesGroup.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('.group-resize-handle')) return onGroupResizeMouseDown(e);
         if (e.target.closest('.resize-handle')) return onResizeMouseDown(e);
         if (e.target.closest('.line-handle')) return onLineHandleMouseDown(e);
         if (e.target.closest('.lifeline-connector')) return onLifelineConnectorMouseDown(e);
@@ -4790,6 +4823,47 @@
       e.preventDefault();
       e.stopPropagation();
     }
+
+    // === Group resize of a multi-selection (#101) ===
+    // The members in the selection that can be scaled (lines/pencil strokes skip).
+    function _groupResizeNodes() {
+      return selectedNodeIds().map(id => nodes.find(n => n.id === id))
+        .filter(n => n && n.type !== 'line' && n.type !== 'pencil');
+    }
+    // Scale the selection by `factor` about the bounding box's top-left origin, so
+    // each member grows and its position scales too (relative layout preserved).
+    // One undo unit. Returns false for <2 nodes or a bad factor.
+    function resizeSelection(factor) {
+      const ns = _groupResizeNodes();
+      if (ns.length < 2 || !(factor > 0)) return false;
+      const minX = Math.min(...ns.map(n => n.x)), minY = Math.min(...ns.map(n => n.y));
+      saveState();
+      ns.forEach(n => {
+        n.x = snap(minX + (n.x - minX) * factor);
+        n.y = snap(minY + (n.y - minY) * factor);
+        n.width = Math.max(40, snap(n.width * factor));
+        n.height = Math.max(20, snap(n.height * factor));
+        n.manuallyResized = true;
+      });
+      render();
+      return true;
+    }
+
+    let groupResizing = null;   // in-progress bbox drag: origin + each member's start geometry
+    function onGroupResizeMouseDown(e) {
+      const ns = _groupResizeNodes();
+      if (ns.length < 2) return;
+      const minX = Math.min(...ns.map(n => n.x)), minY = Math.min(...ns.map(n => n.y));
+      const maxX = Math.max(...ns.map(n => n.x + n.width)), maxY = Math.max(...ns.map(n => n.y + n.height));
+      groupResizing = {
+        originX: minX, originY: minY,
+        startW: Math.max(1, maxX - minX), startH: Math.max(1, maxY - minY),
+        items: ns.map(n => ({ node: n, x0: n.x, y0: n.y, w0: n.width, h0: n.height })),
+      };
+      saveState();   // one undo unit for the whole drag
+      e.preventDefault();
+      e.stopPropagation();
+    }
     
     // Canvas events
     // Double-click empty canvas to drop a rectangle (and start labeling it)
@@ -4963,6 +5037,22 @@
         }
         if (selectedId === dragging.node.id) positionToolbar(dragging.node);
         scheduleDragRender();
+      }
+
+      // Group resize (#101): scale the captured selection about its bbox origin.
+      if (groupResizing) {
+        const g = groupResizing;
+        const p = screenToCanvas(e.clientX, e.clientY);
+        const factor = Math.max(0.1, Math.min((p.x - g.originX) / g.startW, (p.y - g.originY) / g.startH));
+        g.items.forEach(it => {
+          it.node.x = snap(g.originX + (it.x0 - g.originX) * factor);
+          it.node.y = snap(g.originY + (it.y0 - g.originY) * factor);
+          it.node.width = Math.max(40, snap(it.w0 * factor));
+          it.node.height = Math.max(20, snap(it.h0 * factor));
+          it.node.manuallyResized = true;
+        });
+        scheduleRender();
+        return;
       }
 
       // Resizing
@@ -5156,6 +5246,7 @@
       
       if (dragging) { saveState(); dragging = null; clearGuides(); render(); }
       if (resizing) { saveState(); resizing = null; render(); }
+      if (groupResizing) { groupResizing = null; render(); updateUrlHash(); }   // #101 (saveState ran on mousedown)
       if (lineResizing) { saveState(); lineResizing = null; render(); }
       
       // Finish connection
@@ -5387,6 +5478,65 @@
       g: () => toggleGallery(),
     };
 
+    // === Find / search nodes by label (#83) ===
+    let findMatches = [], findIndex = -1;
+    // Case-insensitive substring match against node.label.
+    function findNodes(query) {
+      const q = (query || '').trim().toLowerCase();
+      if (!q) return [];
+      return nodes.filter(n => (n.label || '').toLowerCase().includes(q));
+    }
+    // Select a node and center the viewport on it (same center-on-point math the
+    // load path uses).
+    function focusNode(id) {
+      const n = nodes.find(x => x.id === id);
+      if (!n) return;
+      const cx = n.x + (n.width || 120) / 2, cy = n.y + (n.height || 60) / 2;
+      viewBox.x = cx - viewBox.w / 2;
+      viewBox.y = cy - viewBox.h / 2;
+      updateViewBox();
+      selectNode(id);
+      render();
+    }
+    function openFind() {
+      const box = document.getElementById('findBox');
+      if (!box) return;
+      box.classList.remove('hidden');
+      const inp = document.getElementById('findInput');
+      if (inp) { inp.focus(); inp.select(); }
+    }
+    function closeFind() {
+      const box = document.getElementById('findBox');
+      if (box) box.classList.add('hidden');
+      findMatches = []; findIndex = -1;
+    }
+    // Run the search; `advance` cycles to the next match (Enter), else focuses the
+    // first (live, as you type). Re-runs when the query changed.
+    function stepFind(advance) {
+      const inp = document.getElementById('findInput');
+      const next = findNodes(inp ? inp.value : '');
+      const sameQuery = next.length === findMatches.length &&
+        next.every((n, i) => findMatches[i] && n.id === findMatches[i].id);
+      if (!sameQuery) { findMatches = next; findIndex = -1; }
+      const counter = document.getElementById('findCount');
+      if (!findMatches.length) { if (counter) counter.textContent = inp && inp.value ? '0/0' : ''; return; }
+      findIndex = advance ? (findIndex + 1) % findMatches.length : Math.max(0, findIndex);
+      focusNode(findMatches[findIndex].id);
+      if (counter) counter.textContent = `${findIndex + 1}/${findMatches.length}`;
+    }
+    (() => {
+      const inp = document.getElementById('findInput');
+      if (!inp) return;
+      inp.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); stepFind(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+      });
+      inp.addEventListener('input', () => stepFind(false));
+      const close = document.getElementById('findClose');
+      if (close) close.addEventListener('click', closeFind);
+    })();
+
     // Close the shape panel on an outside click (not the panel, not its toolbar button).
     document.addEventListener('pointerdown', (e) => {
       const sp = document.getElementById('shapePanel');
@@ -5400,10 +5550,13 @@
         const sp = document.getElementById('shapePanel');
         if (sp && /\bopen\b/.test(sp.className)) { toggleShapePanel(false); return; }
         if (!cheatsheetOverlay.classList.contains('hidden')) { toggleCheatsheet(false); return; }
+        const fb = document.getElementById('findBox');
+        if (fb && !fb.classList.contains('hidden')) { closeFind(); return; }
         const cm = document.getElementById('coachmarkOverlay');
         if (cm && !cm.classList.contains('hidden')) { skipCoachmarks(); return; }
         hideContextMenu(); deselectAll(); setTool('select'); closeDropdowns(); return;
       }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); openFind(); return; }
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (e.key === '?') { toggleCheatsheet(); return; }
       if (readOnly) return;   // #77: no tool/delete/clipboard/undo shortcuts in the viewer
