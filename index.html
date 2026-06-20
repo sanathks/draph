@@ -2285,6 +2285,10 @@
             <rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="8"
             fill="none" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>
             ${cIconEl}<text x="${cTextX}" y="${node.y + 22}" fill="${cHeadColor}" font-size="13" font-weight="600" font-family="system-ui, sans-serif" style="pointer-events:none">${esc(node.label)}</text>`;
+        } else if (node.type === 'bar') {
+          // state fork/join: a solid thin bar (filled rectangle, minimal rounding)
+          const fill = node.color || COLORS.fg;
+          shape = `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="2" fill="${fill}" stroke="${strokeColor}" stroke-width="1" class="node-border"/>`;
         } else if (node.type === 'diamond') {
           const { fill, style } = getFill(node, 'infill');
           const customPattern = getCustomPattern(node);
@@ -6225,7 +6229,7 @@
         if (m) {
           const kind = m[2].toLowerCase();
           if (kind === 'choice') ensure(m[1], '', 'diamond', { stateKind: 'choice', width: 44, height: 44 });
-          else ensure(m[1], '', 'rect', { stateKind: kind, width: 90, height: 12, fillStyle: 'infill', color: COLORS.fg });
+          else ensure(m[1], '', 'bar', { stateKind: kind });   // fork/join → thin solid bar
           continue;
         }
         // bare state declaration: `state Foo`
@@ -7149,6 +7153,8 @@
 
           // [*] pseudo-states render as a small solid dot (bypass the 40px min).
           if (isPseudo) { node.width = 24; node.height = 24; node.fillStyle = 'infill'; node.color = COLORS.fg; }
+          // state fork/join: a thin solid bar (explicit small geometry, not a rect).
+          if (n.type === 'bar') { node.width = 90; node.height = 10; node.fillStyle = 'infill'; node.color = COLORS.fg; }
 
           // Grow regular shapes to fit their imported label (class/participant/
           // pseudo/fixed nodes size themselves separately)

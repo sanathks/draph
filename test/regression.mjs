@@ -1686,9 +1686,14 @@ group('Mermaid state import (#22): composite / fork-join-choice / notes');
   check('inner state renders inside the composite container', E(`(()=>{const c=nodes.find(n=>n.type==='container'&&n.label==='Active');const i=nodes.find(n=>n.label==='Idle');return !!c&&!!i&&i.x>=c.x&&i.y>=c.y&&i.x+i.width<=c.x+c.width&&i.y+i.height<=c.y+c.height;})()`));
   // fork / join → bar nodes; choice → diamond
   const p2 = E(`parseMermaid(${JSON.stringify('stateDiagram-v2\n  state f1 <<fork>>\n  state j1 <<join>>\n  state c1 <<choice>>\n  A --> f1\n  c1 --> B')})`);
-  check('fork parses to a bar node', p2.nodes.some(n => n.id === 'f1' && n.stateKind === 'fork'));
-  check('join parses to a bar node', p2.nodes.some(n => n.id === 'j1' && n.stateKind === 'join'));
+  check('fork parses to a bar node (not a rect)', p2.nodes.some(n => n.id === 'f1' && n.type === 'bar' && n.stateKind === 'fork'));
+  check('join parses to a bar node (not a rect)', p2.nodes.some(n => n.id === 'j1' && n.type === 'bar' && n.stateKind === 'join'));
   check('choice parses to a diamond', p2.nodes.some(n => n.id === 'c1' && n.type === 'diamond' && n.stateKind === 'choice'));
+  // import: fork/join become thin bar nodes (the defect the reviewer caught — must not be 'rect')
+  win.document.getElementById('mermaidEditor').value = 'stateDiagram-v2\n  state f1 <<fork>>\n  A --> f1';
+  win.importMermaid(true);
+  const fbar = E(`nodes.find(n=>n.type==='bar')`);
+  check('fork imports to a thin bar shape, not a blank rect', !!fbar && fbar.height <= 16 && !E(`nodes.some(n=>n.type==='rect'&&!n.label)`));
   // note → note node linked (dashed) to its state
   const p3 = E(`parseMermaid(${JSON.stringify('stateDiagram-v2\n  A --> B\n  note right of A : hello world')})`);
   check('note becomes a note node', p3.nodes.some(n => n.type === 'note' && /hello world/.test(n.label)));
