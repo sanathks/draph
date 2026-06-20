@@ -2171,6 +2171,31 @@ group('Mermaid pie import (#30): donut variant + leader lines');
   check('pie: donut flag does not alter the parsed slices', E(`nodes[0].slices.length`) === 3);
 }
 
+group('Custom accent color (#78): live override, persist, reset');
+{
+  const { win, doc, E } = boot();
+  win.setAccentColor('#ff5577');
+  check('accent applied to canvas palette', E(`COLORS.accent`) === '#ff5577');
+  check('accent set as CSS var', doc.documentElement.style.getPropertyValue('--accent').trim() === '#ff5577');
+  check('accent persists via saveSetting', E(`loadSetting('accent')`) === '#ff5577');
+
+  // Custom accent survives a theme switch (applyTheme must re-apply it).
+  win.applyTheme('light');
+  check('custom accent survives theme toggle', E(`COLORS.accent`) === '#ff5577');
+  win.applyTheme('dark');
+
+  // Reset restores the active theme's default accent and clears the override.
+  win.resetAccentColor();
+  check('reset restores theme default accent', E(`COLORS.accent`) === E(`THEMES[currentTheme].accent`));
+  check('reset clears the CSS var', doc.documentElement.style.getPropertyValue('--accent').trim() === '');
+  check('reset clears the persisted setting', !E(`loadSetting('accent')`));
+
+  // Light/dark toggle still works after reset (no regression).
+  win.applyTheme('light');
+  check('theme toggle still works', E(`COLORS.bg`) === E(`THEMES.light.bg`));
+  win.applyTheme('dark');
+}
+
 group('Read-only viewer (#77): chrome hidden + mutations gated, pan/zoom kept');
 {
   const { win, doc, E } = boot();
@@ -2334,6 +2359,34 @@ group('Minimap / overview (#82): markers + viewport rect + click-to-pan');
   // emptying the canvas hides it again
   E('nodes.length = 0'); win.render();
   check('minimap re-hidden when emptied', mm.style.display === 'none');
+}
+
+group('Gallery thumbnails (#79): generate helper + doc-record field + card render');
+{
+  const { win, doc, E } = boot();
+  check('thumbnail helper exists', typeof win.generateThumbnail === 'function');
+
+  // docStore persists a thumbnail field through save/load (jsdom has no canvas,
+  // so the raster itself is untestable — assert the storage wiring).
+  E(`docStore._useMemory()`);
+  const id = E(`docStore.save({ title: 't', data: exportState(), thumbnail: 'data:image/png;base64,AAAA' }).id`);
+  check('doc record stores a thumbnail field', /^data:image/.test(E(`docStore.load('${id}').thumbnail`)));
+
+  // A save without a thumbnail keeps the field null (placeholder path), no error.
+  const id2 = E(`docStore.save({ title: 'n', data: exportState() }).id`);
+  check('missing thumbnail is null (placeholder)', E(`docStore.load('${id2}').thumbnail`) === null);
+
+  // updating a doc without passing thumbnail preserves the existing one
+  E(`docStore.save({ id: '${id}', title: 't2' })`);
+  check('thumbnail preserved across a partial save', /^data:image/.test(E(`docStore.load('${id}').thumbnail`)));
+
+  // Gallery card renders an <img> when a thumbnail is present.
+  E(`activeDocId = '${id}'`); win.toggleGallery();
+  const card = doc.querySelector(`#galleryGrid .gallery-card[data-id="${id}"]`);
+  check('gallery card renders the thumbnail image', !!card && !!card.querySelector('img[src^="data:image"]'));
+  const card2 = doc.querySelector(`#galleryGrid .gallery-card[data-id="${id2}"]`);
+  check('thumbnail-less card shows no img (placeholder)', !!card2 && !card2.querySelector('img'));
+  win.toggleGallery();
 }
 
 group('Coach-marks (#56): spotlight steps + shared onboarding flag');

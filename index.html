@@ -592,6 +592,12 @@
         <!-- shown in light mode (click → dark) -->
         <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
+      <!-- Custom accent color (#78): pick a hex; double-click swatch resets to theme default -->
+      <label id="accentPicker" class="tool-btn" title="Custom accent color (double-click to reset)" style="position:relative;overflow:hidden;cursor:pointer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.563-2.512 5.563-5.563C22 6.012 17.5 2 12 2z"/></svg>
+        <input type="color" id="accentInput" onchange="setAccentColor(this.value)" ondblclick="resetAccentColor()"
+               style="position:absolute;inset:0;opacity:0;cursor:pointer" title="Pick accent color">
+      </label>
       <a href="/docs/" target="_blank" class="tool-btn" title="Documentation" style="text-decoration:none">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -1173,18 +1179,49 @@
     };
     const COLORS = { ...THEMES.dark };
     let currentTheme = 'dark';
+    let accentOverride = null;   // #78: user's custom accent hex (overrides the theme default), or null
     // Switch theme: update the <html> data attribute (drives all CSS vars),
     // swap the canvas palette, persist, and re-render so canvas colors refresh.
     function applyTheme(theme, persist = true) {
       currentTheme = (theme === 'light') ? 'light' : 'dark';
       document.documentElement.dataset.theme = currentTheme;
       Object.assign(COLORS, THEMES[currentTheme]);
+      applyAccentOverride();   // #78: a custom accent survives theme switches
       if (persist) saveSetting('theme', currentTheme);
       const tbtn = document.getElementById('themeToggleBtn');
       if (tbtn) tbtn.title = currentTheme === 'light' ? 'Switch to dark theme' : 'Switch to light theme';
       if (typeof render === 'function' && nodes) render();
     }
     function toggleTheme() { applyTheme(currentTheme === 'light' ? 'dark' : 'light'); }
+
+    // ---- Custom accent override (#78) ----------------------------------------
+    // A user-chosen accent hex overrides the active theme's accent for both the
+    // CSS-driven UI (`--accent`) and the canvas palette (`COLORS.accent`). Stored
+    // via saveSetting('accent', hex) and re-applied after applyTheme() (which
+    // resets COLORS.accent to the theme default). resetAccentColor() clears it.
+    function applyAccentOverride() {
+      if (accentOverride) {
+        COLORS.accent = accentOverride;
+        document.documentElement.style.setProperty('--accent', accentOverride);
+      } else {
+        document.documentElement.style.removeProperty('--accent');
+      }
+      const inp = document.getElementById('accentInput');
+      if (inp) inp.value = COLORS.accent;   // keep the swatch in sync with the active accent
+    }
+    function setAccentColor(hex) {
+      accentOverride = hex;
+      saveSetting('accent', hex);
+      applyAccentOverride();
+      if (typeof render === 'function' && nodes) render();
+    }
+    function resetAccentColor() {
+      accentOverride = null;
+      removeSetting('accent');
+      COLORS.accent = THEMES[currentTheme].accent;
+      document.documentElement.style.removeProperty('--accent');
+      if (typeof render === 'function' && nodes) render();
+    }
     const GRID_SIZE = 20;
     const SHAPE_TOOLS = ['rect', 'pill', 'diamond', 'circle', 'container', 'text', 'note', 'line'];
     const CONFIG = {
@@ -1470,6 +1507,8 @@
       viewBox = { x: 0, y: 0, w: rect.width, h: rect.height };
       updateViewBox();
       // Restore the saved theme before the first render (no persist write).
+      // Load any custom accent first so applyTheme re-applies it (#78).
+      accentOverride = loadSetting('accent') || null;
       applyTheme(loadSetting('theme', 'dark'), false);
       buildPalettes();
       buildIconPicker();
@@ -1712,6 +1751,7 @@
           updated: now(),
           schemaVersion: doc.schemaVersion || (prev && prev.schemaVersion) || 1,
           data: doc.data !== undefined ? doc.data : (prev ? prev.data : null),
+          thumbnail: doc.thumbnail !== undefined ? doc.thumbnail : (prev ? prev.thumbnail : null),   // #79
         };
         cache.set(id, rec); _persist(rec); return clone(rec);
       }
@@ -4125,6 +4165,15 @@
       } else {
         activeDocId = docStore.save({ title: deriveTitle(), data: exportState() }).id;
       }
+      // Refresh the thumbnail on an explicit save only (#79) — rasterizing on every
+      // autosave would be wasteful; the snapshot is async so it lands a moment later.
+      if (force && nodes.length && typeof generateThumbnail === 'function') {
+        const id = activeDocId;
+        generateThumbnail((dataUrl) => {
+          docStore.save({ id, thumbnail: dataUrl });
+          if (galleryIsOpen()) renderGallery();
+        });
+      }
       if (galleryIsOpen()) renderGallery();
       return activeDocId;
     }
@@ -4150,7 +4199,7 @@
       const swatch = ['#7aa2f7', '#9ece6a', '#bb9af7', '#e0af68', '#f7768e'];
       grid.innerHTML = docs.map((d, i) => `
         <div class="gallery-card" data-id="${d.id}" style="border:1px solid ${d.id === activeDocId ? 'var(--accent)' : 'var(--border)'};border-radius:8px;overflow:hidden;background:var(--bg2)">
-          <div onclick="galleryOpen('${d.id}')" title="Open" style="height:72px;background:${swatch[i % swatch.length]};opacity:0.85;cursor:pointer"></div>
+          <div onclick="galleryOpen('${d.id}')" title="Open" style="height:72px;cursor:pointer;${d.thumbnail ? '' : `background:${swatch[i % swatch.length]};opacity:0.85`}">${d.thumbnail ? `<img src="${d.thumbnail}" alt="" style="display:block;width:100%;height:72px;object-fit:cover">` : ''}</div>
           <div style="padding:8px">
             <div class="gallery-title" style="font-size:12px;font-weight:600;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.title)}</div>
             <div style="font-size:10px;color:var(--fg-dim);margin-top:2px">${relTime(d.updated)}</div>
@@ -5710,6 +5759,25 @@
       };
       img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
       return true;
+    }
+
+    // Generate a small thumbnail (data-URL) of the current diagram for the gallery
+    // (#79). Reuses the PNG-export raster path at low scale, then clamps to a max
+    // width so big diagrams don't bloat the stored record. cb(dataUrl) on success;
+    // returns false (and no cb) when there's nothing to render.
+    function generateThumbnail(cb) {
+      return rasterizeDiagram(0.5, (c) => {
+        const MAXW = 320;
+        let out = c;
+        if (c.width > MAXW) {
+          const s = MAXW / c.width;
+          const t = document.createElement('canvas');
+          t.width = MAXW; t.height = Math.max(1, Math.round(c.height * s));
+          t.getContext('2d').drawImage(c, 0, 0, t.width, t.height);
+          out = t;
+        }
+        cb(out.toDataURL('image/png'));
+      });
     }
 
     // Download a PNG at the given scale (1/2/3×). Default 2× for retina sharpness.
