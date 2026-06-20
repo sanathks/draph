@@ -1800,4 +1800,22 @@ group('Mermaid gitGraph import (#26): tags, commit types, cherry-pick');
   check('gitgraph: import carries tag + commitType onto nodes', E(`nodes.some(n=>n.tag==='v1.0')`) && E(`nodes.some(n=>n.commitType==='HIGHLIGHT')`));
 }
 
+group('Mermaid pie import (#30): donut variant + leader lines');
+{
+  const { win, doc, E } = boot();
+  const code = 'pie title Browsers\n  "Chrome" : 60\n  "Safari" : 25\n  "Other" : 15';
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true);
+  check('pie: one pie node imported', E(`nodes.length`) === 1 && E(`nodes[0].type === 'pie'`));
+  // default (non-donut): slices are wedge paths + leader % labels present
+  win.render();
+  const elDef = doc.querySelector('#nodes .node');
+  check('pie: default renders slice paths', !!elDef && (elDef.innerHTML.match(/<path/g) || []).length === 3);
+  check('pie: leader lines show slice percentages', /\d+%/.test(elDef.textContent));
+  // donut flag → annulus paths (inner-arc reverse sweep), default parse unchanged
+  E(`nodes[0].donut = true`); win.render();
+  const el = doc.querySelector('#nodes .node');
+  check('pie: donut renders annulus paths', !!el && /A[\d.]+,[\d.]+ 0 \d 0/.test(el.innerHTML));
+  check('pie: donut flag does not alter the parsed slices', E(`nodes[0].slices.length`) === 3);
+}
+
 process.exit(report() ? 0 : 1);
