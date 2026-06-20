@@ -49,8 +49,10 @@ Capabilities shipped in v1:
 4. **Diagram-type coverage is partial** — only flowchart/sequence/class; no
    state, ER, mind-map, or swimlane diagrams; Mermaid round-trip is lossy for
    styling and freehand/notes.
-5. **Routing is "two-endpoint aware," not obstacle-aware** — edges can still
-   cross unrelated nodes; no waypoints or manual bends.
+5. **Routing** — ~~two-endpoint aware, not obstacle-aware~~ **now does local
+   obstacle avoidance (#69):** a segment that would cross an unrelated node's rect
+   detours around it with a bump bend (clear paths unchanged). Still TODO: full
+   grid/A* pathfinding, edge-vs-edge avoidance, manual waypoints (#70).
 6. **No theming** beyond the single Tokyo Night palette.
 7. **Weak on touch/mobile and accessibility** — ~~mouse-only~~ **touch/Apple-Pencil
    now supported** (#21: canvas runs on Pointer events, `touch-action:none`,
