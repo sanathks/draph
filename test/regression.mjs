@@ -2014,4 +2014,45 @@ group('Mermaid pie import (#30): donut variant + leader lines');
   check('pie: donut flag does not alter the parsed slices', E(`nodes[0].slices.length`) === 3);
 }
 
+group('Read-only viewer (#77): chrome hidden + mutations gated, pan/zoom kept');
+{
+  const { win, doc, E } = boot();
+  const canvas = doc.getElementById('canvas');
+  win.createNode('rect', 100, 100, 120, 60);
+
+  // Enter read-only via the URL flag.
+  E(`location.hash = '#view'`); win.loadFromUrl();
+  check('read-only root class set by #view flag', doc.documentElement.classList.contains('read-only'));
+
+  // Shape-draw is a no-op in read-only (plain drag pans instead).
+  const before = E('nodes.length'); win.setTool('rect');
+  mouse(canvas, 'mousedown', 300, 300); mouse(doc, 'mousemove', 380, 360); mouse(doc, 'mouseup', 380, 360);
+  check('shape-draw disabled in read-only', E('nodes.length') === before);
+
+  // Double-click create is gated too.
+  canvas.dispatchEvent(new win.MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: 500, clientY: 400 }));
+  check('dblclick create disabled in read-only', E('nodes.length') === before);
+
+  // Delete keyboard shortcut is gated.
+  E(`selectedId = nodes[0].id`);
+  key(doc, 'Delete');
+  check('Delete key disabled in read-only', E('nodes.length') === before);
+
+  // editNodeLabel is gated (no overlay textarea spawned).
+  E(`editNodeLabel(nodes[0])`);
+  check('label edit disabled in read-only', !doc.querySelector('.node-label-editor'));
+
+  // Pan still works (viewBox shifts on a plain drag).
+  const vbx = E('viewBox.x');
+  mouse(canvas, 'mousedown', 400, 400); mouse(doc, 'mousemove', 320, 400); mouse(doc, 'mouseup', 320, 400);
+  check('pan still works in read-only', E('viewBox.x') !== vbx);
+
+  // Edit affordance links back to the same diagram without the flag.
+  check('Edit link points to the no-flag hash', !/view/.test(doc.getElementById('viewEditLink').getAttribute('href')));
+
+  // Leaving view mode restores the editor (no-flag re-init clears the class).
+  E(`location.hash = ''`); win.loadFromUrl();
+  check('no-flag mode clears read-only', !doc.documentElement.classList.contains('read-only'));
+}
+
 process.exit(report() ? 0 : 1);
