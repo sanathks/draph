@@ -1126,12 +1126,25 @@
     
     // === SECTION: TOOLS, PICKERS & LIFECYCLE (init, history, persistence) ===
 
+    // Accessibility: give every icon-only control an accessible name (derived from
+    // its existing title) and hide decorative inline SVGs from the a11y tree.
+    function applyA11yLabels() {
+      document.querySelectorAll('.tool-btn[title], button[title]').forEach(btn => {
+        const t = btn.getAttribute('title');
+        if (t && !btn.getAttribute('aria-label')) btn.setAttribute('aria-label', t);
+      });
+      document.querySelectorAll('.tool-btn svg, button svg').forEach(svg => svg.setAttribute('aria-hidden', 'true'));
+      // reflect the current tool's pressed state at load
+      document.querySelectorAll('[id^="tool-"]').forEach(btn => btn.setAttribute('aria-pressed', btn.id === 'tool-' + currentTool ? 'true' : 'false'));
+    }
+
     // Tool management
     function setTool(tool) {
       currentTool = tool;
-      // Update toolbar buttons
-      document.querySelectorAll('[id^="tool-"]').forEach(btn => btn.classList.remove('active'));
-      document.getElementById('tool-' + tool)?.classList.add('active');
+      // Update toolbar buttons (active class + aria-pressed for screen readers)
+      document.querySelectorAll('[id^="tool-"]').forEach(btn => { btn.classList.remove('active'); btn.setAttribute('aria-pressed', 'false'); });
+      const activeBtn = document.getElementById('tool-' + tool);
+      if (activeBtn) { activeBtn.classList.add('active'); activeBtn.setAttribute('aria-pressed', 'true'); }
       // Update cursor
       const container = document.getElementById('canvasContainer');
       if (SHAPE_TOOLS.includes(tool) || tool === 'pencil') {
@@ -1267,6 +1280,7 @@
       applyTheme(loadSetting('theme', 'dark'), false);
       buildPalettes();
       buildIconPicker();
+      applyA11yLabels();
       bindCanvasEvents();
       // Share-link hash wins; otherwise restore the last autosaved diagram.
       if (!loadFromUrl()) restoreAutosave();
