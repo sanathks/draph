@@ -5516,8 +5516,12 @@
         const span = Math.max(1, Math.min(c.span, columns));
         const { x, y } = advance(span);
         if (c.kind === 'space' || map[c.id]) continue;
-        const width = span * CELL_W + (span - 1) * GAP;
-        map[c.id] = { id: c.id, type: c.type, label: c.label, fixed: true, x, y, width, height: CELL_H };
+        const cellW = span * CELL_W + (span - 1) * GAP;
+        let nx = x, ny = y, w = cellW, h = CELL_H;
+        // circles get normalised square by createNode; size them to the row height
+        // and centre them in the cell so they can't overflow into neighbouring rows.
+        if (c.type === 'circle') { const d = Math.min(CELL_H, cellW); w = d; h = d; nx = x + (cellW - d) / 2; ny = y + (CELL_H - d) / 2; }
+        map[c.id] = { id: c.id, type: c.type, label: c.label, fixed: true, x: nx, y: ny, width: w, height: h };
         result.nodes.push(map[c.id]);
       }
 

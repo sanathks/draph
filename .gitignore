@@ -1,5 +1,6 @@
 # Local Netlify folder
 .netlify
 
-# Node
+# Node (bare entry too, so a node_modules *symlink* is also ignored)
+node_modules
 node_modules/
