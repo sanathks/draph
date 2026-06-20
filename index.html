@@ -6122,19 +6122,30 @@
         if (!line || line.startsWith('%%') || /^requirementDiagram/i.test(line)) continue;
         if (line === '}') { current = null; continue; }
         let m = line.match(reqType);
-        if (m) { current = ensure(m[2], m[1].toLowerCase()); continue; }
+        // inline single-line block `requirement r1 { … }` closes immediately;
+        // multi-line `requirement r1 {` keeps `current` open until a `}` line.
+        if (m) { current = ensure(m[2], m[1].toLowerCase()); if (/\}\s*$/.test(line)) current = null; continue; }
         m = line.match(/^element\s+(\S+)\s*\{/i);
-        if (m) { current = ensure(m[1], 'element'); continue; }
+        if (m) { current = ensure(m[1], 'element'); if (/\}\s*$/.test(line)) current = null; continue; }
         if (current) {
           const am = line.match(/^(\w+)\s*:\s*(.+)$/);
           if (am) current.properties.push(am[1] + ': ' + am[2].trim());
           continue;
         }
-        // relationships: `src - type -> dest`  or  `dest <- type - src`
+        // relationships: `src - type -> dest`  or  `dest <- type - src`. `contains`
+        // (SysML composition) → a filled diamond at the PARENT (from) end, solid
+        // line, no arrowhead; other typed links keep their dashed labeled arrow.
+        const relConn = (from, to, type) => {
+          ensure(from); ensure(to);
+          const isContains = type.toLowerCase() === 'contains';
+          result.connections.push(isContains
+            ? { from, to, label: type, relType: 'contains', marker: 'diamond-filled', markerStart: 'diamond-filled', strokeStyle: undefined }
+            : { from, to, label: type, markerEnd: 'arrow', strokeStyle: 'dashed' });
+        };
         m = line.match(/^(\S+)\s*-\s*(\w+)\s*->\s*(\S+)$/);
-        if (m) { ensure(m[1]); ensure(m[3]); result.connections.push({ from: m[1], to: m[3], label: m[2], markerEnd: 'arrow', strokeStyle: m[2].toLowerCase() === 'contains' ? undefined : 'dashed' }); continue; }
+        if (m) { relConn(m[1], m[3], m[2]); continue; }   // parent = from (m[1])
         m = line.match(/^(\S+)\s*<-\s*(\w+)\s*-\s*(\S+)$/);
-        if (m) { ensure(m[1]); ensure(m[3]); result.connections.push({ from: m[3], to: m[1], label: m[2], markerEnd: 'arrow', strokeStyle: m[2].toLowerCase() === 'contains' ? undefined : 'dashed' }); continue; }
+        if (m) { relConn(m[3], m[1], m[2]); continue; }   // parent = src (m[3])
       }
       result.nodes.forEach(n => {
         const rows = [...n.properties, ...n.methods, n.label, n.stereotype ? '«' + n.stereotype + '»' : ''];
