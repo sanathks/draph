@@ -5270,9 +5270,81 @@
       if (firstLine.match(/^timeline\b/i)) {
         return parseTimeline(lines.slice(1));
       }
+      if (firstLine.match(/^gantt\b/i)) {
+        return parseGantt(lines.slice(1));
+      }
 
       // Default: flowchart
       return parseFlowchart(lines);
+    }
+
+    // Gantt charts. Each task becomes a horizontal bar (rect) positioned by its
+    // start date and sized by duration on a fixed day scale; sections get a
+    // left-margin label; milestones become small diamonds. Nodes carry absolute
+    // geometry + `fixed:true` so layout/auto-sizing leave them alone. Grid scale
+    // (20px/day, 20-multiple offsets) keeps positions snap-aligned. First cut:
+    // no date axis ticks / today marker / dependency arrows (see tracker).
+    function parseGantt(lines) {
+      const DAY = 86400000, PXD = 20, baseX = 200, baseY = 80, rowH = 60, barH = 40;
+      const parseDate = (s) => { const d = new Date(s + 'T00:00:00'); return isNaN(d.getTime()) ? null : d; };
+      const parseDurDays = (s) => {
+        const m = /^(\d+(?:\.\d+)?)\s*(d|w|h|y|mo|ms|s|m)?$/i.exec(s); if (!m) return null;
+        const n = parseFloat(m[1]); const u = (m[2] || 'd').toLowerCase();
+        if (u === 'w') return n * 7; if (u === 'd') return n; if (u === 'h') return Math.max(1, Math.round(n / 24));
+        if (u === 'y') return n * 365; if (u === 'mo') return n * 30; return Math.max(1, Math.round(n / 1440)); // m=minutes
+      };
+      const tasks = []; const byId = {}; let section = null; const sections = [];
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith('%%') || /^gantt\b/i.test(line)) continue;
+        if (/^(dateFormat|axisFormat|title|excludes|includes|todayMarker|weekday|tickInterval)\b/i.test(line)) continue;
+        let m = line.match(/^section\s+(.+)$/i);
+        if (m) { section = m[1].trim(); sections.push({ name: section, firstRow: tasks.length }); continue; }
+        const ci = line.indexOf(':'); if (ci === -1) continue;
+        const name = line.slice(0, ci).trim();
+        const parts = line.slice(ci + 1).split(',').map(s => s.trim()).filter(Boolean);
+        let milestone = false, id = null, after = null, dateTok = null, dur = null, endDate = null;
+        for (const p of parts) {
+          const pl = p.toLowerCase();
+          if (pl === 'milestone') { milestone = true; continue; }
+          if (['done', 'active', 'crit'].includes(pl)) continue;
+          if (/^after\s+/i.test(p)) { after = p.replace(/^after\s+/i, '').trim().split(/\s+/); continue; }
+          const d = parseDate(p); if (d) { if (!dateTok) dateTok = d; else endDate = d; continue; }
+          const dd = parseDurDays(p); if (dd != null) { dur = dd; continue; }
+          if (!id) id = p;   // leftover token is the task id
+        }
+        tasks.push({ name, id, milestone, after, dateTok, dur, endDate, section });
+        if (id) byId[id] = tasks[tasks.length - 1];
+      }
+      // Resolve start dates sequentially (after / explicit date / follow previous).
+      let prevEnd = null, base = null;
+      tasks.forEach(t => {
+        let start;
+        if (t.after) { start = t.after.map(rid => byId[rid] && byId[rid]._end).filter(Boolean).sort((a, b) => b - a)[0] || prevEnd || base || new Date(); }
+        else if (t.dateTok) start = t.dateTok;
+        else start = prevEnd || base || new Date();
+        if (!base) base = start;
+        const days = t.milestone ? 0 : (t.endDate ? Math.max(1, Math.round((t.endDate - start) / DAY)) : (t.dur != null ? t.dur : 1));
+        t._start = start; t._days = days; t._end = new Date(start.getTime() + days * DAY);
+        prevEnd = t._end;
+      });
+      const minDate = tasks.reduce((m, t) => (m == null || t._start < m ? t._start : m), null) || new Date();
+      const result = { nodes: [], connections: [], errors: [], diagramType: 'gantt' };
+      // Section labels (left margin)
+      sections.forEach(s => {
+        result.nodes.push({ id: 'gsec_' + s.firstRow, type: 'text', label: s.name, fixed: true, x: 20, y: baseY + s.firstRow * rowH + (barH - 24) / 2, width: 160, height: 24 });
+      });
+      tasks.forEach((t, row) => {
+        const off = Math.round((t._start - minDate) / DAY);
+        const x = baseX + off * PXD;
+        const y = baseY + row * rowH;
+        if (t.milestone) {
+          result.nodes.push({ id: 'gt' + row, type: 'diamond', label: t.name, fixed: true, x: x - 20, y, width: 40, height: 40 });
+        } else {
+          result.nodes.push({ id: 'gt' + row, type: 'rect', label: t.name, fixed: true, x, y, width: Math.max(40, t._days * PXD), height: barH, color: '#7aa2f7', fillStyle: 'infill' });
+        }
+      });
+      return result;
     }
 
     // Timelines. `period : event [: event…]` — a time period (pill) with one or
@@ -5842,7 +5914,10 @@
     function layoutNodes(parsedNodes, diagramType, subgraphs, parsedConnections) {
       const startX = 100;
       const startY = 100;
-      
+
+      // Gantt: parseGantt already assigned absolute x/y/width/height (time axis).
+      if (diagramType === 'gantt') return parsedNodes;
+
       // Sequence diagram: horizontal layout at top
       if (diagramType === 'sequence') {
         const spacingX = 150;
@@ -6281,6 +6356,7 @@
           const isParticipant = n.type === 'participant' || n.type === 'actor';
           
           const isPseudo = n.isPseudo;   // state-diagram [*] start/end dot
+          const isFixed = n.fixed;       // gantt bars: absolute geometry, no auto-size
           let width, height;
           if (isClass) {
             width = 160;
@@ -6291,11 +6367,15 @@
           } else if (isPseudo) {
             width = 26;
             height = 26;
+          } else if (isFixed) {
+            width = n.width;
+            height = n.height;
           }
 
           const nodeType = isParticipant ? 'rect' : (isClass ? 'rect' : n.type);
           const node = createNode(nodeType, n.x, n.y, width, height);
           node.label = n.label;
+          if (isFixed) { if (n.color) node.color = n.color; if (n.fillStyle) node.fillStyle = n.fillStyle; }
 
           // Store class properties/methods
           if (isClass) {
@@ -6315,8 +6395,8 @@
           if (isPseudo) { node.width = 24; node.height = 24; node.fillStyle = 'infill'; node.color = COLORS.fg; }
 
           // Grow regular shapes to fit their imported label (class/participant/
-          // pseudo nodes size themselves separately)
-          if (!isClass && !isParticipant && !isPseudo) fitNodeToLabel(node);
+          // pseudo/fixed nodes size themselves separately)
+          if (!isClass && !isParticipant && !isPseudo && !isFixed) fitNodeToLabel(node);
 
           idMap[n.id] = node.id;
         });

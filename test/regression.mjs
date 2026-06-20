@@ -1097,4 +1097,36 @@ group('v2: Mermaid timeline import');
   check('timeline import builds periods + events', E(`nodes.filter(n=>n.type!=='line').length`) >= 5 && E('connections.length') >= 4);
 }
 
+// ---------------------------------------------------------------------------
+group('v2: Mermaid gantt import (time-axis bars)');
+{
+  const { win, E } = boot();
+  const code = [
+    'gantt',
+    '    title A Gantt',
+    '    dateFormat YYYY-MM-DD',
+    '    section Phase1',
+    '        Task A :a1, 2014-01-01, 10d',
+    '        Task B :after a1, 5d',
+    '    section Phase2',
+    '        Mile X :milestone, 2014-01-20, 0d',
+    '        Task C :2014-01-16, 4d',
+  ].join('\n');
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('gantt diagramType is gantt', p.diagramType === 'gantt');
+  const A = p.nodes.find(n => n.label === 'Task A');
+  const B = p.nodes.find(n => n.label === 'Task B');
+  check('gantt task is a fixed-geometry rect', A && A.type === 'rect' && A.fixed === true);
+  check('gantt duration sets bar width (10d -> 200px)', A.width === 200);
+  check('gantt "after" places a task to the right of its dependency', B.x > A.x);
+  check('gantt section becomes a left-margin text label', p.nodes.some(n => n.type === 'text' && n.label === 'Phase1'));
+  check('gantt milestone becomes a diamond', p.nodes.some(n => n.type === 'diamond' && n.label === 'Mile X'));
+  // full import keeps the bar geometry (no auto-resize, no dependency arrows)
+  const ed = win.document.getElementById('mermaidEditor');
+  ed.value = code; win.importMermaid(true);
+  const ia = E(`nodes.find(n=>n.label==='Task A')`);
+  check('gantt import preserves bar width', ia && ia.width === 200);
+  check('gantt import draws no dependency arrows', E('connections.length') === 0);
+}
+
 process.exit(report() ? 0 : 1);
