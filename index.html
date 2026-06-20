@@ -6130,38 +6130,43 @@
     // period; `section Name` groups subsequent periods into a container. Laid out
     // as periods-across-the-top with events below (Mermaid draws it horizontally).
     function parseTimeline(lines) {
-      const result = { nodes: [], connections: [], errors: [], diagramType: 'flowchart', subgraphs: [] };
-      let auto = 0, lastPeriodId = null, section = null;
-      const addEvent = (label) => {
-        const id = 'ev' + (++auto);
-        result.nodes.push({ id, type: 'rect', label });
-        if (lastPeriodId) result.connections.push({ from: lastPeriodId, to: id });
-        if (section) section.children.push(id);
-      };
+      const result = { nodes: [], connections: [], errors: [], diagramType: 'timeline' };
+      // First pass: ordered list of periods, each with its events + section index
+      // (Mermaid draws timelines horizontally).
+      let title = '', sectionIdx = -1, lastPeriod = null;
+      const periods = [];
       for (const raw of lines) {
         const line = raw.trim();
-        if (!line || line.startsWith('%%') || /^timeline\b/i.test(line) || /^title\s/i.test(line)) continue;
-        let m = line.match(/^section\s+(.+)$/i);
-        if (m) { section = { id: 'sec' + (++auto), label: m[1].trim(), children: [] }; result.subgraphs.push(section); continue; }
-        if (line.startsWith(':')) {                            // continuation events for the last period
-          line.slice(1).split(':').map(s => s.trim()).filter(Boolean).forEach(addEvent);
+        if (!line || line.startsWith('%%') || /^timeline\b/i.test(line)) continue;
+        let m = line.match(/^title\s+(.+)$/i);
+        if (m) { title = m[1].trim(); continue; }
+        m = line.match(/^section\s+(.+)$/i);
+        if (m) { sectionIdx++; continue; }
+        if (line.startsWith(':')) {   // continuation events for the previous period
+          if (lastPeriod) line.slice(1).split(':').map(s => s.trim()).filter(Boolean).forEach(e => lastPeriod.events.push(e));
           continue;
         }
-        if (line.includes(':')) {                              // period : event [: event…]
-          const parts = line.split(':').map(s => s.trim());
-          const pid = 'pd' + (++auto);
-          result.nodes.push({ id: pid, type: 'pill', label: parts[0] });
-          if (section) section.children.push(pid);
-          lastPeriodId = pid;
-          parts.slice(1).filter(Boolean).forEach(addEvent);
-          continue;
-        }
-        const pid = 'pd' + (++auto);                           // bare period, no events
-        result.nodes.push({ id: pid, type: 'pill', label: line });
-        if (section) section.children.push(pid);
-        lastPeriodId = pid;
+        const parts = line.split(':').map(s => s.trim());
+        lastPeriod = { label: parts[0], events: parts.slice(1).filter(Boolean), section: Math.max(0, sectionIdx) };
+        periods.push(lastPeriod);
       }
-      if (result.subgraphs.length === 0) delete result.subgraphs;
+
+      // Second pass: fixed horizontal layout. Title heading on top; periods left→
+      // right; events stacked under each period; each section's pills tinted.
+      const baseX = 80, periodY = title ? 120 : 70, colW = 200, evH = 50, evGap = 10;
+      const tint = (s) => CONFIG.palette[s % CONFIG.palette.length];
+      let auto = 0;
+      if (title) result.nodes.push({ id: 'tltitle', type: 'text', label: title, fixed: true, x: baseX, y: 40, width: Math.max(160, title.length * 9 + 24), height: 28 });
+      periods.forEach((p, i) => {
+        const x = baseX + i * colW;
+        const pid = 'pd' + (++auto);
+        result.nodes.push({ id: pid, type: 'pill', label: p.label, fixed: true, x, y: periodY, width: Math.max(120, p.label.length * 8 + 24), height: 44, color: tint(p.section), fillStyle: 'infill' });
+        p.events.forEach((ev, j) => {
+          const eid = 'ev' + (++auto);
+          result.nodes.push({ id: eid, type: 'rect', label: ev, fixed: true, x, y: periodY + 70 + j * (evH + evGap), width: Math.max(120, ev.length * 7 + 20), height: evH });
+          result.connections.push({ from: pid, to: eid });
+        });
+      });
       return result;
     }
 
@@ -6804,7 +6809,7 @@
       const startY = 100;
 
       // These carry their own absolute geometry — don't re-layout.
-      if (diagramType === 'gantt' || diagramType === 'pie' || diagramType === 'journey' || diagramType === 'gitgraph' || diagramType === 'quadrant' || diagramType === 'block' || diagramType === 'xychart' || diagramType === 'mindmap') return parsedNodes;
+      if (diagramType === 'gantt' || diagramType === 'pie' || diagramType === 'journey' || diagramType === 'gitgraph' || diagramType === 'quadrant' || diagramType === 'block' || diagramType === 'xychart' || diagramType === 'mindmap' || diagramType === 'timeline') return parsedNodes;
 
       // Sequence diagram: horizontal layout at top
       if (diagramType === 'sequence') {
