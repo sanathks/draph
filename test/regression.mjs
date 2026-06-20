@@ -2212,6 +2212,39 @@ group('Read-only viewer (#77): chrome hidden + mutations gated, pan/zoom kept');
   check('no-flag mode clears read-only', !doc.documentElement.classList.contains('read-only'));
 }
 
+group('#71 viewport culling for large diagrams');
+{
+  const { win, doc, E } = boot();
+  // Force culling on regardless of node count for the test.
+  E(`CONFIG.cullThreshold = 0`);
+  const near = win.createNode('rect', E('viewBox.x') + 100, E('viewBox.y') + 100, 80, 40);
+  const far  = win.createNode('rect', E('viewBox.x') + 99999, E('viewBox.y') + 99999, 80, 40);
+  win.render();
+  check('cull: on-screen node renders', !!doc.querySelector(`#nodes .node[data-id="${near.id}"]`));
+  check('cull: off-screen node is culled', !doc.querySelector(`#nodes .node[data-id="${far.id}"]`));
+
+  // Panning the viewBox over the far node brings it into the DOM.
+  E(`viewBox.x = ${far.x - 100}; viewBox.y = ${far.y - 100}`); win.render();
+  check('cull: panning to a culled node renders it', !!doc.querySelector(`#nodes .node[data-id="${far.id}"]`));
+
+  // The selected node is never culled, even when off-screen.
+  E(`viewBox.x = 0; viewBox.y = 0; selectedId = '${far.id}'`); win.render();
+  check('cull: selected node is exempt from culling', !!doc.querySelector(`#nodes .node[data-id="${far.id}"]`));
+  E(`selectedId = null`);
+
+  // A connection survives if either endpoint is in view; both off-screen → culled.
+  E(`connections.push({ id: 'cull-c', from: '${near.id}', to: '${far.id}' })`);
+  win.render();
+  check('cull: edge with one endpoint in view is drawn', E(`connectionsGroup.querySelectorAll('path').length`) > 0);
+  // Move both endpoints off-screen → the edge is culled too.
+  E(`viewBox.x = 50000; viewBox.y = 50000`); win.render();
+  check('cull: edge with both endpoints off-screen is culled', E(`connectionsGroup.querySelectorAll('path').length`) === 0);
+
+  // Below the threshold, nothing is culled (no regression for small diagrams).
+  E(`CONFIG.cullThreshold = 300; viewBox.x = 0; viewBox.y = 0`); win.render();
+  check('cull: small diagrams keep the off-screen node', !!doc.querySelector(`#nodes .node[data-id="${far.id}"]`));
+}
+
 group('#70 manual connection waypoints');
 {
   const { win, doc, E } = boot();
