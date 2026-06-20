@@ -1687,10 +1687,13 @@
         const from = nodeById.get(conn.from), to = nodeById.get(conn.to);
         if (!from || !to) return;
         const auto = getOptimalSides(from, to);
-        sideOf.set(conn.id, {
-          fromSide: conn.fromSideLocked ? conn.fromSide : auto.fromSide,
-          toSide: conn.toSideLocked ? conn.toSide : auto.toSide,
-        });
+        // Re-seat non-locked sides every render so an edge follows its nodes as
+        // they move (no manual Auto-Arrange needed). Locked sides are user intent
+        // and never change. Write back to the connection so stored == rendered
+        // (export, endpoint handles, persistence all read conn.fromSide/toSide).
+        if (!conn.fromSideLocked) conn.fromSide = auto.fromSide;
+        if (!conn.toSideLocked) conn.toSide = auto.toSide;
+        sideOf.set(conn.id, { fromSide: conn.fromSide, toSide: conn.toSide });
       });
       return { sideOf };
     }
