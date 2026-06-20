@@ -1811,6 +1811,30 @@ group('Selection → Mermaid (#2): selection-scoped export');
   check('no selection falls back to whole-canvas export', /\bC\b/.test(E(`generateMermaid({ selectionOnly: true })`)));
 }
 
+group('Mermaid append import (#46): feedback on silent failures');
+{
+  const { win, doc } = boot();
+  // recognized-but-unsupported keyword → named toast, returns false, nothing imported
+  const n0 = doc.querySelectorAll('.toast').length;
+  const r1 = win.importMermaid(true, { code: 'kanban\n  Todo\n  Doing', append: true });
+  check('unsupported append import returns false', r1 === false);
+  check('a feedback toast was shown', doc.querySelectorAll('.toast').length > n0);
+  check('toast names the unsupported type', /kanban/.test(doc.querySelector('.toast span').textContent));
+  check('nothing was imported on failure', win.eval('nodes.length') === 0);
+  // garbage / no recognizable diagram → generic toast, returns false
+  const before2 = doc.querySelectorAll('.toast').length;
+  const r2 = win.importMermaid(true, { code: '%% only a comment', append: true });
+  check('comment-only append import returns false + toasts', r2 === false && doc.querySelectorAll('.toast').length > before2);
+  // valid append import still succeeds with no error toast
+  const before3 = doc.querySelectorAll('.toast').length;
+  const r3 = win.importMermaid(true, { code: 'flowchart TD\n A-->B', append: true });
+  check('valid append import still succeeds, no new toast', r3 === true && doc.querySelectorAll('.toast').length === before3 && win.eval('nodes.length') === 2);
+  // replace-mode (non-append) still uses the editor errorDiv, not a toast (no regression)
+  const before4 = doc.querySelectorAll('.toast').length;
+  win.importMermaid(true, { code: 'kanban\n x', append: false });
+  check('replace-mode unsupported does not toast (errorDiv path unchanged)', doc.querySelectorAll('.toast').length === before4);
+}
+
 group('Accessibility (#45): icon-button ARIA labels + pressed state');
 {
   const { win, doc } = boot();
