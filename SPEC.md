@@ -46,16 +46,16 @@ improvement**, **Acceptance criteria** (how we know it's done), and **Effort/Ris
 Future loop iterations should promote these into numbered entries (with criteria)
 and, when ready, implement + verify with `npm test`:
 
-- **Render-time side re-evaluation:** non-locked connection sides are only
-  recomputed on Auto-Arrange, not on every render — so a hand-drawn edge can look
-  stale (sideways/hooky) until re-arranged even after nodes move. Recompute auto
-  (non-locked) sides in `computeConnectionGeometry` each render.
+- **Render-time side re-evaluation:** ✅ **DONE (#34)** — `computeConnectionGeometry`
+  now recomputes auto (non-locked) sides every render and writes them back to the
+  connection, so an edge re-seats to its optimal sides as nodes move (no manual
+  Auto-Arrange). Locked sides (`fromSideLocked`/`toSideLocked`) are never touched.
 - ~~**Subgraph layout parity:**~~ DONE (commit 57ac846) — the subgraph branch now
   shares the width-aware `estW/estH/HGAP/VGAP` sizing and preserves barycenter
   ordering inside each container; children no longer overlap on long labels.
-- **`fitNodeToLabel` shrink-to-fit (opt-in):** currently grow-only, so deleting
-  text leaves nodes oversized. Consider shrinking toward content unless the user
-  manually resized (needs a `manuallyResized` flag).
+- **`fitNodeToLabel` shrink-to-fit:** ✅ **DONE (#35)** — now shrinks toward
+  content (down to the type minimum) as well as grows; dragging the resize handle
+  sets `manuallyResized:true`, and such nodes are never auto-shrunk.
 - **Hard-break very long words:** a single unbreakable token still forces a very
   wide node; offer character-level wrapping past a width cap.
 - **Export test coverage:** PNG/SVG/GIF export is untested (jsdom lacks canvas).
