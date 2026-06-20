@@ -1339,4 +1339,33 @@ group('v2: class diagram layout is connection-aware + non-overlapping');
   check('grandchild is below its parent', by['Puppy'].y > by['Dog'].y);
 }
 
+// ---------------------------------------------------------------------------
+group('v2: class diagram UML relationship markers');
+{
+  const { win, doc, E } = boot();
+  const code = [
+    'classDiagram',
+    '  Animal <|-- Dog',
+    '  Car *-- Engine',
+    '  Library o-- Book',
+    '  Order --> Customer',
+    '  Service ..|> Iface',
+  ].join('\n');
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const rel = (a, b) => p.connections.find(c => c.from === a && c.to === b);
+  check('inheritance -> hollow triangle at the base end', rel('Animal', 'Dog').markerStart === 'triangle' && rel('Animal', 'Dog').markerEnd === 'none');
+  check('composition -> filled diamond', rel('Car', 'Engine').markerStart === 'diamond-filled');
+  check('aggregation -> hollow diamond', rel('Library', 'Book').markerStart === 'diamond-hollow');
+  check('association -> open arrow at target', rel('Order', 'Customer').markerEnd === 'arrow');
+  check('realization -> triangle + dashed line', rel('Service', 'Iface').markerEnd === 'triangle' && rel('Service', 'Iface').strokeStyle === 'dashed');
+  // rendered: the two diamonds become <polygon>s
+  const ed = doc.getElementById('mermaidEditor'); ed.value = code; win.importMermaid(true); win.render();
+  check('UML diamonds render as polygons', doc.querySelectorAll('#connections polygon').length === 2);
+  // non-class edges are unaffected (default filled arrow, no UML marker fields)
+  const f = boot();
+  const a = f.win.createNode('rect', 0, 0, 80, 40); const b = f.win.createNode('rect', 0, 200, 80, 40);
+  f.E(`connections.push({id:'z',from:'${a.id}',to:'${b.id}'})`); f.win.render();
+  check('flowchart edge keeps the default arrow (no UML markers)', f.E(`connections[0].markerEnd`) === undefined && f.doc.querySelectorAll('#connections polygon').length === 0);
+}
+
 process.exit(report() ? 0 : 1);

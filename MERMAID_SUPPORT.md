@@ -14,7 +14,7 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
 |---|---|---|---|
 | Flowchart | `flowchart` / `graph` | ✅ | nodes, shapes, edges, labels, subgraphs |
 | Sequence | `sequenceDiagram` | ✅ | participants, lifelines, messages, frames |
-| Class | `classDiagram` | ✅ | classes w/ properties/methods; **now**: `<<interface/abstract/enumeration>>` stereotypes, generics `~T~`→`<T>` (generic class ids unified), `direction`, multiplicities `"1" o-- "0..*"`, all relation operators (`<\|--`, `..\|>`, `*--`, `o--`, `-->`, `..>`), dotted relations dashed, auto-size. TODO: per-relation arrowhead glyphs (triangle/diamond), namespaces |
+| Class | `classDiagram` | ✅ | classes w/ properties/methods; **now**: `<<interface/abstract/enumeration>>` stereotypes, generics `~T~`→`<T>` (generic class ids unified), `direction`, multiplicities `"1" o-- "0..*"`, all relation operators (`<\|--`, `..\|>`, `*--`, `o--`, `-->`, `..>`), dotted relations dashed, auto-size, **UML end-markers** (hollow triangle = inheritance/realization, filled/hollow diamond = composition/aggregation, open arrow = association/dependency, at the correct end), connection-aware non-overlapping layout. TODO: namespaces |
 | State | `stateDiagram` / `-v2` | 🟡 | **NEW.** states→rounded rects, transitions+labels, `[*]`→small dot. TODO: composite (nested) states as containers, `note`, `<<fork>>/<<join>>/<<choice>>` shapes, `direction`, concurrency `--` |
 | Entity-Relationship | `erDiagram` | 🟡 | **NEW.** entities→class-style boxes w/ attribute rows (+PK/FK/UK tags), relationships→labeled edges, non-identifying `..`→dashed. TODO: crow's-foot cardinality markers (`||`, `o{`, `}|`…) on the edge ends |
 | Mindmap | `mindmap` | 🟡 | **NEW.** indentation-based tree → nodes + parent/child edges; shapes `((circle))`/`(round)`/`[square]`/`{{hex→rect}}`. TODO: radial layout (currently top-down tree), `::icon()` rendering, class styling |
@@ -42,6 +42,12 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
   line, any needed render tweaks, and regression tests in `test/regression.mjs`.
 
 ## Changelog
+- **Class diagram UML arrowheads:** relationships now render proper UML
+  end-markers via a shared `umlMarker()` (hollow triangle for inheritance/
+  realization, filled/hollow diamond for composition/aggregation, open arrow for
+  association/dependency), placed at the correct end (markerStart/markerEnd) so
+  the layout direction is preserved. Connection renderer generalized to draw a
+  marker at either end; non-class edges keep the default arrow. Tested.
 - **Class diagram layout fix:** replaced the fixed 220×180 grid (which let big
   boxes overlap and ignored edges) with the connection-aware Sugiyama layout.
   Class boxes are pre-sized in parseClassDiagram so the layout spaces them

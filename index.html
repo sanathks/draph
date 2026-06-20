@@ -1908,6 +1908,30 @@
       });
     }
 
+    // UML relationship end-markers (class diagrams). Draws the glyph at tip
+    // (tx,ty) with (dx,dy) = unit vector pointing along the line AWAY from the
+    // node. Returns { svg, baseDist } — baseDist is how far back to trim the line
+    // so it meets the marker cleanly. Kinds: triangle (generalization/realization,
+    // hollow), diamond-filled (composition), diamond-hollow (aggregation),
+    // arrow (open, association/dependency), none.
+    function umlMarker(kind, tx, ty, dx, dy, color) {
+      const px = -dy, py = dx;
+      if (kind === 'triangle') {
+        const L = 14, W = 8, bx = tx + dx * L, by = ty + dy * L;
+        return { svg: `<path d="M${tx.toFixed(1)},${ty.toFixed(1)} L${(bx + px * W).toFixed(1)},${(by + py * W).toFixed(1)} L${(bx - px * W).toFixed(1)},${(by - py * W).toFixed(1)} Z" fill="${COLORS.bg2}" stroke="${color}" stroke-width="1.5" style="pointer-events:none"/>`, baseDist: L };
+      }
+      if (kind === 'diamond-filled' || kind === 'diamond-hollow') {
+        const L = 16, W = 7, mx = tx + dx * (L / 2), my = ty + dy * (L / 2);
+        const pts = `${tx.toFixed(1)},${ty.toFixed(1)} ${(mx + px * W).toFixed(1)},${(my + py * W).toFixed(1)} ${(tx + dx * L).toFixed(1)},${(ty + dy * L).toFixed(1)} ${(mx - px * W).toFixed(1)},${(my - py * W).toFixed(1)}`;
+        return { svg: `<polygon points="${pts}" fill="${kind === 'diamond-filled' ? color : COLORS.bg2}" stroke="${color}" stroke-width="1.5" style="pointer-events:none"/>`, baseDist: L };
+      }
+      if (kind === 'arrow') {
+        const a = 10, w = 5;
+        return { svg: `<path d="M${(tx + dx * a + px * w).toFixed(1)},${(ty + dy * a + py * w).toFixed(1)} L${tx.toFixed(1)},${ty.toFixed(1)} L${(tx + dx * a - px * w).toFixed(1)},${(ty + dy * a - py * w).toFixed(1)}" fill="none" stroke="${color}" stroke-width="1.5" style="pointer-events:none"/>`, baseDist: a * 0.5 };
+      }
+      return { svg: '', baseDist: 0 };
+    }
+
     function renderConnections() {
       // Build an id -> node index once so per-connection lookups are O(1)
       // instead of nodes.find() scanning the whole array for every endpoint.
@@ -2081,8 +2105,32 @@
         const angle = Math.atan2(inDir.y, inDir.x);   // straight into the connector
         const ca = Math.cos(angle), sa = Math.sin(angle);
         const tipX = endX, tipY = endY;                       // tip on the connector
-        const baseX = tipX - ca * aLen, baseY = tipY - sa * aLen;
-        points[points.length - 1] = { x: baseX, y: baseY };   // line ends at arrow base
+        const isConnSelected = selectedConnId === conn.id;
+        const strokeColor = conn.color || (isConnSelected ? COLORS.accent : COLORS.fg);
+
+        // End-markers: UML glyphs for class relationships (markerStart/markerEnd),
+        // otherwise the default filled arrow at the target end.
+        let endMarkerSvg = '', startMarkerSvg = '';
+        const isUml = conn.markerEnd !== undefined || conn.markerStart !== undefined;
+        if (isUml) {
+          if (conn.markerEnd && conn.markerEnd !== 'none') {
+            const mk = umlMarker(conn.markerEnd, tipX, tipY, -ca, -sa, strokeColor);
+            endMarkerSvg = mk.svg;
+            points[points.length - 1] = { x: tipX - ca * mk.baseDist, y: tipY - sa * mk.baseDist };
+          }
+          if (conn.markerStart && conn.markerStart !== 'none' && points.length >= 2) {
+            const ox = points[1].x - points[0].x, oy = points[1].y - points[0].y, ol = Math.hypot(ox, oy) || 1;
+            const ux = ox / ol, uy = oy / ol;
+            const mk = umlMarker(conn.markerStart, points[0].x, points[0].y, ux, uy, strokeColor);
+            startMarkerSvg = mk.svg;
+            points[0] = { x: points[0].x + ux * mk.baseDist, y: points[0].y + uy * mk.baseDist };
+          }
+        } else {
+          const baseX = tipX - ca * aLen, baseY = tipY - sa * aLen;
+          points[points.length - 1] = { x: baseX, y: baseY };   // line ends at arrow base
+          const apx = Math.cos(angle + Math.PI / 2) * aWidth, apy = Math.sin(angle + Math.PI / 2) * aWidth;
+          endMarkerSvg = `<path d="M${tipX},${tipY} L${baseX + apx},${baseY + apy} L${baseX - apx},${baseY - apy} Z" fill="${strokeColor}" style="pointer-events:none"/>`;
+        }
 
         // Build the SVG path (shared with the draw-preview via pointsToPath)
         let midX, midY;
@@ -2100,14 +2148,8 @@
           midY = (y1 + y2) / 2;
         }
         
-        const px = Math.cos(angle + Math.PI/2) * aWidth;
-        const py = Math.sin(angle + Math.PI/2) * aWidth;
-        const arrow = `M${tipX},${tipY} L${baseX + px},${baseY + py} L${baseX - px},${baseY - py} Z`;
-        
         // Label with background (no border, multi-line support)
         const label = conn.label || '';
-        const isConnSelected = selectedConnId === conn.id;
-        const strokeColor = conn.color || (isConnSelected ? COLORS.accent : COLORS.fg);
         const strokeWidth = isConnSelected ? 3 : 2;
         
         let labelEl = '';
@@ -2153,7 +2195,7 @@
         const connDashArray = conn.strokeStyle === 'dashed' ? '5,3' : 'none';
         // Endpoint drag-handles are drawn in the #connHandles overlay (above nodes)
         if (isConnSelected) selHandles = { fromX: x1, fromY: y1, toX: endX, toY: endY };
-        return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" style="cursor:pointer">${hitArea}${arrowHit}<path class="connection" d="${path}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${connDashArray}" style="pointer-events:none"/><path d="${arrow}" fill="${strokeColor}" style="pointer-events:none"/>${labelEl}</g>`;
+        return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" style="cursor:pointer">${hitArea}${arrowHit}<path class="connection" d="${path}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${connDashArray}" style="pointer-events:none"/>${startMarkerSvg}${endMarkerSvg}${labelEl}</g>`;
       }).join('');
 
       // Endpoint handles on top of everything, with a generous transparent hit area
@@ -5856,10 +5898,23 @@
         m = line.match(/^([\w~,]+)\s*(?:"([^"]*)")?\s*([<|>o*.\\\-]{2,})\s*(?:"([^"]*)")?\s*([\w~,]+)\s*(?::\s*(.+))?$/);
         if (m && /[<|>o*.\-]/.test(m[3])) {
           const cls = ensure(m[1]); const cls2 = ensure(m[5]);
+          const op = m[3];
+          // UML end-markers by operator (left end = markerStart, right = markerEnd).
+          const MK = {
+            '<|--': ['triangle', 'none'], '<|..': ['triangle', 'none'],
+            '--|>': ['none', 'triangle'], '..|>': ['none', 'triangle'],
+            '*--': ['diamond-filled', 'none'], '--*': ['none', 'diamond-filled'],
+            'o--': ['diamond-hollow', 'none'], '--o': ['none', 'diamond-hollow'],
+            '-->': ['none', 'arrow'], '..>': ['none', 'arrow'],
+            '<--': ['arrow', 'none'], '<..': ['arrow', 'none'],
+            '--': ['none', 'none'], '..': ['none', 'none'],
+          };
+          const mk = MK[op] || ['none', op.includes('>') ? 'arrow' : (op.includes('<') ? 'arrow' : 'none')];
           result.connections.push({
-            from: cls.id, to: cls2.id, label: (m[6] || '').trim(), relType: m[3],
+            from: cls.id, to: cls2.id, label: (m[6] || '').trim(), relType: op,
             fromMult: m[2] || '', toMult: m[4] || '',
-            strokeStyle: m[3].includes('.') ? 'dashed' : undefined,
+            markerStart: mk[0], markerEnd: mk[1],
+            strokeStyle: op.includes('.') ? 'dashed' : undefined,
           });
           continue;
         }
@@ -6670,7 +6725,9 @@
                   toIdx: 1,
                   label: c.label || '',
                   relType: c.relType,
-                  strokeStyle: c.strokeStyle
+                  strokeStyle: c.strokeStyle,
+                  markerStart: c.markerStart,
+                  markerEnd: c.markerEnd
                 });
               }
             }
