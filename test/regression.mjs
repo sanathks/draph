@@ -2331,6 +2331,36 @@ group('#36 label wrapping: hard-break long unbreakable words');
   check('cap lives in CONFIG (no magic number)', typeof E('CONFIG.wrap.maxWidth') === 'number');
 }
 
+group('Find nodes by label (#83): match + focus-center, Cmd+F box');
+{
+  const { win, doc, E } = boot();
+  const far = win.createNode('rect', 5000, 5000, 80, 40);
+  E(`nodes.find(n=>n.id==='${far.id}').label = 'FarNode'`);
+  win.createNode('rect', 0, 0, 80, 40);
+  win.render();
+
+  // case-insensitive substring match
+  check('find matches by label (case-insensitive)', E(`findNodes('farnode').length`) === 1);
+  check('find returns nothing for a non-match', E(`findNodes('zzz').length`) === 0);
+  check('empty query matches nothing', E(`findNodes('').length`) === 0);
+
+  // focusNode selects + centers the viewport on the node
+  win.focusNode(far.id);
+  const cx = 5000 + 80 / 2, cy = 5000 + 40 / 2;
+  check('focus selects the node', E(`selectedId === '${far.id}'`));
+  check('focus centers viewport on the node',
+    E('viewBox.x') <= cx && cx <= E('viewBox.x') + E('viewBox.w') &&
+    E('viewBox.y') <= cy && cy <= E('viewBox.y') + E('viewBox.h'));
+
+  // Cmd/Ctrl+F opens the find box; Esc closes it.
+  const box = doc.getElementById('findBox');
+  check('find box starts hidden', box.classList.contains('hidden'));
+  win.openFind();
+  check('openFind reveals the box', !box.classList.contains('hidden'));
+  win.closeFind();
+  check('closeFind hides the box', box.classList.contains('hidden'));
+}
+
 group('Keyboard nudge (#94): arrow moves selection, Shift = fine, undoable');
 {
   const { win, doc, E } = boot();
