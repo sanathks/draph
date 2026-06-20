@@ -28,7 +28,7 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
 | C4 | `C4Context` etc. | 🟡 | **NEW.** Person/System/Container/Component/Node (incl. _Ext/Db/Queue) → class-style boxes (type as «stereotype», tech/descr wrapped rows); `Rel(...)`→labeled edges (BiRel→both ends, tech appended); `*_Boundary(){}`→grouping containers. TODO: directional Rel_U/D/L/R hints, person figure icon |
 | Block | `block-beta` | 🟡 | **NEW.** `columns N` grid that wraps blocks left-to-right; column spans `id:N`, blank cells `space`/`space:N`; shapes `["sq"]`→rect, `("round")`→rect, `(("circ"))`→circle, `{"dia"}`→diamond, `>"flag"]`→rect; `x --> y` (optionally labelled) → arrows. Fixed grid geometry. TODO: nested `block:id … end` as containers (currently flattened), block arrows/edge routing between spans |
 | Architecture | `architecture-beta` | 🟡 | **NEW.** `group id(icon)[Title]`→subgraph container; `service id(icon)[Title] in g`→node (in group g); `junction id`→small circle; edges `a:L -- R:b` (and `-->`, `<--`, `<-->`) → connections with arrowheads per direction. Reuses the flowchart Sugiyama layout + containers. TODO: icon rendering, explicit edge-side anchoring (L/R/T/B currently dropped — layout picks sides), group-in-group nesting (flattened) |
-| Sankey | `sankey-beta` | ⬜ | weighted flows (custom render) |
+| Sankey | `sankey-beta` | 🟡 | **NEW.** CSV `source,target,value` rows → a weighted flow graph: one node per unique name (deduped), one labelled edge per row (value on the edge). Quoted fields / commas-in-quotes / `""` escapes handled. Reuses the flowchart Sugiyama layout. TODO: weighted ribbon widths (∝ value), column layout / native sankey figure |
 | XY chart | `xychart-beta` | 🟡 | **NEW.** one `xychart` node renders a real chart: `bar [..]` series → bars (grouped when multiple), `line [..]` series → polylines, over a category x-axis + numeric y-axis with gridlines/ticks; parses `title`, axis labels, and `min --> max` ranges (auto-range from data otherwise). Synthesises x categories when none given. TODO: horizontal variant, multiple-axis, legend, point markers |
 
 ## Approach notes
@@ -47,6 +47,11 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
   `bar`/`line` series; renderNodes draws a real chart figure (grouped bars,
   polylines, gridlines, ticks, axis labels). Auto-ranges from data and synthesises
   x categories when omitted. Covered by regression tests.
+- **Sankey (first cut):** `parseSankey` — `sankey-beta` CSV `source,target,value`
+  rows become a weighted flow graph (node per unique name, labelled edge per row,
+  value on the edge). Handles quoted fields, commas-in-quotes, and `""` escapes.
+  Reuses the flowchart layout (diagramType 'flowchart'). Ribbon widths / column
+  layout deferred. Covered by regression tests.
 - **Architecture (first cut):** `parseArchitecture` — `architecture-beta`
   `group`→subgraph container, `service … in g`→node in that group,
   `junction`→small circle, edges `a:L -- R:b` (`--`/`-->`/`<--`/`<-->`)→
