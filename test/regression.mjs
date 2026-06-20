@@ -2515,6 +2515,37 @@ group('Flowchart shapes (#49): placeShape + renderNodes branches');
   check('flowchart shape is connectable', win.eval(`connections.some(c=>c.from==='${cyl.id}')`));
 }
 
+group('Copy / paste node style (#99): format painter');
+{
+  const { win, E } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40);
+  E(`(n=>{n.color='#ff0000'; n.fillStyle='infill'; n.outlineColor='#00ff00';})(nodes.find(x=>x.id==='${a.id}'))`);
+  const b = win.createNode('rect', 200, 0, 80, 40);
+  const c = win.createNode('rect', 400, 0, 80, 40);
+
+  // paste to a single target
+  check('copyStyle succeeds', win.copyStyle(a.id) === true);
+  check('pasteStyle to a single node', win.pasteStyle(b.id) === true);
+  check('paste copies color', b.color === '#ff0000');
+  check('paste copies fillStyle', b.fillStyle === 'infill');
+  check('paste copies outlineColor', b.outlineColor === '#00ff00');
+  check('shape/size/label unchanged by paste', b.type === 'rect' && b.width === 80 && b.height === 40);
+
+  // paste to a multi-selection (no explicit target → current selection)
+  E(`selectedId = null; selectedIds = ['${b.id}','${c.id}']`);
+  win.pasteStyle();
+  check('paste applies to a multi-selection', c.color === '#ff0000' && c.fillStyle === 'infill');
+
+  // undoable
+  win.undo();
+  check('paste-style is undoable', E(`nodes.find(x=>x.id==='${c.id}').color`) !== '#ff0000');
+
+  // no-op guards
+  const { win: w2 } = boot();
+  check('pasteStyle is a no-op with an empty clipboard', w2.pasteStyle('nope') === false);
+  check('copyStyle on a missing node returns false', w2.copyStyle('nope') === false);
+}
+
 group('Screen-reader semantics (#59): node/conn aria-labels + live region');
 {
   const { win, doc, E } = boot();
