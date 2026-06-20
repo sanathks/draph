@@ -603,10 +603,18 @@
           <button class="shape-item" onclick="placeShape('terminal')">Start/End</button>
         </div>
         <div style="color:var(--fg-dim);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:2px 0 6px">ER</div>
-        <div class="shape-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px">
+        <div class="shape-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
           <button class="shape-item" onclick="placeShape('entity')">Entity</button>
         </div>
-        <div style="color:var(--fg-dim);font-size:10px;margin-top:10px">Fork/Join/Choice land with #22. Flowchart shape zoo is a follow-up.</div>
+        <div style="color:var(--fg-dim);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:2px 0 6px">Flowchart</div>
+        <div class="shape-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px">
+          <button class="shape-item" onclick="placeShape('cylinder')">Database</button>
+          <button class="shape-item" onclick="placeShape('hexagon')">Hexagon</button>
+          <button class="shape-item" onclick="placeShape('parallelogram')">I/O</button>
+          <button class="shape-item" onclick="placeShape('trapezoid')">Trapezoid</button>
+          <button class="shape-item" onclick="placeShape('subroutine')">Subroutine</button>
+        </div>
+        <div style="color:var(--fg-dim);font-size:10px;margin-top:10px">Fork/Join/Choice land with #22.</div>
       </div>
     </div>
 
@@ -1745,7 +1753,13 @@
         container: { w: 340, h: 220 },
         text: { w: 100, h: 24 },
         note: { w: 200, h: 150 },
-        line: { w: 100, h: 0 }  // width = dx, height = dy from start
+        line: { w: 100, h: 0 },  // width = dx, height = dy from start
+        // Flowchart shape zoo (#49)
+        cylinder: { w: 120, h: 80 },
+        hexagon: { w: 150, h: 70 },
+        parallelogram: { w: 170, h: 60 },
+        trapezoid: { w: 170, h: 70 },
+        subroutine: { w: 160, h: 60 },
       };
       const def = defaults[type] || { w: 120, h: 44 };
 
@@ -1820,6 +1834,14 @@
           node.label = ''; node.isPseudo = true; node.width = 24; node.height = 24;
           node.fillStyle = 'infill'; node.color = COLORS.fg;
           break;
+        case 'cylinder': case 'hexagon': case 'parallelogram': case 'trapezoid': case 'subroutine': {
+          // Flowchart shape zoo (#49): created as their own node type; rendered by the
+          // matching renderNodes branch; behave like any other shape otherwise.
+          const k = kind.toLowerCase();
+          node = createNode(k, 0, 0);
+          node.label = { cylinder: 'Database', hexagon: 'Prepare', parallelogram: 'Input', trapezoid: 'Manual', subroutine: 'Process' }[k] || 'Node';
+          break;
+        }
         default: mkClass('NewClass', '', ['+ field: Type'], ['+ method() void']);
       }
       node.x = Math.round(x - node.width / 2);
@@ -2854,6 +2876,44 @@
           const w = isSelected ? 3 : 2;
           shape = `<path d="${d}" fill="none" stroke="transparent" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="${d}" fill="none" stroke="${stroke}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" class="node-border"/>`;
+        } else if (node.type === 'cylinder' || node.type === 'hexagon' || node.type === 'parallelogram' || node.type === 'trapezoid' || node.type === 'subroutine') {
+          // Flowchart shape zoo (#49): cylinder/hex/parallelogram/trapezoid as
+          // path/polygon, subroutine as a double-bordered rect. Label is wrapped
+          // and clipped to the shape, like the other branches.
+          const { fill, style } = getFill(node, 'infill');
+          const customPattern = getCustomPattern(node);
+          const txtColor = (style === 'outline' || style === 'stripe' || style === 'grid') ? (node.outlineColor || COLORS.fg) : textColor;
+          const x = node.x, y = node.y, w = node.width, h = node.height, cx = x + w / 2, cy = y + h / 2;
+          const clipId = 'clip-' + node.id;
+          let outline, clip;
+          if (node.type === 'cylinder') {
+            const ry = Math.min(14, h * 0.16);
+            clip = `<rect x="${x}" y="${y + ry}" width="${w}" height="${Math.max(1, h - ry * 2)}"/>`;
+            outline = `<path d="M${x},${y + ry} L${x},${y + h - ry} A${w / 2},${ry} 0 0 0 ${x + w},${y + h - ry} L${x + w},${y + ry} Z" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>
+              <ellipse cx="${cx}" cy="${y + ry}" rx="${w / 2}" ry="${ry}" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5"/>`;
+          } else if (node.type === 'hexagon') {
+            const n = Math.min(22, w * 0.2);
+            const pts = `${x + n},${y} ${x + w - n},${y} ${x + w},${cy} ${x + w - n},${y + h} ${x + n},${y + h} ${x},${cy}`;
+            clip = `<polygon points="${pts}"/>`;
+            outline = `<polygon points="${pts}" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>`;
+          } else if (node.type === 'parallelogram') {
+            const s = Math.min(26, w * 0.22);
+            const pts = `${x + s},${y} ${x + w},${y} ${x + w - s},${y + h} ${x},${y + h}`;
+            clip = `<polygon points="${pts}"/>`;
+            outline = `<polygon points="${pts}" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>`;
+          } else if (node.type === 'trapezoid') {
+            const s = Math.min(26, w * 0.22);
+            const pts = `${x + s},${y} ${x + w - s},${y} ${x + w},${y + h} ${x},${y + h}`;
+            clip = `<polygon points="${pts}"/>`;
+            outline = `<polygon points="${pts}" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>`;
+          } else { // subroutine: rect with a second vertical border on each side
+            const inset = 7;
+            clip = `<rect x="${x + inset}" y="${y}" width="${Math.max(1, w - inset * 2)}" height="${h}"/>`;
+            outline = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>
+              <line x1="${x + inset}" y1="${y}" x2="${x + inset}" y2="${y + h}" stroke="${strokeColor}" stroke-width="1.5"/>
+              <line x1="${x + w - inset}" y1="${y}" x2="${x + w - inset}" y2="${y + h}" stroke="${strokeColor}" stroke-width="1.5"/>`;
+          }
+          shape = `${customPattern}<defs><clipPath id="${clipId}">${clip}</clipPath></defs>${outline}<g clip-path="url(#${clipId})">${renderWrappedText(node.label, cx, cy, w * 0.7, 12, txtColor, '', node.icon)}</g>`;
         } else if (node.isClass) {
           // UML class box: header (with optional «stereotype»), then attribute
           // and method sections (each shown only when non-empty).
