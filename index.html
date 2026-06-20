@@ -7388,13 +7388,17 @@
               const fromNode = nodes.find(n => n.id === idMap[c.from]);
               const toNode = nodes.find(n => n.id === idMap[c.to]);
               if (fromNode && toNode) {
-                const { fromSide, toSide } = getOptimalSides(fromNode, toNode);
+                const auto = getOptimalSides(fromNode, toNode);
+                // Honour parser-locked sides (e.g. C4 directional Rel_U/D/L/R) so
+                // the layout's re-seat pass doesn't override the requested direction.
                 connections.push({
                   id: generateId(),
                   from: idMap[c.from],
                   to: idMap[c.to],
-                  fromSide,
-                  toSide,
+                  fromSide: c.fromSideLocked ? c.fromSide : auto.fromSide,
+                  toSide: c.toSideLocked ? c.toSide : auto.toSide,
+                  fromSideLocked: c.fromSideLocked,
+                  toSideLocked: c.toSideLocked,
                   fromIdx: 1,
                   toIdx: 1,
                   label: c.label || '',
