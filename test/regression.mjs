@@ -2114,4 +2114,49 @@ group('#36 label wrapping: hard-break long unbreakable words');
   check('cap lives in CONFIG (no magic number)', typeof E('CONFIG.wrap.maxWidth') === 'number');
 }
 
+group('Align & distribute (#95): selection ops, undoable, toolbar-gated');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 100, 100, 80, 40);
+  const b = win.createNode('rect', 300, 160, 80, 40);
+  const c = win.createNode('rect', 220, 260, 80, 40);
+  E(`selectedIds = ['${a.id}','${b.id}','${c.id}']; selectedId = null;`);
+
+  win.alignSelection('left');
+  check('align-left equalizes x', a.x === b.x && b.x === c.x);
+  check('align-left uses the min x (100)', a.x === 100);
+
+  win.alignSelection('top');
+  check('align-top equalizes y', a.y === b.y && b.y === c.y && a.y === 100);
+
+  // center-x: all share the same center
+  win.alignSelection('centerx');
+  const cxs = [a, b, c].map(n => n.x + n.width / 2);
+  check('center-x equalizes centers', Math.abs(cxs[0] - cxs[1]) < 0.5 && Math.abs(cxs[1] - cxs[2]) < 0.5);
+
+  // distribute horizontally → equal gaps between left edges
+  E(`nodes.find(n=>n.id==='${a.id}').x = 100; nodes.find(n=>n.id==='${b.id}').x = 130; nodes.find(n=>n.id==='${c.id}').x = 400`);
+  win.distributeSelection('h');
+  const xs = [a.x, b.x, c.x].sort((p, q) => p - q);
+  check('distribute makes equal gaps', Math.abs((xs[1] - xs[0]) - (xs[2] - xs[1])) <= 1);
+
+  // undoable — each op is one undo step
+  const yBefore = a.y;
+  win.alignSelection('bottom');
+  win.undo();
+  check('align is undoable', E(`nodes.find(n=>n.id==='${a.id}').y`) === yBefore);
+
+  // toolbar gating: shown for 2+, distribute disabled under 3
+  win.render();
+  const bar = doc.getElementById('alignToolbar');
+  check('align bar visible for multi-select', !bar.classList.contains('hidden'));
+  E(`selectedIds = ['${a.id}','${b.id}']`); win.render();
+  check('distribute disabled with <3 selected', [...bar.querySelectorAll('.al-dist')].every(b => b.disabled));
+  E(`selectedIds = []; selectedId = '${a.id}'`); win.render();
+  check('align bar hidden for single selection', bar.classList.contains('hidden'));
+  // align is a no-op on a single selection
+  const x1 = a.x; win.alignSelection('right');
+  check('align no-op under 2 nodes', a.x === x1);
+}
+
 process.exit(report() ? 0 : 1);
