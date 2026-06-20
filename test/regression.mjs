@@ -1483,4 +1483,32 @@ group('v2: Mermaid block diagram import (block-beta)');
   check('block with no columns lays out one row', p2.nodes.length === 3 && p2.nodes[0].y === p2.nodes[1].y && p2.nodes[1].y === p2.nodes[2].y);
 }
 
+group('v2: Mermaid sankey diagram import (sankey-beta)');
+{
+  const { win, doc, E } = boot();
+  const code = [
+    'sankey-beta',
+    '',
+    '%% a comment row to ignore',
+    'Coal,Electricity,40',
+    'Gas,Electricity,25',
+    'Electricity,Homes,30',
+    'Electricity,Industry,35',
+    '"Solar, PV",Electricity,10',
+  ].join('\n');
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const ids = p.nodes.map(n => n.id);
+  check('sankey diagramType is flowchart (reuses layout)', p.diagramType === 'flowchart');
+  check('sankey makes one node per unique name (deduped)', p.nodes.length === 6 && ids.includes('Coal') && ids.includes('Electricity') && ids.includes('Homes'));
+  check('sankey shared node is not duplicated', ids.filter(i => i === 'Electricity').length === 1);
+  check('sankey row becomes a labelled edge with the value', p.connections.some(c => c.from === 'Coal' && c.to === 'Electricity' && c.label === '40' && c.markerEnd === 'arrow'));
+  check('sankey handles quoted name with an internal comma', ids.includes('Solar, PV') && p.connections.some(c => c.from === 'Solar, PV' && c.to === 'Electricity' && c.label === '10'));
+  check('sankey edge count matches data rows', p.connections.length === 5);
+  // full import round-trips through layout + render
+  const ed = doc.getElementById('mermaidEditor');
+  ed.value = code; win.importMermaid(true);
+  check('sankey import builds nodes + edges', E(`nodes.length`) === 6 && E('connections.length') === 5);
+  check('sankey import keeps the value labels', E(`connections.some(c=>c.label==='40')`) && E(`connections.some(c=>c.label==='10')`));
+}
+
 process.exit(report() ? 0 : 1);

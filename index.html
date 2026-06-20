@@ -5396,6 +5396,9 @@
       if (firstLine.match(/^block-beta/i)) {
         return parseBlock(lines.slice(1));
       }
+      if (firstLine.match(/^sankey-beta/i)) {
+        return parseSankey(lines.slice(1));
+      }
 
       // Default: flowchart
       return parseFlowchart(lines);
@@ -5537,6 +5540,42 @@
         }
       }
 
+      return result;
+    }
+
+    // Sankey diagrams (sankey-beta). CSV rows `source,target,value` → a weighted
+    // flow graph: each unique name becomes a node, each row a labelled edge (value
+    // shown on the edge). Reuses the flowchart Sugiyama layout (diagramType
+    // 'flowchart'). Quoted fields ("" escapes a quote) and commas-in-quotes are
+    // handled. TODO: weighted ribbon widths + column layout / native figure.
+    function parseSankey(lines) {
+      const result = { nodes: [], connections: [], errors: [], diagramType: 'flowchart' };
+      const map = {};
+      const ensure = (name) => { if (!map[name]) { map[name] = { id: name, type: 'rect', label: name }; result.nodes.push(map[name]); } return map[name]; };
+      // split one CSV line, honouring "quoted, fields" and "" escaped quotes
+      const csv = (line) => {
+        const out = []; let cur = '', q = false;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (q) { if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+          else if (ch === '"') q = true;
+          else if (ch === ',') { out.push(cur); cur = ''; }
+          else cur += ch;
+        }
+        out.push(cur);
+        return out;
+      };
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith('%%') || /^sankey-beta/i.test(line)) continue;
+        const cells = csv(line);
+        if (cells.length < 3) continue;
+        const src = cells[0].trim(), tgt = cells[1].trim();
+        const valStr = cells[2].trim(), val = parseFloat(valStr);
+        if (!src || !tgt || src === tgt) continue;   // skip blanks + self-loops
+        ensure(src); ensure(tgt);
+        result.connections.push({ from: src, to: tgt, label: isNaN(val) ? '' : valStr, markerEnd: 'arrow' });
+      }
       return result;
     }
 
