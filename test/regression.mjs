@@ -1728,6 +1728,37 @@ group('Connection routing (#34): non-locked sides re-seat on render');
   check('locked toSide is left untouched', E(`connections.find(c=>c.id==='r34').toSide`) === locked);
 }
 
+group('Shape library panel (#40): placeShape + slide-out panel');
+{
+  const { win, doc, E } = boot();
+  const c = win.placeShape('class', 200, 200);
+  check('class box created with UML flag', c.isClass === true);
+  check('class box has default members', ((c.properties || []).length + (c.methods || []).length) > 0);
+  const i = win.placeShape('interface', 400, 200);
+  check('interface variant sets stereotype', i.isClass === true && i.stereotype === 'interface');
+  const en = win.placeShape('enumeration', 600, 200);
+  check('enum variant sets stereotype + values', en.stereotype === 'enumeration' && en.properties.length >= 1);
+  const p = win.placeShape('participant', 800, 200);
+  check('participant has a lifeline', p.hasLifeline === true && p.isParticipant === true);
+  const ent = win.placeShape('entity', 1000, 200);
+  check('entity is a class box with attribute rows', ent.isClass === true && ent.properties.length >= 1);
+  const t = win.placeShape('terminal', 100, 400);
+  check('terminal is a small pseudo dot', t.isPseudo === true && t.width <= 24);
+  check('placed shape lands on the requested point (within its bounds)', c.x <= 200 && 200 <= c.x + c.width && c.y <= 200 && 200 <= c.y + c.height);
+  win.render();
+  const cEl = doc.querySelector(`#nodes .node[data-id="${c.id}"]`);
+  check('placed class renders with its members', !!cEl && cEl.textContent.length > 0);
+  check('placed participant renders', !!doc.querySelector(`#nodes .node[data-id="${p.id}"]`));
+  // panel toggles open/closed + reflects state in className
+  win.toggleShapePanel(true);
+  check('shape panel opens', /\bopen\b/.test(doc.getElementById('shapePanel').className) && doc.getElementById('shapePanel').style.display === 'flex');
+  win.toggleShapePanel(false);
+  check('shape panel closes', !/\bopen\b/.test(doc.getElementById('shapePanel').className));
+  // no regression: basic shape tool still works
+  win.setTool('rect');
+  check('basic rect tool still selects', E(`currentTool`) === 'rect');
+}
+
 group('Mermaid state import (#22): composite / fork-join-choice / notes');
 {
   const { win, doc, E } = boot();
@@ -1778,6 +1809,75 @@ group('Selection → Mermaid (#2): selection-scoped export');
   // no selection → wrapper falls back to whole-canvas export
   E(`selectedIds = []; selectedId = null;`);
   check('no selection falls back to whole-canvas export', /\bC\b/.test(E(`generateMermaid({ selectionOnly: true })`)));
+}
+
+group('Mermaid append import (#46): feedback on silent failures');
+{
+  const { win, doc } = boot();
+  // recognized-but-unsupported keyword → named toast, returns false, nothing imported
+  const n0 = doc.querySelectorAll('.toast').length;
+  const r1 = win.importMermaid(true, { code: 'kanban\n  Todo\n  Doing', append: true });
+  check('unsupported append import returns false', r1 === false);
+  check('a feedback toast was shown', doc.querySelectorAll('.toast').length > n0);
+  check('toast names the unsupported type', /kanban/.test(doc.querySelector('.toast span').textContent));
+  check('nothing was imported on failure', win.eval('nodes.length') === 0);
+  // garbage / no recognizable diagram → generic toast, returns false
+  const before2 = doc.querySelectorAll('.toast').length;
+  const r2 = win.importMermaid(true, { code: '%% only a comment', append: true });
+  check('comment-only append import returns false + toasts', r2 === false && doc.querySelectorAll('.toast').length > before2);
+  // valid append import still succeeds with no error toast
+  const before3 = doc.querySelectorAll('.toast').length;
+  const r3 = win.importMermaid(true, { code: 'flowchart TD\n A-->B', append: true });
+  check('valid append import still succeeds, no new toast', r3 === true && doc.querySelectorAll('.toast').length === before3 && win.eval('nodes.length') === 2);
+  // replace-mode (non-append) still uses the editor errorDiv, not a toast (no regression)
+  const before4 = doc.querySelectorAll('.toast').length;
+  win.importMermaid(true, { code: 'kanban\n x', append: false });
+  check('replace-mode unsupported does not toast (errorDiv path unchanged)', doc.querySelectorAll('.toast').length === before4);
+}
+
+group('Accessibility (#45): icon-button ARIA labels + pressed state');
+{
+  const { win, doc } = boot();
+  const btns = [...doc.querySelectorAll('.tool-btn')];
+  check('every tool button has a non-empty aria-label', btns.length >= 10 && btns.every(b => (b.getAttribute('aria-label') || '').trim().length > 0));
+  check('decorative button SVGs are aria-hidden', btns.every(b => { const s = b.querySelector('svg'); return !s || s.getAttribute('aria-hidden') === 'true'; }));
+  win.setTool('rect');
+  const rectBtn = doc.getElementById('tool-rect');
+  check('active tool is marked aria-pressed=true', rectBtn.getAttribute('aria-pressed') === 'true');
+  win.setTool('pencil');
+  check('previously-active tool clears aria-pressed', rectBtn.getAttribute('aria-pressed') === 'false');
+  check('newly-active tool is pressed', doc.getElementById('tool-pencil').getAttribute('aria-pressed') === 'true');
+  // exactly one tool is pressed at a time
+  check('exactly one tool button is pressed', [...doc.querySelectorAll('[id^="tool-"]')].filter(b => b.getAttribute('aria-pressed') === 'true').length === 1);
+}
+
+group('First-run onboarding (#44): walkthrough + versioned flag');
+{
+  const { win, doc, E } = boot();
+  const ov = doc.getElementById('onboardingOverlay');
+  // fresh jsdom → flag absent → should show (init already auto-showed; flag still absent)
+  check('first run: flag absent and should show', E(`!localStorage.getItem('draph.onboarding.v1') && shouldShowOnboarding()`) === true);
+  win.startOnboarding();
+  check('overlay visible on start', !!ov && !ov.classList.contains('hidden'));
+  check('starts at step 0 with all 7 step dots', E(`onboardingStep`) === 0 && doc.querySelectorAll('#obDots .ob-dot').length === 7);
+  win.onboardingNext();
+  check('Next advances the step', E(`onboardingStep`) === 1);
+  win.onboardingBack();
+  check('Back goes up a step', E(`onboardingStep`) === 0);
+  win.finishOnboarding();
+  check('finish writes the versioned flag', E(`localStorage.getItem('draph.onboarding.v1')`) !== null);
+  check('overlay hidden after finish', ov.classList.contains('hidden'));
+  check('does not auto-show once completed', E(`shouldShowOnboarding()`) === false);
+  win.startOnboarding();
+  check('manual replay reopens despite the flag', !ov.classList.contains('hidden'));
+  // skip also writes the flag (not just finish)
+  E(`localStorage.removeItem('draph.onboarding.v1')`);
+  win.startOnboarding(); win.skipOnboarding();
+  check('skip closes and writes the flag too', ov.classList.contains('hidden') && E(`localStorage.getItem('draph.onboarding.v1')`) !== null);
+  // Next on the last step acts as Finish
+  E(`localStorage.removeItem('draph.onboarding.v1')`);
+  win.startOnboarding(); E(`onboardingStep = 6`); win.onboardingNext();
+  check('Next on the last step finishes (overlay closed + flag set)', ov.classList.contains('hidden') && E(`shouldShowOnboarding()`) === false);
 }
 
 group('SVG export (#37): buildExportSVG string assertions');
@@ -1880,6 +1980,45 @@ group('Mermaid gantt import (#25): dependency arrows + weekly axis');
   check('gantt: dependency arrow connects predecessor → dependent', p.connections.some(c => c.from === design.id && c.to === code2.id && c.markerEnd === 'arrow'));
   check('gantt: weekly axis ticks span the date range', p.nodes.filter(n => /^gax/.test(n.id)).length >= 2);
   check('gantt: bars keep fixed geometry', design.fixed === true && code2.fixed === true);
+}
+
+group('Theming (#62): render colors derive from the palette, not dark literals');
+{
+  const { win, E } = boot();
+  // palette swaps both ways
+  win.applyTheme('light', false);
+  check('light theme accent is the light value', E('COLORS.accent') === '#3d59a1');
+  const pL = E(`parseMermaid('gantt\\n  dateFormat YYYY-MM-DD\\n  A :a1, 2026-06-01, 3d')`);
+  check('gantt bar color derives from the (light) theme accent', pL.nodes.find(n => n.color).color === E('COLORS.accent'));
+  win.applyTheme('dark', false);
+  check('dark theme accent restored', E('COLORS.accent') === '#7aa2f7');
+  const pD = E(`parseMermaid('gantt\\n  dateFormat YYYY-MM-DD\\n  A :a1, 2026-06-01, 3d')`);
+  check('gantt bar color follows the (dark) theme accent', pD.nodes.find(n => n.color).color === '#7aa2f7');
+  // dark theme palette values byte-for-byte unchanged (no regression)
+  check('dark theme palette intact', E('COLORS.bg') === '#0f0f15' && E('COLORS.fg') === '#a9b1d6' && E('COLORS.border') === '#414868');
+}
+
+group('Keyboard a11y (#58): roving arrows + modal focus trap/restore');
+{
+  const { win, doc, E } = boot();
+  doc.getElementById('tool-select').focus();
+  key(doc, 'ArrowRight');
+  check('arrow cycles tool focus + selection', doc.activeElement === doc.getElementById('tool-rect') && E('currentTool') === 'rect');
+  key(doc, 'ArrowLeft');
+  check('arrow-left cycles back', doc.activeElement === doc.getElementById('tool-select') && E('currentTool') === 'select');
+  check('roving tabindex: active tool is the only tab stop', doc.getElementById('tool-select').getAttribute('tabindex') === '0' && doc.getElementById('tool-rect').getAttribute('tabindex') === '-1');
+  // modal focus trap + restore
+  const opener = doc.getElementById('tool-select'); opener.focus();
+  win.toggleCheatsheet(true);
+  check('opening a modal moves focus inside it', doc.getElementById('cheatsheetOverlay').contains(doc.activeElement));
+  key(doc, 'Tab');
+  check('Tab stays trapped within the modal', doc.getElementById('cheatsheetOverlay').contains(doc.activeElement));
+  key(doc, 'Escape');
+  check('Esc closes the modal', doc.getElementById('cheatsheetOverlay').classList.contains('hidden'));
+  check('focus restored to the opener on close', doc.activeElement === opener);
+  // no regression: single-key shortcuts still fire
+  key(doc, 'p');
+  check('single-key shortcut still works (P → pencil)', E('currentTool') === 'pencil');
 }
 
 group('Mermaid C4 import (#28): directional Rel + person figure');
@@ -2032,6 +2171,144 @@ group('Mermaid pie import (#30): donut variant + leader lines');
   check('pie: donut flag does not alter the parsed slices', E(`nodes[0].slices.length`) === 3);
 }
 
+group('Custom accent color (#78): live override, persist, reset');
+{
+  const { win, doc, E } = boot();
+  win.setAccentColor('#ff5577');
+  check('accent applied to canvas palette', E(`COLORS.accent`) === '#ff5577');
+  check('accent set as CSS var', doc.documentElement.style.getPropertyValue('--accent').trim() === '#ff5577');
+  check('accent persists via saveSetting', E(`loadSetting('accent')`) === '#ff5577');
+
+  // Custom accent survives a theme switch (applyTheme must re-apply it).
+  win.applyTheme('light');
+  check('custom accent survives theme toggle', E(`COLORS.accent`) === '#ff5577');
+  win.applyTheme('dark');
+
+  // Reset restores the active theme's default accent and clears the override.
+  win.resetAccentColor();
+  check('reset restores theme default accent', E(`COLORS.accent`) === E(`THEMES[currentTheme].accent`));
+  check('reset clears the CSS var', doc.documentElement.style.getPropertyValue('--accent').trim() === '');
+  check('reset clears the persisted setting', !E(`loadSetting('accent')`));
+
+  // Light/dark toggle still works after reset (no regression).
+  win.applyTheme('light');
+  check('theme toggle still works', E(`COLORS.bg`) === E(`THEMES.light.bg`));
+  win.applyTheme('dark');
+}
+
+group('Read-only viewer (#77): chrome hidden + mutations gated, pan/zoom kept');
+{
+  const { win, doc, E } = boot();
+  const canvas = doc.getElementById('canvas');
+  win.createNode('rect', 100, 100, 120, 60);
+
+  // Enter read-only via the URL flag.
+  E(`location.hash = '#view'`); win.loadFromUrl();
+  check('read-only root class set by #view flag', doc.documentElement.classList.contains('read-only'));
+
+  // Shape-draw is a no-op in read-only (plain drag pans instead).
+  const before = E('nodes.length'); win.setTool('rect');
+  mouse(canvas, 'mousedown', 300, 300); mouse(doc, 'mousemove', 380, 360); mouse(doc, 'mouseup', 380, 360);
+  check('shape-draw disabled in read-only', E('nodes.length') === before);
+
+  // Double-click create is gated too.
+  canvas.dispatchEvent(new win.MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: 500, clientY: 400 }));
+  check('dblclick create disabled in read-only', E('nodes.length') === before);
+
+  // Delete keyboard shortcut is gated.
+  E(`selectedId = nodes[0].id`);
+  key(doc, 'Delete');
+  check('Delete key disabled in read-only', E('nodes.length') === before);
+
+  // editNodeLabel is gated (no overlay textarea spawned).
+  E(`editNodeLabel(nodes[0])`);
+  check('label edit disabled in read-only', !doc.querySelector('.node-label-editor'));
+
+  // Pan still works (viewBox shifts on a plain drag).
+  const vbx = E('viewBox.x');
+  mouse(canvas, 'mousedown', 400, 400); mouse(doc, 'mousemove', 320, 400); mouse(doc, 'mouseup', 320, 400);
+  check('pan still works in read-only', E('viewBox.x') !== vbx);
+
+  // Edit affordance links back to the same diagram without the flag.
+  check('Edit link points to the no-flag hash', !/view/.test(doc.getElementById('viewEditLink').getAttribute('href')));
+
+  // Leaving view mode restores the editor (no-flag re-init clears the class).
+  E(`location.hash = ''`); win.loadFromUrl();
+  check('no-flag mode clears read-only', !doc.documentElement.classList.contains('read-only'));
+}
+
+group('#71 viewport culling for large diagrams');
+{
+  const { win, doc, E } = boot();
+  // Force culling on regardless of node count for the test.
+  E(`CONFIG.cullThreshold = 0`);
+  const near = win.createNode('rect', E('viewBox.x') + 100, E('viewBox.y') + 100, 80, 40);
+  const far  = win.createNode('rect', E('viewBox.x') + 99999, E('viewBox.y') + 99999, 80, 40);
+  win.render();
+  check('cull: on-screen node renders', !!doc.querySelector(`#nodes .node[data-id="${near.id}"]`));
+  check('cull: off-screen node is culled', !doc.querySelector(`#nodes .node[data-id="${far.id}"]`));
+
+  // Panning the viewBox over the far node brings it into the DOM.
+  E(`viewBox.x = ${far.x - 100}; viewBox.y = ${far.y - 100}`); win.render();
+  check('cull: panning to a culled node renders it', !!doc.querySelector(`#nodes .node[data-id="${far.id}"]`));
+
+  // The selected node is never culled, even when off-screen.
+  E(`viewBox.x = 0; viewBox.y = 0; selectedId = '${far.id}'`); win.render();
+  check('cull: selected node is exempt from culling', !!doc.querySelector(`#nodes .node[data-id="${far.id}"]`));
+  E(`selectedId = null`);
+
+  // A connection survives if either endpoint is in view; both off-screen → culled.
+  E(`connections.push({ id: 'cull-c', from: '${near.id}', to: '${far.id}' })`);
+  win.render();
+  check('cull: edge with one endpoint in view is drawn', E(`connectionsGroup.querySelectorAll('path').length`) > 0);
+  // Move both endpoints off-screen → the edge is culled too.
+  E(`viewBox.x = 50000; viewBox.y = 50000`); win.render();
+  check('cull: edge with both endpoints off-screen is culled', E(`connectionsGroup.querySelectorAll('path').length`) === 0);
+
+  // Below the threshold, nothing is culled (no regression for small diagrams).
+  E(`CONFIG.cullThreshold = 300; viewBox.x = 0; viewBox.y = 0`); win.render();
+  check('cull: small diagrams keep the off-screen node', !!doc.querySelector(`#nodes .node[data-id="${far.id}"]`));
+}
+
+group('#70 manual connection waypoints');
+{
+  const { win, doc, E } = boot();
+  const A = win.createNode('rect', 0, 0, 80, 40);
+  const B = win.createNode('rect', 400, 0, 80, 40);
+  E(`connections.push({ id: 'wp', from: '${A.id}', to: '${B.id}' })`);
+  E(`connections[0].waypoints = [{ x: 200, y: 150 }]`);
+  win.render();
+
+  // Router honors waypoints: the routed path passes through each one.
+  const through = E(`(() => {
+    const o = getOptimalSides(nodes[0], nodes[1]);
+    const r = routeConnection(nodes[0], nodes[1], o.fromSide, o.toSide, 0.5, 0.5, connections[0].waypoints);
+    return r.points.some(p => Math.abs(p.x - 200) < 1 && Math.abs(p.y - 150) < 1);
+  })()`);
+  check('waypoint: routed path passes through the waypoint', through === true);
+
+  // The rendered <path> visits the waypoint coordinate.
+  const d = doc.querySelector('#connections path');
+  check('waypoint: rendered path includes the waypoint', !!d && /200[ ,]\s*150/.test(d.getAttribute('d').replace(/,/g, ', ')));
+
+  // A draggable midpoint handle renders for the selected connection.
+  E(`selectedConnId = 'wp'`); win.render();
+  check('waypoint: midpoint handle renders', !!doc.querySelector('.conn-waypoint'));
+
+  // Persistence: waypoint survives the serialize round-trip.
+  const json = E(`JSON.stringify(connections)`);
+  check('waypoint: survives serialize', /"waypoints"/.test(json) && /150/.test(json));
+
+  // Auto-routing resumes once the waypoint is removed.
+  E(`delete connections[0].waypoints`); win.render();
+  const auto = E(`(() => {
+    const o = getOptimalSides(nodes[0], nodes[1]);
+    const r = routeConnection(nodes[0], nodes[1], o.fromSide, o.toSide, 0.5, 0.5, connections[0].waypoints);
+    return r.points.some(p => Math.abs(p.y - 150) < 1);
+  })()`);
+  check('waypoint: removing it resumes auto-routing (no longer through 150)', auto === false);
+}
+
 group('#36 label wrapping: hard-break long unbreakable words');
 {
   const { win, E } = boot();
@@ -2082,6 +2359,203 @@ group('Find nodes by label (#83): match + focus-center, Cmd+F box');
   check('openFind reveals the box', !box.classList.contains('hidden'));
   win.closeFind();
   check('closeFind hides the box', box.classList.contains('hidden'));
+}
+
+group('Keyboard nudge (#94): arrow moves selection, Shift = fine, undoable');
+{
+  const { win, doc, E } = boot();
+  const n = win.createNode('rect', 100, 100, 80, 40); win.selectNode(n.id);
+  const x0 = n.x;
+  key(doc, 'ArrowRight');
+  check('arrow nudges selection right by a grid step', n.x - x0 === E('GRID_SIZE'));
+  const x1 = n.x;
+  key(doc, 'ArrowRight', { shiftKey: true });
+  check('shift+arrow is a 1px fine step', n.x - x1 === 1);
+  const y0 = n.y;
+  key(doc, 'ArrowDown');
+  check('arrow down moves on Y', n.y - y0 === E('GRID_SIZE'));
+
+  // undoable — undo reverts the most recent nudge (undo swaps in fresh node
+  // objects from the snapshot, so re-read by id rather than the stale ref)
+  win.undo();
+  check('nudge is undoable', E(`nodes.find(x=>x.id==='${n.id}').y`) === y0);
+
+  // multi-selection nudges together
+  const a = win.createNode('rect', 300, 300, 80, 40);
+  const b = win.createNode('rect', 500, 300, 80, 40);
+  E(`selectedId = null; selectedIds = ['${a.id}','${b.id}']`);
+  const ax = a.x, bx = b.x;
+  key(doc, 'ArrowLeft');
+  check('multi-selection nudges together', a.x - ax === -E('GRID_SIZE') && b.x - bx === -E('GRID_SIZE'));
+
+  // no nudge while typing in an input
+  const before = a.x;
+  const inp = doc.createElement('input'); doc.body.appendChild(inp);
+  inp.dispatchEvent(new win.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'ArrowLeft' }));
+  check('no nudge while an input is focused', a.x === before);
+  inp.remove();
+}
+
+group('Gallery thumbnails (#79): generate helper + doc-record field + card render');
+{
+  const { win, doc, E } = boot();
+  check('thumbnail helper exists', typeof win.generateThumbnail === 'function');
+
+  // docStore persists a thumbnail field through save/load (jsdom has no canvas,
+  // so the raster itself is untestable — assert the storage wiring).
+  E(`docStore._useMemory()`);
+  const id = E(`docStore.save({ title: 't', data: exportState(), thumbnail: 'data:image/png;base64,AAAA' }).id`);
+  check('doc record stores a thumbnail field', /^data:image/.test(E(`docStore.load('${id}').thumbnail`)));
+
+  // A save without a thumbnail keeps the field null (placeholder path), no error.
+  const id2 = E(`docStore.save({ title: 'n', data: exportState() }).id`);
+  check('missing thumbnail is null (placeholder)', E(`docStore.load('${id2}').thumbnail`) === null);
+
+  // updating a doc without passing thumbnail preserves the existing one
+  E(`docStore.save({ id: '${id}', title: 't2' })`);
+  check('thumbnail preserved across a partial save', /^data:image/.test(E(`docStore.load('${id}').thumbnail`)));
+
+  // Gallery card renders an <img> when a thumbnail is present.
+  E(`activeDocId = '${id}'`); win.toggleGallery();
+  const card = doc.querySelector(`#galleryGrid .gallery-card[data-id="${id}"]`);
+  check('gallery card renders the thumbnail image', !!card && !!card.querySelector('img[src^="data:image"]'));
+  const card2 = doc.querySelector(`#galleryGrid .gallery-card[data-id="${id2}"]`);
+  check('thumbnail-less card shows no img (placeholder)', !!card2 && !card2.querySelector('img'));
+  win.toggleGallery();
+}
+
+group('Coach-marks (#56): spotlight steps + shared onboarding flag');
+{
+  const { win, doc, E } = boot();
+  E(`localStorage.removeItem('draph.onboarding.v1')`);
+  const ov = doc.getElementById('coachmarkOverlay');
+  check('coachmark overlay starts hidden', !!ov && ov.classList.contains('hidden'));
+
+  win.startCoachmarks();
+  check('coachmarks overlay visible', !ov.classList.contains('hidden'));
+  check('step 1 targets the rect tool', E(`coachmarkSteps[coachmarkStep].target`) === '#tool-rect');
+
+  win.coachmarkNext();
+  check('Next advances the step', E(`coachmarkStep`) === 1);
+
+  // Last-step Next finishes.
+  E(`coachmarkStep = coachmarkSteps.length - 1`); win.coachmarkNext();
+  check('overlay hidden after finish', ov.classList.contains('hidden'));
+  check('shares onboarding flag (no re-trigger)', E(`localStorage.getItem('draph.onboarding.v1')`) !== null);
+  check('finishing coachmarks suppresses first-run', E(`shouldShowOnboarding()`) === false);
+
+  // Skip also hides + writes the flag.
+  E(`localStorage.removeItem('draph.onboarding.v1')`); win.startCoachmarks();
+  win.skipCoachmarks();
+  check('skip hides the overlay', ov.classList.contains('hidden'));
+  check('skip writes the shared flag', E(`localStorage.getItem('draph.onboarding.v1')`) !== null);
+
+  // Finishing the #44 carousel hands off to coach-marks.
+  const { win: w2, doc: d2, E: E2 } = boot();
+  E2(`localStorage.removeItem('draph.onboarding.v1')`);
+  w2.startOnboarding(); E2(`onboardingStep = ONBOARDING_STEPS.length - 1`); w2.onboardingNext();
+  check('carousel finish opens coach-marks', !d2.getElementById('coachmarkOverlay').classList.contains('hidden'));
+}
+
+group('Flowchart shapes (#49): placeShape + renderNodes branches');
+{
+  const { win, doc } = boot();
+  for (const kind of ['cylinder', 'hexagon', 'parallelogram', 'trapezoid', 'subroutine']) {
+    const n = win.placeShape(kind, 200, 200);
+    check(kind + ' node created with that type', n && n.type === kind);
+    check(kind + ' has a default size', n && n.width > 0 && n.height > 0);
+  }
+  win.render();
+  // cylinder renders a path + ellipse
+  const cyl = win.placeShape('cylinder', 400, 200); win.render();
+  const elc = doc.querySelector(`#nodes .node[data-id="${cyl.id}"]`);
+  check('cylinder renders a path/ellipse', !!elc && /<path|<ellipse/i.test(elc.innerHTML));
+  // hexagon / parallelogram / trapezoid render polygons
+  const hex = win.placeShape('hexagon', 600, 200); win.render();
+  const elh = doc.querySelector(`#nodes .node[data-id="${hex.id}"]`);
+  check('hexagon renders a polygon', !!elh && /<polygon/i.test(elh.innerHTML));
+  // subroutine renders a rect plus inner vertical border lines
+  const sub = win.placeShape('subroutine', 800, 200); win.render();
+  const els = doc.querySelector(`#nodes .node[data-id="${sub.id}"]`);
+  check('subroutine renders a double border (rect + lines)', !!els && /<rect/i.test(els.innerHTML) && (els.innerHTML.match(/<line/g) || []).length >= 2);
+  // label/connect parity: a flowchart shape carries a label and can be an edge endpoint
+  check('flowchart shape carries a default label', !!cyl.label);
+  const other = win.createNode('rect', 1000, 200, 80, 40);
+  win.eval(`connections.push({ id: 'fc', from: '${cyl.id}', to: '${other.id}' })`); win.render();
+  check('flowchart shape is connectable', win.eval(`connections.some(c=>c.from==='${cyl.id}')`));
+}
+
+group('Screen-reader semantics (#59): node/conn aria-labels + live region');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 100, 100, 120, 60);
+  E(`nodes.find(n=>n.id==='${a.id}').label = 'Login'`);
+  win.render();
+  const el = doc.querySelector(`#nodes .node[data-id="${a.id}"]`);
+  check('node group has role=img', !!el && el.getAttribute('role') === 'img');
+  check('node aria-label includes type + label', !!el && /Rectangle: Login/.test(el.getAttribute('aria-label') || ''));
+
+  // unlabeled node falls back to the type name
+  const u = win.createNode('diamond', 300, 100, 100, 60);
+  E(`nodes.find(n=>n.id==='${u.id}').label = ''`);
+  win.render();
+  const elu = doc.querySelector(`#nodes .node[data-id="${u.id}"]`);
+  check('unlabeled node aria-label is the type', (elu.getAttribute('aria-label') || '') === 'Diamond');
+
+  // connection accessible name describes from→to
+  const b = win.createNode('pill', 500, 100, 120, 60);
+  E(`nodes.find(n=>n.id==='${b.id}').label = 'Home'`);
+  E(`connections.push({ id: 'e1', from: '${a.id}', to: '${b.id}' })`);
+  win.render();
+  const ce = doc.querySelector(`.connection-group[data-id="e1"]`);
+  check('connection has role=img', !!ce && ce.getAttribute('role') === 'img');
+  check('connection aria-label describes from→to', !!ce && /from Login to Home/.test(ce.getAttribute('aria-label') || ''));
+
+  // live region exists and receives announcements
+  const live = doc.querySelector('[aria-live]');
+  check('an aria-live region exists', !!live);
+  win.createNode('rect', 700, 100, 80, 40);
+  check('add announces via the live region', /added/.test((live.textContent || '')));
+  E(`selectedId = '${a.id}'`); win.deleteSelected();
+  check('delete announces via the live region', /deleted/i.test((live.textContent || '')));
+  win.announceConnect(b.id, u.id);
+  check('connect announcement names endpoints', /connected Home to Diamond/.test(live.textContent || ''));
+
+  // no visual regression: node groups still render their shape markup
+  check('node still renders its shape', !!doc.querySelector(`#nodes .node[data-id="${b.id}"] rect, #nodes .node[data-id="${b.id}"] path`));
+}
+
+group('Group resize of a multi-selection (#101): scale + reposition, undoable');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 0, 0, 100, 50);
+  const b = win.createNode('rect', 300, 0, 100, 50);
+  win.saveState();   // baseline snapshot (both nodes present) so undo has somewhere to land
+  E(`selectedIds = ['${a.id}','${b.id}']; selectedId = null;`);
+  const wA = a.width, gap0 = b.x - a.x;
+  check('resizeSelection scales members', win.resizeSelection(1.5) === true && a.width > wA && b.width > wA);
+  check('resizeSelection scales spacing (proportional layout)', (b.x - a.x) > gap0);
+  check('scale is about the bbox origin (a stays at min)', a.x === 0 && a.y === 0);
+
+  // undoable — one undo reverts the whole group resize
+  win.undo();
+  check('group resize is undoable', E(`nodes.find(n=>n.id==='${a.id}').width`) === wA && E(`nodes.find(n=>n.id==='${b.id}').x`) === 300);
+
+  // group-resize handle renders only for a 2+ selection
+  E(`selectedIds = ['${a.id}','${b.id}']; selectedId = null;`); win.render();
+  check('group-resize handle renders for 2+ selection', !!doc.querySelector('.group-resize-handle'));
+  E(`selectedIds = []; selectedId = '${a.id}'`); win.render();
+  check('no group handle for a single selection', !doc.querySelector('.group-resize-handle'));
+
+  // guards: <2 nodes or bad factor is a no-op
+  E(`selectedIds = ['${a.id}']; selectedId = null;`);
+  check('resizeSelection no-ops under 2 nodes', win.resizeSelection(2) === false);
+  E(`selectedIds = ['${a.id}','${b.id}']`);
+  check('resizeSelection rejects a non-positive factor', win.resizeSelection(0) === false);
+
+  // single-node resize still works (no regression) — width changes via direct field
+  const before = E(`nodes.find(n=>n.id==='${a.id}').width`);
+  check('single-node geometry untouched by failed group ops', before === wA);
 }
 
 process.exit(report() ? 0 : 1);
