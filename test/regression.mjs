@@ -2154,6 +2154,39 @@ group('#36 label wrapping: hard-break long unbreakable words');
   check('cap lives in CONFIG (no magic number)', typeof E('CONFIG.wrap.maxWidth') === 'number');
 }
 
+group('Coach-marks (#56): spotlight steps + shared onboarding flag');
+{
+  const { win, doc, E } = boot();
+  E(`localStorage.removeItem('draph.onboarding.v1')`);
+  const ov = doc.getElementById('coachmarkOverlay');
+  check('coachmark overlay starts hidden', !!ov && ov.classList.contains('hidden'));
+
+  win.startCoachmarks();
+  check('coachmarks overlay visible', !ov.classList.contains('hidden'));
+  check('step 1 targets the rect tool', E(`coachmarkSteps[coachmarkStep].target`) === '#tool-rect');
+
+  win.coachmarkNext();
+  check('Next advances the step', E(`coachmarkStep`) === 1);
+
+  // Last-step Next finishes.
+  E(`coachmarkStep = coachmarkSteps.length - 1`); win.coachmarkNext();
+  check('overlay hidden after finish', ov.classList.contains('hidden'));
+  check('shares onboarding flag (no re-trigger)', E(`localStorage.getItem('draph.onboarding.v1')`) !== null);
+  check('finishing coachmarks suppresses first-run', E(`shouldShowOnboarding()`) === false);
+
+  // Skip also hides + writes the flag.
+  E(`localStorage.removeItem('draph.onboarding.v1')`); win.startCoachmarks();
+  win.skipCoachmarks();
+  check('skip hides the overlay', ov.classList.contains('hidden'));
+  check('skip writes the shared flag', E(`localStorage.getItem('draph.onboarding.v1')`) !== null);
+
+  // Finishing the #44 carousel hands off to coach-marks.
+  const { win: w2, doc: d2, E: E2 } = boot();
+  E2(`localStorage.removeItem('draph.onboarding.v1')`);
+  w2.startOnboarding(); E2(`onboardingStep = ONBOARDING_STEPS.length - 1`); w2.onboardingNext();
+  check('carousel finish opens coach-marks', !d2.getElementById('coachmarkOverlay').classList.contains('hidden'));
+}
+
 group('Flowchart shapes (#49): placeShape + renderNodes branches');
 {
   const { win, doc } = boot();
