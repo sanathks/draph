@@ -1801,4 +1801,20 @@ group('Mermaid timeline import (#29): horizontal lanes + title + section tint');
   check('timeline: per-section pill tint differs', a.color && b.color && a.color !== b.color);
 }
 
+group('Mermaid gitGraph import (#26): tags, commit types, cherry-pick');
+{
+  const { win, doc, E } = boot();
+  const code = 'gitGraph\n  commit id: "A"\n  commit tag: "v1.0"\n  branch dev\n  commit type: HIGHLIGHT\n  checkout main\n  cherry-pick id: "A"';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('gitgraph: tag captured on the commit', p.nodes.some(n => n.tag === 'v1.0'));
+  check('gitgraph: HIGHLIGHT type captured', p.nodes.some(n => n.commitType === 'HIGHLIGHT'));
+  check('gitgraph: cherry-pick adds a dashed link from the source commit', p.connections.some(c => c.strokeStyle === 'dashed' && c.label === 'cherry-pick'));
+  // existing geometry intact (commits are fixed circle dots on lanes)
+  check('gitgraph: commits still fixed circle dots', p.nodes.filter(n => /^gc/.test(n.id)).every(n => n.type === 'circle' && n.fixed === true));
+  // render: the tag label appears in the node layer
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  check('gitgraph: tag label rendered', /v1\.0/.test(doc.getElementById('nodes').textContent));
+  check('gitgraph: import carries tag + commitType onto nodes', E(`nodes.some(n=>n.tag==='v1.0')`) && E(`nodes.some(n=>n.commitType==='HIGHLIGHT')`));
+}
+
 process.exit(report() ? 0 : 1);

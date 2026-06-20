@@ -2325,10 +2325,19 @@
           const cx = node.x + node.width / 2, cy = node.y + node.height / 2;
           const txtColor = (style === 'outline' || style === 'stripe' || style === 'grid') ? (node.outlineColor || COLORS.fg) : textColor;
           const clipId = 'clip-' + node.id;
-          shape = `${customPattern}<defs><clipPath id="${clipId}"><circle cx="${cx}" cy="${cy}" r="${node.width / 2}"/></clipPath></defs>
-            <circle cx="${cx}" cy="${cy}" r="${node.width / 2}" 
+          // gitGraph commit decorations (only set on gitgraph commit nodes):
+          // HIGHLIGHT → thick accent ring; REVERSE → an ✗ overlay; tag → label above.
+          const r = node.width / 2;
+          const ring = node.commitType === 'HIGHLIGHT'
+            ? `<circle cx="${cx}" cy="${cy}" r="${r + 3}" fill="none" stroke="${COLORS.accent}" stroke-width="3" style="pointer-events:none"/>` : '';
+          const rev = node.commitType === 'REVERSE'
+            ? `<path d="M${cx - r * 0.5},${cy - r * 0.5} L${cx + r * 0.5},${cy + r * 0.5} M${cx + r * 0.5},${cy - r * 0.5} L${cx - r * 0.5},${cy + r * 0.5}" stroke="${COLORS.bg}" stroke-width="2" style="pointer-events:none"/>` : '';
+          const tagEl = node.tag
+            ? `<text x="${cx}" y="${node.y - 6}" fill="${COLORS.fg}" font-size="11" font-weight="600" font-family="system-ui, sans-serif" text-anchor="middle" style="pointer-events:none">${esc(node.tag)}</text>` : '';
+          shape = `${customPattern}<defs><clipPath id="${clipId}"><circle cx="${cx}" cy="${cy}" r="${r}"/></clipPath></defs>
+            ${ring}<circle cx="${cx}" cy="${cy}" r="${r}"
             fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>
-            <g clip-path="url(#${clipId})">${renderWrappedText(node.label, cx, cy, node.width * 0.6, 11, txtColor, '', node.icon)}</g>`;
+            <g clip-path="url(#${clipId})">${renderWrappedText(node.label, cx, cy, node.width * 0.6, 11, txtColor, '', node.icon)}</g>${rev}${tagEl}`;
         } else if (node.type === 'text') {
           // Text node - just text, no shape border (unless selected)
           const txtColor = node.color || COLORS.fg;
@@ -5925,10 +5934,15 @@
       const result = { nodes: [], connections: [], errors: [], diagramType: 'gitgraph' };
       const lanes = { main: 0 }; let laneCount = 1, current = 'main', xi = 0, cnum = 0;
       const tip = {};
+      const byCommitId = {};   // explicit commit id ("X") → nodeId, for cherry-pick links
       const laneColor = (b) => CONFIG.palette[(lanes[b] || 0) % CONFIG.palette.length];
-      const addCommit = (id) => {
+      const addCommit = (opts = {}) => {
         const nid = 'gc' + (++cnum);
-        result.nodes.push({ id: nid, type: 'circle', label: id || '', fixed: true, x: baseX + (xi++) * PXC, y: baseY + lanes[current] * laneH, width: 38, height: 38, color: laneColor(current), fillStyle: 'infill' });
+        const node = { id: nid, type: 'circle', label: opts.id || '', fixed: true, x: baseX + (xi++) * PXC, y: baseY + lanes[current] * laneH, width: 38, height: 38, color: laneColor(current), fillStyle: 'infill' };
+        if (opts.tag) node.tag = opts.tag;
+        if (opts.commitType) node.commitType = opts.commitType;   // HIGHLIGHT | REVERSE
+        result.nodes.push(node);
+        if (opts.id) byCommitId[opts.id] = nid;
         if (tip[current]) result.connections.push({ from: tip[current], to: nid });
         tip[current] = nid;
         return nid;
@@ -5937,11 +5951,24 @@
         const line = raw.trim();
         if (!line || line.startsWith('%%') || /^gitGraph/i.test(line)) continue;
         let m;
-        if ((m = line.match(/^commit\b(.*)$/i))) { const idm = m[1].match(/id:\s*"([^"]*)"/i); addCommit(idm ? idm[1] : ''); continue; }
+        if ((m = line.match(/^commit\b(.*)$/i))) {
+          const rest = m[1];
+          const idm = rest.match(/id:\s*"([^"]*)"/i);
+          const tagm = rest.match(/tag:\s*"([^"]*)"/i);
+          const typem = rest.match(/type:\s*(HIGHLIGHT|REVERSE|NORMAL)/i);
+          addCommit({ id: idm ? idm[1] : '', tag: tagm ? tagm[1] : '', commitType: typem ? typem[1].toUpperCase() : '' });
+          continue;
+        }
         if ((m = line.match(/^branch\s+(\S+)/i))) { const n = m[1]; if (!(n in lanes)) lanes[n] = laneCount++; tip[n] = tip[current]; current = n; continue; }
         if ((m = line.match(/^(?:checkout|switch)\s+(\S+)/i))) { current = m[1]; if (!(current in lanes)) lanes[current] = laneCount++; continue; }
-        if ((m = line.match(/^merge\s+(\S+)/i))) { const from = m[1]; const nid = addCommit(''); if (tip[from]) result.connections.push({ from: tip[from], to: nid }); continue; }
-        if (/^cherry-pick\b/i.test(line)) { addCommit(''); continue; }
+        if ((m = line.match(/^merge\s+(\S+)/i))) { const from = m[1]; const nid = addCommit({}); if (tip[from]) result.connections.push({ from: tip[from], to: nid }); continue; }
+        // cherry-pick id:"X" → new commit on the current branch + a dashed link from source X
+        if ((m = line.match(/^cherry-pick\b(.*)$/i))) {
+          const srcm = m[1].match(/id:\s*"([^"]*)"/i);
+          const nid = addCommit({});
+          if (srcm && byCommitId[srcm[1]]) result.connections.push({ from: byCommitId[srcm[1]], to: nid, strokeStyle: 'dashed', label: 'cherry-pick' });
+          continue;
+        }
       }
       Object.keys(lanes).forEach(b => {
         result.nodes.push({ id: 'glane_' + b, type: 'text', label: b, fixed: true, x: 10, y: baseY + lanes[b] * laneH + 8, width: 140, height: 24 });
@@ -7242,6 +7269,8 @@
           if (n.type === 'quadrant') { node.title = n.title; node.xAxis = n.xAxis; node.yAxis = n.yAxis; node.quadrants = n.quadrants; node.points = n.points; }
           if (n.type === 'xychart') { node.title = n.title; node.xAxis = n.xAxis; node.yAxis = n.yAxis; node.series = n.series; }
           if (n.icon) node.icon = n.icon;   // mindmap ::icon(...) → node icon
+          if (n.tag) node.tag = n.tag;                 // gitGraph commit tag
+          if (n.commitType) node.commitType = n.commitType;   // gitGraph HIGHLIGHT/REVERSE
 
           // Store class properties/methods
           if (isClass) {
