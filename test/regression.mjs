@@ -1755,4 +1755,20 @@ group('Mermaid gantt import (#25): dependency arrows + weekly axis');
   check('gantt: bars keep fixed geometry', design.fixed === true && code2.fixed === true);
 }
 
+group('Theming (#62): render colors derive from the palette, not dark literals');
+{
+  const { win, E } = boot();
+  // palette swaps both ways
+  win.applyTheme('light', false);
+  check('light theme accent is the light value', E('COLORS.accent') === '#3d59a1');
+  const pL = E(`parseMermaid('gantt\\n  dateFormat YYYY-MM-DD\\n  A :a1, 2026-06-01, 3d')`);
+  check('gantt bar color derives from the (light) theme accent', pL.nodes.find(n => n.color).color === E('COLORS.accent'));
+  win.applyTheme('dark', false);
+  check('dark theme accent restored', E('COLORS.accent') === '#7aa2f7');
+  const pD = E(`parseMermaid('gantt\\n  dateFormat YYYY-MM-DD\\n  A :a1, 2026-06-01, 3d')`);
+  check('gantt bar color follows the (dark) theme accent', pD.nodes.find(n => n.color).color === '#7aa2f7');
+  // dark theme palette values byte-for-byte unchanged (no regression)
+  check('dark theme palette intact', E('COLORS.bg') === '#0f0f15' && E('COLORS.fg') === '#a9b1d6' && E('COLORS.border') === '#414868');
+}
+
 process.exit(report() ? 0 : 1);
