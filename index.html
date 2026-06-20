@@ -6306,7 +6306,7 @@
     // Entity-Relationship diagrams (erDiagram). Entities become class-style boxes
     // (header + attribute rows); relationships become labeled edges (dashed for
     // non-identifying `..`). Crow's-foot cardinality markers are not drawn yet
-    // (see MERMAID_SUPPORT.md) — the verb label is kept.
+    // — the verb label is kept.
     function parseErDiagram(lines) {
       const result = { nodes: [], connections: [], errors: [], diagramType: 'flowchart' };
       const map = {};
@@ -6358,7 +6358,7 @@
     // State diagrams (stateDiagram / stateDiagram-v2). States become rounded
     // rect nodes; transitions become labeled edges. [*] is the start/end
     // pseudo-state, rendered as a small circle. (First cut: notes, forks, and
-    // composite-state nesting are flattened/ignored — see MERMAID_SUPPORT.md.)
+    // composite-state nesting are flattened/ignored.)
     function parseStateDiagram(lines) {
       const result = { nodes: [], connections: [], errors: [], diagramType: 'flowchart', subgraphs: [] };
       const nodeMap = {};
