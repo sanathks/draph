@@ -2171,6 +2171,45 @@ group('Mermaid pie import (#30): donut variant + leader lines');
   check('pie: donut flag does not alter the parsed slices', E(`nodes[0].slices.length`) === 3);
 }
 
+group('#70 manual connection waypoints');
+{
+  const { win, doc, E } = boot();
+  const A = win.createNode('rect', 0, 0, 80, 40);
+  const B = win.createNode('rect', 400, 0, 80, 40);
+  E(`connections.push({ id: 'wp', from: '${A.id}', to: '${B.id}' })`);
+  E(`connections[0].waypoints = [{ x: 200, y: 150 }]`);
+  win.render();
+
+  // Router honors waypoints: the routed path passes through each one.
+  const through = E(`(() => {
+    const o = getOptimalSides(nodes[0], nodes[1]);
+    const r = routeConnection(nodes[0], nodes[1], o.fromSide, o.toSide, 0.5, 0.5, connections[0].waypoints);
+    return r.points.some(p => Math.abs(p.x - 200) < 1 && Math.abs(p.y - 150) < 1);
+  })()`);
+  check('waypoint: routed path passes through the waypoint', through === true);
+
+  // The rendered <path> visits the waypoint coordinate.
+  const d = doc.querySelector('#connections path');
+  check('waypoint: rendered path includes the waypoint', !!d && /200[ ,]\s*150/.test(d.getAttribute('d').replace(/,/g, ', ')));
+
+  // A draggable midpoint handle renders for the selected connection.
+  E(`selectedConnId = 'wp'`); win.render();
+  check('waypoint: midpoint handle renders', !!doc.querySelector('.conn-waypoint'));
+
+  // Persistence: waypoint survives the serialize round-trip.
+  const json = E(`JSON.stringify(connections)`);
+  check('waypoint: survives serialize', /"waypoints"/.test(json) && /150/.test(json));
+
+  // Auto-routing resumes once the waypoint is removed.
+  E(`delete connections[0].waypoints`); win.render();
+  const auto = E(`(() => {
+    const o = getOptimalSides(nodes[0], nodes[1]);
+    const r = routeConnection(nodes[0], nodes[1], o.fromSide, o.toSide, 0.5, 0.5, connections[0].waypoints);
+    return r.points.some(p => Math.abs(p.y - 150) < 1);
+  })()`);
+  check('waypoint: removing it resumes auto-routing (no longer through 150)', auto === false);
+}
+
 group('#36 label wrapping: hard-break long unbreakable words');
 {
   const { win, E } = boot();
