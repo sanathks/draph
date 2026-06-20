@@ -1696,4 +1696,27 @@ group('Selection → Mermaid (#2): selection-scoped export');
   check('no selection falls back to whole-canvas export', /\bC\b/.test(E(`generateMermaid({ selectionOnly: true })`)));
 }
 
+group('SVG export (#37): buildExportSVG string assertions');
+{
+  const { win, E } = boot();
+  // empty canvas → null, no side effects
+  check('buildExportSVG returns null on an empty canvas', E(`buildExportSVG()`) === null);
+  const a = win.createNode('rect', 100, 100); E(`nodes.find(n=>n.id==='${a.id}').label='Alpha'`);
+  const b = win.createNode('rect', 400, 100); E(`nodes.find(n=>n.id==='${b.id}').label='Beta'`);
+  E(`connections.push({ id:'e', from:'${a.id}', to:'${b.id}' })`);
+  win.render();
+  const svg = E(`buildExportSVG()`);
+  check('export is a standalone <svg> with a viewBox', /^<svg[\s>]/.test(svg.trim()) && /viewBox=/.test(svg));
+  check('export includes every node label', /Alpha/.test(svg) && /Beta/.test(svg));
+  check('export includes the connection markup', /connection-group|class="connection"/.test(svg));
+  check('export omits UI chrome (connectors/hit-areas/grid/marquee)', !/connector|conn-hit|gridBg|selectBox|drawPreview|resize-handle/.test(svg));
+  // viewBox tightly bounds content (not the full 1200×800 canvas)
+  const vb = (svg.match(/viewBox="([^"]+)"/) || [])[1].split(/\s+/).map(Number);
+  check('viewBox crops to content, not the whole canvas', vb[2] < 1200 && vb[3] < 800 && vb[0] > 0);
+  // pure: calling it does not mutate state or trigger a download
+  const before = E(`nodes.length`);
+  E(`buildExportSVG()`);
+  check('buildExportSVG is side-effect free (node count unchanged)', E(`nodes.length`) === before);
+}
+
 process.exit(report() ? 0 : 1);
