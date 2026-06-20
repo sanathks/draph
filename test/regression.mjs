@@ -1724,6 +1724,25 @@ group('Selection → Mermaid (#2): selection-scoped export');
   check('no selection falls back to whole-canvas export', /\bC\b/.test(E(`generateMermaid({ selectionOnly: true })`)));
 }
 
+group('Mermaid class import (#27): namespaces → grouping container');
+{
+  const { win, doc, E } = boot();
+  const code = 'classDiagram\n  namespace Payment {\n    class Card\n    class Wallet\n  }\n  Card --> Wallet';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const sg = (p.subgraphs || []).find(s => s.label === 'Payment');
+  check('namespace becomes a grouping container with its classes', !!sg && sg.children.includes('Card') && sg.children.includes('Wallet'));
+  check('namespaced classes still parse as class nodes', p.nodes.some(n => n.label === 'Card' && n.type === 'class') && p.nodes.some(n => n.label === 'Wallet'));
+  check('relationship inside/after the namespace still parsed', p.connections.some(c => c.from === 'Card' && c.to === 'Wallet'));
+  // classes inside a namespace keep stereotypes + members
+  const p2 = E(`parseMermaid(${JSON.stringify('classDiagram\n  namespace Bank {\n    class Account {\n      +Float balance\n      +deposit(n) void\n    }\n    class Ledger\n  }')})`);
+  const acct = p2.nodes.find(n => n.label === 'Account');
+  check('namespaced class keeps its members', !!acct && acct.properties.length >= 1 && acct.methods.length >= 1);
+  // import nests the classes inside the Payment container
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true);
+  check('import creates the Payment container', E(`nodes.some(n=>n.type==='container'&&n.label==='Payment')`));
+  check('namespaced class renders inside the container', E(`(()=>{const c=nodes.find(n=>n.type==='container'&&n.label==='Payment');const k=nodes.find(n=>n.label==='Card');return !!c&&!!k&&k.x>=c.x&&k.y>=c.y&&k.x+k.width<=c.x+c.width&&k.y+k.height<=c.y+c.height;})()`));
+}
+
 group("Mermaid ER import (#23): crow's-foot cardinality markers");
 {
   const { win, doc, E } = boot();
@@ -1784,6 +1803,39 @@ group('Mermaid gantt import (#25): dependency arrows + weekly axis');
   check('gantt: bars keep fixed geometry', design.fixed === true && code2.fixed === true);
 }
 
+group('Mermaid C4 import (#28): directional Rel + person figure');
+{
+  const { win, doc, E } = boot();
+  const code = 'C4Context\n  Person(user, "User")\n  System(sys, "App")\n  Rel_D(user, sys, "uses")\n  Rel(sys, user, "replies")';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const cD = p.connections.find(c => c.from === 'user' && c.to === 'sys');
+  const cPlain = p.connections.find(c => c.from === 'sys' && c.to === 'user');
+  check('c4: Rel_D locks a downward (bottom→top) route', cD.fromSide === 'bottom' && cD.toSide === 'top' && cD.fromSideLocked === true && cD.toSideLocked === true);
+  check('c4: plain Rel is unchanged (no locked sides)', !cPlain.fromSide && !cPlain.fromSideLocked);
+  // per-direction sides pinned (review #28: the suite must check each variant)
+  const dirSides = (dir) => {
+    const pp = E(`parseMermaid(${JSON.stringify('C4Context\n  System(a, "A")\n  System(b, "B")\n  ' + dir + '(a, b, "x")')})`);
+    const c = pp.connections.find(x => x.from === 'a');
+    return c.fromSideLocked && c.toSideLocked ? c.fromSide + '/' + c.toSide : 'unlocked';
+  };
+  check('c4: Rel_R → right/left (locked)', dirSides('Rel_R') === 'right/left');
+  check('c4: Rel_L → left/right (locked)', dirSides('Rel_L') === 'left/right');
+  check('c4: Rel_U → top/bottom (locked)', dirSides('Rel_U') === 'top/bottom');
+  check('c4: Rel_D → bottom/top (locked)', dirSides('Rel_D') === 'bottom/top');
+  check('c4: long-form Rel_Right matches Rel_R', dirSides('Rel_Right') === 'right/left');
+  check('c4: Person box flagged for the figure', p.nodes.find(n => n.id === 'user').isPerson === true);
+  // render: the person figure (user icon) draws inside the box
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  const person = E(`nodes.find(n=>n.isPerson)`);
+  const el = doc.querySelector(`#nodes .node[data-id="${person.id}"]`);
+  check('c4: person figure renders in the box', !!el && /path|circle/.test(el.innerHTML));
+  // the locked direction must SURVIVE import + render (the re-seat pass must not
+  // override it) — this is what the logic-only parse check missed (review #28).
+  doc.getElementById('mermaidEditor').value = 'C4Context\n  System(a, "A")\n  System(b, "B")\n  Rel_R(a, b, "x")';
+  win.importMermaid(true); win.render();
+  check('c4: Rel_R leaves the right edge after import+render (lock survives)', E(`connections[0].fromSide`) === 'right' && E(`connections[0].fromSideLocked`) === true);
+}
+
 group('Mermaid timeline import (#29): horizontal lanes + title + section tint');
 {
   const { win, doc, E } = boot();
@@ -1831,6 +1883,24 @@ group('Mermaid requirement import (#32): containment diamond glyph');
   doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
   check('req: diamond marker rendered on the connection', /polygon/.test(doc.getElementById('connections').innerHTML));
   check('req: contains markerStart carried through import', E(`connections.some(c=>c.markerStart==='diamond-filled')`));
+}
+
+group('Mermaid pie import (#30): donut variant + leader lines');
+{
+  const { win, doc, E } = boot();
+  const code = 'pie title Browsers\n  "Chrome" : 60\n  "Safari" : 25\n  "Other" : 15';
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true);
+  check('pie: one pie node imported', E(`nodes.length`) === 1 && E(`nodes[0].type === 'pie'`));
+  // default (non-donut): slices are wedge paths + leader % labels present
+  win.render();
+  const elDef = doc.querySelector('#nodes .node');
+  check('pie: default renders slice paths', !!elDef && (elDef.innerHTML.match(/<path/g) || []).length === 3);
+  check('pie: leader lines show slice percentages', /\d+%/.test(elDef.textContent));
+  // donut flag → annulus paths (inner-arc reverse sweep), default parse unchanged
+  E(`nodes[0].donut = true`); win.render();
+  const el = doc.querySelector('#nodes .node');
+  check('pie: donut renders annulus paths', !!el && /A[\d.]+,[\d.]+ 0 \d 0/.test(el.innerHTML));
+  check('pie: donut flag does not alter the parsed slices', E(`nodes[0].slices.length`) === 3);
 }
 
 process.exit(report() ? 0 : 1);
