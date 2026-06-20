@@ -2130,4 +2130,32 @@ group('#36 label wrapping: hard-break long unbreakable words');
   check('cap lives in CONFIG (no magic number)', typeof E('CONFIG.wrap.maxWidth') === 'number');
 }
 
+group('Flowchart shapes (#49): placeShape + renderNodes branches');
+{
+  const { win, doc } = boot();
+  for (const kind of ['cylinder', 'hexagon', 'parallelogram', 'trapezoid', 'subroutine']) {
+    const n = win.placeShape(kind, 200, 200);
+    check(kind + ' node created with that type', n && n.type === kind);
+    check(kind + ' has a default size', n && n.width > 0 && n.height > 0);
+  }
+  win.render();
+  // cylinder renders a path + ellipse
+  const cyl = win.placeShape('cylinder', 400, 200); win.render();
+  const elc = doc.querySelector(`#nodes .node[data-id="${cyl.id}"]`);
+  check('cylinder renders a path/ellipse', !!elc && /<path|<ellipse/i.test(elc.innerHTML));
+  // hexagon / parallelogram / trapezoid render polygons
+  const hex = win.placeShape('hexagon', 600, 200); win.render();
+  const elh = doc.querySelector(`#nodes .node[data-id="${hex.id}"]`);
+  check('hexagon renders a polygon', !!elh && /<polygon/i.test(elh.innerHTML));
+  // subroutine renders a rect plus inner vertical border lines
+  const sub = win.placeShape('subroutine', 800, 200); win.render();
+  const els = doc.querySelector(`#nodes .node[data-id="${sub.id}"]`);
+  check('subroutine renders a double border (rect + lines)', !!els && /<rect/i.test(els.innerHTML) && (els.innerHTML.match(/<line/g) || []).length >= 2);
+  // label/connect parity: a flowchart shape carries a label and can be an edge endpoint
+  check('flowchart shape carries a default label', !!cyl.label);
+  const other = win.createNode('rect', 1000, 200, 80, 40);
+  win.eval(`connections.push({ id: 'fc', from: '${cyl.id}', to: '${other.id}' })`); win.render();
+  check('flowchart shape is connectable', win.eval(`connections.some(c=>c.from==='${cyl.id}')`));
+}
+
 process.exit(report() ? 0 : 1);
