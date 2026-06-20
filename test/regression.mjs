@@ -1275,4 +1275,35 @@ OrderRepository~Order~ ..> Order : manages`;
   check('imported class carries its stereotype', E(`nodes.find(n=>n.label==='Identifiable').stereotype`) === 'interface');
 }
 
+// ---------------------------------------------------------------------------
+group('v2: Mermaid quadrantChart import');
+{
+  const { win, doc, E } = boot();
+  const code = [
+    'quadrantChart',
+    '    title Reach and engagement',
+    '    x-axis Low Reach --> High Reach',
+    '    y-axis Low Engagement --> High Engagement',
+    '    quadrant-1 Expand',
+    '    quadrant-2 Promote',
+    '    quadrant-3 Re-evaluate',
+    '    quadrant-4 Improve',
+    '    Campaign A: [0.3, 0.6]',
+    '    Campaign B: [0.45, 0.23]',
+  ].join('\n');
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('quadrant collapses to one node', p.nodes.length === 1 && p.nodes[0].type === 'quadrant');
+  check('quadrant parses axes', p.nodes[0].xAxis.left === 'Low Reach' && p.nodes[0].xAxis.right === 'High Reach' && p.nodes[0].yAxis.top === 'High Engagement');
+  check('quadrant parses the 4 quadrant labels', p.nodes[0].quadrants[0] === 'Expand' && p.nodes[0].quadrants[3] === 'Improve');
+  check('quadrant parses points with x,y', p.nodes[0].points.length === 2 && p.nodes[0].points[0].label === 'Campaign A' && p.nodes[0].points[0].x === 0.3 && p.nodes[0].points[0].y === 0.6);
+  // full import renders plot frame + points
+  const ed = doc.getElementById('mermaidEditor');
+  ed.value = code; win.importMermaid(true);
+  check('quadrant import makes one quadrant node', E(`nodes.length`) === 1 && E(`nodes[0].type==='quadrant'`));
+  win.render();
+  const el = doc.querySelector(`#nodes .node[data-id="${E('nodes[0].id')}"]`);
+  check('quadrant renders point dots', !!el && [...el.querySelectorAll('circle')].filter(c => c.getAttribute('r') === '5').length === 2);
+  check('quadrant renders axis labels', !!el && /High Reach/.test(el.textContent));
+}
+
 process.exit(report() ? 0 : 1);

@@ -2335,6 +2335,41 @@
           });
           const titleEl = node.title ? `<text x="${node.x + node.width / 2}" y="${node.y + 17}" fill="${COLORS.fg}" font-size="13" font-weight="600" font-family="system-ui, sans-serif" text-anchor="middle" style="pointer-events:none">${esc(node.title)}</text>` : '';
           shape = `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="8" fill="${COLORS.bg2}" stroke="${isSelected ? COLORS.accent : COLORS.border}" stroke-width="${isSelected ? 2 : 1.5}" class="node-border"/>${titleEl}${arcs}${legend}`;
+        } else if (node.type === 'quadrant') {
+          // 2×2 quadrant plot: tinted quadrants + labels, center cross, axis
+          // labels, and plotted points (x,y in 0..1; y up).
+          const titleH = node.title ? 26 : 6, m = 52;
+          const px = node.x + m, py = node.y + titleH + 6;
+          const pw = node.width - m - 16, ph = node.height - titleH - 6 - 34;
+          const mx = px + pw / 2, my = py + ph / 2;
+          const q = node.quadrants || ['', '', '', ''];
+          const tints = ['122,162,247', '158,206,106', '247,118,142', '224,175,104'];
+          const tint = (i) => `rgba(${tints[i]},0.10)`;
+          // q1 TR, q2 TL, q3 BL, q4 BR
+          const cells =
+            `<rect x="${mx}" y="${py}" width="${pw / 2}" height="${ph / 2}" fill="${tint(0)}"/>` +
+            `<rect x="${px}" y="${py}" width="${pw / 2}" height="${ph / 2}" fill="${tint(1)}"/>` +
+            `<rect x="${px}" y="${my}" width="${pw / 2}" height="${ph / 2}" fill="${tint(2)}"/>` +
+            `<rect x="${mx}" y="${my}" width="${pw / 2}" height="${ph / 2}" fill="${tint(3)}"/>`;
+          const qlabel = (txt, cx, cy) => txt ? `<text x="${cx}" y="${cy}" fill="${COLORS.fg}" opacity="0.55" font-size="11" font-family="system-ui, sans-serif" text-anchor="middle" style="pointer-events:none">${esc(txt)}</text>` : '';
+          const qlabels = qlabel(q[0], px + pw * 0.75, py + 16) + qlabel(q[1], px + pw * 0.25, py + 16) + qlabel(q[2], px + pw * 0.25, my + ph * 0.5 - 6 + 16) + qlabel(q[3], px + pw * 0.75, my + ph * 0.5 - 6 + 16);
+          const frame = `<rect x="${px}" y="${py}" width="${pw}" height="${ph}" fill="none" stroke="${COLORS.border}" stroke-width="1.5"/>` +
+            `<line x1="${mx}" y1="${py}" x2="${mx}" y2="${py + ph}" stroke="${COLORS.border}" stroke-width="1"/>` +
+            `<line x1="${px}" y1="${my}" x2="${px + pw}" y2="${my}" stroke="${COLORS.border}" stroke-width="1"/>`;
+          let pts = '';
+          (node.points || []).forEach(p => {
+            const cx = px + p.x * pw, cy = py + (1 - p.y) * ph;
+            pts += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="5" fill="${COLORS.accent}"/>`;
+            pts += `<text x="${(cx + 8).toFixed(1)}" y="${(cy + 4).toFixed(1)}" fill="${COLORS.fg}" font-size="11" font-family="system-ui, sans-serif" style="pointer-events:none">${esc(p.label)}</text>`;
+          });
+          const ax = node.xAxis || {}, ay = node.yAxis || {};
+          const axis =
+            (ax.left ? `<text x="${px}" y="${py + ph + 18}" fill="${COLORS.fg}" opacity="0.7" font-size="11" font-family="system-ui, sans-serif" style="pointer-events:none">${esc(ax.left)}</text>` : '') +
+            (ax.right ? `<text x="${px + pw}" y="${py + ph + 18}" fill="${COLORS.fg}" opacity="0.7" font-size="11" font-family="system-ui, sans-serif" text-anchor="end" style="pointer-events:none">${esc(ax.right)}</text>` : '') +
+            (ay.bottom ? `<text x="${node.x + 16}" y="${py + ph}" fill="${COLORS.fg}" opacity="0.7" font-size="11" font-family="system-ui, sans-serif" text-anchor="end" transform="rotate(-90 ${node.x + 16} ${py + ph})" style="pointer-events:none">${esc(ay.bottom)}</text>` : '') +
+            (ay.top ? `<text x="${node.x + 16}" y="${py}" fill="${COLORS.fg}" opacity="0.7" font-size="11" font-family="system-ui, sans-serif" transform="rotate(-90 ${node.x + 16} ${py})" style="pointer-events:none">${esc(ay.top)}</text>` : '');
+          const titleEl = node.title ? `<text x="${node.x + node.width / 2}" y="${node.y + 17}" fill="${COLORS.fg}" font-size="13" font-weight="600" font-family="system-ui, sans-serif" text-anchor="middle" style="pointer-events:none">${esc(node.title)}</text>` : '';
+          shape = `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="8" fill="${COLORS.bg2}" stroke="${isSelected ? COLORS.accent : COLORS.border}" stroke-width="${isSelected ? 2 : 1.5}" class="node-border"/>${titleEl}${cells}${qlabels}${frame}${pts}${axis}`;
         } else if (node.type === 'line') {
           // Standalone arrow/line shape
           const x1 = node.x;
@@ -5307,9 +5342,34 @@
       if (firstLine.match(/^gitGraph/i)) {
         return parseGitGraph(lines.slice(1));
       }
+      if (firstLine.match(/^quadrantChart/i)) {
+        return parseQuadrant(lines.slice(1));
+      }
 
       // Default: flowchart
       return parseFlowchart(lines);
+    }
+
+    // Quadrant charts. Collapses to a single `quadrant` node holding the axes,
+    // the four quadrant labels, and the plotted points (x,y in 0..1); rendered
+    // as a 2×2 plot (see renderNodes).
+    function parseQuadrant(lines) {
+      const node = {
+        id: 'quad1', type: 'quadrant', title: '', xAxis: { left: '', right: '' }, yAxis: { bottom: '', top: '' },
+        quadrants: ['', '', '', ''], points: [], fixed: true, x: 100, y: 100, width: 460, height: 460, label: 'Quadrant',
+      };
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith('%%') || /^quadrantChart/i.test(line)) continue;
+        let m;
+        if ((m = line.match(/^title\s+(.+)$/i))) { node.title = m[1].trim(); continue; }
+        if ((m = line.match(/^x-axis\s+(.+)$/i))) { const a = m[1].split('-->'); node.xAxis = { left: a[0].trim(), right: (a[1] || '').trim() }; continue; }
+        if ((m = line.match(/^y-axis\s+(.+)$/i))) { const a = m[1].split('-->'); node.yAxis = { bottom: a[0].trim(), top: (a[1] || '').trim() }; continue; }
+        if ((m = line.match(/^quadrant-([1-4])\s+(.+)$/i))) { node.quadrants[+m[1] - 1] = m[2].trim(); continue; }
+        if ((m = line.match(/^(.+?):\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*\]/))) { node.points.push({ label: m[1].trim(), x: parseFloat(m[2]), y: parseFloat(m[3]) }); }
+      }
+      node.label = node.title || 'Quadrant';
+      return { nodes: [node], connections: [], errors: [], diagramType: 'quadrant' };
     }
 
     // Git graphs. Each branch is a horizontal lane; commits are dots placed
@@ -6037,7 +6097,7 @@
       const startY = 100;
 
       // These carry their own absolute geometry — don't re-layout.
-      if (diagramType === 'gantt' || diagramType === 'pie' || diagramType === 'journey' || diagramType === 'gitgraph') return parsedNodes;
+      if (diagramType === 'gantt' || diagramType === 'pie' || diagramType === 'journey' || diagramType === 'gitgraph' || diagramType === 'quadrant') return parsedNodes;
 
       // Sequence diagram: horizontal layout at top
       if (diagramType === 'sequence') {
@@ -6500,6 +6560,7 @@
           node.label = n.label;
           if (isFixed) { if (n.color) node.color = n.color; if (n.fillStyle) node.fillStyle = n.fillStyle; }
           if (n.type === 'pie') { node.slices = n.slices; node.title = n.title; }
+          if (n.type === 'quadrant') { node.title = n.title; node.xAxis = n.xAxis; node.yAxis = n.yAxis; node.quadrants = n.quadrants; node.points = n.points; }
 
           // Store class properties/methods
           if (isClass) {

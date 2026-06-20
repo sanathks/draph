@@ -23,7 +23,7 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
 | Pie | `pie` | 🟡 | **NEW.** one `pie` node renders an actual pie (slice `<path>` arcs) + legend with values & percentages; slice colors from the palette. TODO: donut variant, label leader lines |
 | User Journey | `journey` | 🟡 | **NEW.** tasks→points placed left-to-right, vertical position = satisfaction score (1–5), chained into the journey line; actors shown in label; sections→labels. TODO: actor avatars/faces, section bands |
 | Git graph | `gitGraph` | 🟡 | **NEW.** commits→dots on per-branch lanes (left→right), `branch` forks from current tip, `merge` joins a branch tip into a new 2-parent commit; dots colored per lane, labeled when an explicit id is set; lane labels. TODO: tags, commit types, cherry-pick source links, TB direction |
-| Quadrant | `quadrantChart` | ⬜ | 2×2 plot of points |
+| Quadrant | `quadrantChart` | 🟡 | **NEW.** one `quadrant` node renders a 2×2 plot: tinted quadrants + labels, center cross, x/y axis labels, and plotted points (x,y 0..1, y up). TODO: per-point radius/color styling |
 | Requirement | `requirementDiagram` | ⬜ | requirement boxes + relationships |
 | C4 | `C4Context` etc. | ⬜ | persons/systems/boundaries → containers+nodes |
 | Block | `block-beta` | ⬜ | grid of blocks |
@@ -42,6 +42,9 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
   line, any needed render tweaks, and regression tests in `test/regression.mjs`.
 
 ## Changelog
+- **Quadrant (first cut):** new `quadrant` node type — `parseQuadrant` reads
+  axes, the 4 quadrant labels, and points `[x,y]`; renderNodes draws the 2×2
+  plot (tinted cells, cross, axis labels, point dots). Tested.
 - **Class diagram — major upgrade (bugfix):** rewrote `parseClassDiagram` to
   handle real-world diagrams: `<<interface/abstract/enumeration>>` stereotypes
   (shown as «…» in the header), generics `~T~`→`<T>` with unified class ids
