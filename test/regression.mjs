@@ -1696,4 +1696,23 @@ group('Selection → Mermaid (#2): selection-scoped export');
   check('no selection falls back to whole-canvas export', /\bC\b/.test(E(`generateMermaid({ selectionOnly: true })`)));
 }
 
+group("Mermaid ER import (#23): crow's-foot cardinality markers");
+{
+  const { win, doc, E } = boot();
+  const code = 'erDiagram\n  CUSTOMER ||--o{ ORDER : places';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const c = p.connections[0];
+  check('er cardinality parsed onto ends', c.fromCard === 'one' && c.toCard === 'zero-or-many');
+  check('er maps cardinality to crow-foot markers', c.markerStart === 'er-one' && c.markerEnd === 'er-zero-many');
+  check('er label preserved', c.label === 'places');
+  // all 4 glyph families parse; identifying vs non-identifying line preserved
+  const p2 = E(`parseMermaid(${JSON.stringify('erDiagram\n  A |o--|| B\n  C }|..o{ D')})`);
+  check('er zero-or-one + one parse', p2.connections[0].fromCard === 'zero-or-one' && p2.connections[0].toCard === 'one');
+  check('er one-or-many + zero-or-many parse', p2.connections[1].fromCard === 'one-or-many' && p2.connections[1].toCard === 'zero-or-many');
+  check('er non-identifying stays dashed, identifying solid', p2.connections[1].strokeStyle === 'dashed' && p2.connections[0].strokeStyle === undefined);
+  // render: crow-foot glyphs draw as SVG (distinct, inline — no shared marker-id collisions)
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  check('er crow-foot markers render as SVG', E(`connections[0].markerStart==='er-one' && connections[0].markerEnd==='er-zero-many'`) && doc.querySelectorAll('#connections circle').length >= 1);
+}
+
 process.exit(report() ? 0 : 1);

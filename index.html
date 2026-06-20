@@ -1935,6 +1935,22 @@
         const a = 10, w = 5;
         return { svg: `<path d="M${(tx + dx * a + px * w).toFixed(1)},${(ty + dy * a + py * w).toFixed(1)} L${tx.toFixed(1)},${ty.toFixed(1)} L${(tx + dx * a - px * w).toFixed(1)},${(ty + dy * a - py * w).toFixed(1)}" fill="none" stroke="${color}" stroke-width="1.5" style="pointer-events:none"/>`, baseDist: a * 0.5 };
       }
+      // ER crow's-foot cardinality glyphs (tip at the entity edge; dx,dy point inward)
+      if (kind && kind.startsWith('er-')) {
+        const W = 6, F = (cx, cy) => `${cx.toFixed(1)},${cy.toFixed(1)}`;
+        const bar = (d) => {
+          const cx = tx + dx * d, cy = ty + dy * d;
+          return `<line x1="${(cx + px * W).toFixed(1)}" y1="${(cy + py * W).toFixed(1)}" x2="${(cx - px * W).toFixed(1)}" y2="${(cy - py * W).toFixed(1)}" stroke="${color}" stroke-width="1.5" style="pointer-events:none"/>`;
+        };
+        const circle = (d) => { const cx = tx + dx * d, cy = ty + dy * d; return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="4" fill="${COLORS.bg2}" stroke="${color}" stroke-width="1.5" style="pointer-events:none"/>`; };
+        const foot = (apexD) => { const ax = tx + dx * apexD, ay = ty + dy * apexD; return `<path d="M${F(ax, ay)} L${F(tx + px * W, ty + py * W)} M${F(ax, ay)} L${F(tx, ty)} M${F(ax, ay)} L${F(tx - px * W, ty - py * W)}" fill="none" stroke="${color}" stroke-width="1.5" style="pointer-events:none"/>`; };
+        let svg = '', baseDist = 0;
+        if (kind === 'er-one') { svg = bar(5) + bar(10); baseDist = 12; }
+        else if (kind === 'er-zero-one') { svg = bar(6) + circle(13); baseDist = 17; }
+        else if (kind === 'er-one-many') { svg = foot(11) + bar(14); baseDist = 16; }
+        else if (kind === 'er-zero-many') { svg = foot(11) + circle(18); baseDist = 22; }
+        return { svg, baseDist };
+      }
       return { svg: '', baseDist: 0 };
     }
 
@@ -6153,8 +6169,20 @@
         m = line.match(/^([A-Za-z0-9_-]+)\s+(\S+)\s+([A-Za-z0-9_-]+)(?:\s*:\s*(.+))?$/);
         if (m && /(--|\.\.)/.test(m[2])) {
           const a = ensure(m[1]).id, b = ensure(m[3]).id;
-          const dashed = m[2].includes('..');
-          result.connections.push({ from: a, to: b, label: (m[4] || '').replace(/"/g, '').trim(), strokeStyle: dashed ? 'dashed' : undefined });
+          const op = m[2], dashed = op.includes('..');
+          // crow's-foot cardinality: left code before the --/.. line, right code after
+          const CARD = { '||': 'one', '|o': 'zero-or-one', 'o|': 'zero-or-one', '}|': 'one-or-many', '|{': 'one-or-many', '}o': 'zero-or-many', 'o{': 'zero-or-many' };
+          const MK = { 'one': 'er-one', 'zero-or-one': 'er-zero-one', 'one-or-many': 'er-one-many', 'zero-or-many': 'er-zero-many' };
+          const lc = (op.match(/^(\|\||\|o|\}\||\}o)/) || [])[1];
+          const rc = (op.match(/(\|\||o\||\|\{|o\{)$/) || [])[1];
+          const fromCard = lc ? CARD[lc] : undefined, toCard = rc ? CARD[rc] : undefined;
+          result.connections.push({
+            from: a, to: b, label: (m[4] || '').replace(/"/g, '').trim(),
+            strokeStyle: dashed ? 'dashed' : undefined,
+            fromCard, toCard,
+            markerStart: fromCard ? MK[fromCard] : undefined,
+            markerEnd: toCard ? MK[toCard] : undefined,
+          });
           continue;
         }
         // attribute row inside a block:  type name [PK|FK|UK] ["comment"]
