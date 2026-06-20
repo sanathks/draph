@@ -176,6 +176,9 @@
     .tool-btn:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--fg-bright); }
     .tool-btn:active { transform: scale(0.92); }
     .tool-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    /* Visible focus ring on every interactive control (keyboard a11y, #58) */
+    button:focus-visible, .dropdown-item:focus-visible, [role="button"]:focus-visible,
+    a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
     .tool-btn.active { background: var(--accent); color: var(--bg); box-shadow: 0 2px 6px color-mix(in srgb, var(--accent) 35%, transparent); }
     .tool-btn svg { width: 20px; height: 20px; }
     /* keyboard-shortcut badge in the corner of a tool button */
@@ -358,6 +361,42 @@
       padding: 1px 6px; background: var(--bg2); border: 1px solid var(--border); border-radius: 4px;
       font-size: 11px; color: var(--fg); font-family: 'JetBrains Mono', Consolas, monospace;
     }
+    /* Read-only / embed viewer (#77): hide all editing chrome, keep the diagram
+       full-bleed and pan/zoom-able. Triggered by a `#view` URL flag (see loadFromUrl). */
+    .read-only header,
+    .read-only #floatingToolbar,
+    .read-only #connHandles,
+    .read-only .connector,
+    .read-only .lifeline-connector,
+    .read-only .resize-handle,
+    .read-only .conn-endpoint,
+    .read-only .conn-waypoint { display: none !important; }
+    .read-only #canvas { cursor: grab; }
+    #viewEditLink { display: none; }
+    .read-only #viewEditLink {
+      display: inline-flex; align-items: center; gap: 6px;
+      position: absolute; top: 12px; right: 12px; z-index: 40;
+      padding: 6px 12px; background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--fg); font-size: 13px; text-decoration: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    .read-only #viewEditLink:hover { border-color: var(--accent); }
+    /* Interactive coach-marks (#56): a spotlight cutout (box-shadow dims everything
+       except the target rect) plus a positioned tooltip. */
+    #coachmarkOverlay { position: fixed; inset: 0; z-index: 320; }
+    #coachmarkOverlay.hidden { display: none; }
+    #coachmarkSpot {
+      position: absolute; border-radius: 8px; pointer-events: none;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,0.55); transition: all 0.18s ease;
+      outline: 2px solid var(--accent); outline-offset: 2px;
+    }
+    #coachmarkTip {
+      position: absolute; width: 240px; max-width: 80vw; z-index: 1;
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px; box-shadow: 0 8px 28px rgba(0,0,0,0.4);
+    }
+    #cmDots .cm-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border); display: inline-block; }
+    #cmDots .cm-dot.on { background: var(--accent); }
     .shape-item {
       padding: 8px 6px; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
       font-size: 11px; color: var(--fg); cursor: pointer; text-align: center; transition: border-color .12s, background .12s;
@@ -380,9 +419,18 @@
     #alignToolbar .al-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; }
     #alignToolbar .al-btn svg rect { fill: currentColor; stroke: none; }
     #alignToolbar .al-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
+    /* Visually-hidden, screen-reader-only (#59) */
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+    }
   </style>
 </head>
 <body class="h-screen flex flex-col">
+  <!-- Read-only viewer affordance (#77): links back to the editable view (same hash, no #view flag) -->
+  <a id="viewEditLink" href="#" title="Open in editor">✎ Edit</a>
+  <!-- Screen-reader live region (#59): announces structural edits (add/delete/connect) -->
+  <div id="a11yLive" class="sr-only" aria-live="polite" aria-atomic="true"></div>
   <!-- Top Toolbar -->
   <header class="h-14 flex items-center px-4 z-20 absolute top-0 left-0 right-0" style="background:transparent;pointer-events:none">
     <!-- Left: Logo -->
@@ -553,6 +601,12 @@
         <!-- shown in light mode (click → dark) -->
         <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
+      <!-- Custom accent color (#78): pick a hex; double-click swatch resets to theme default -->
+      <label id="accentPicker" class="tool-btn" title="Custom accent color (double-click to reset)" style="position:relative;overflow:hidden;cursor:pointer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.563-2.512 5.563-5.563C22 6.012 17.5 2 12 2z"/></svg>
+        <input type="color" id="accentInput" onchange="setAccentColor(this.value)" ondblclick="resetAccentColor()"
+               style="position:absolute;inset:0;opacity:0;cursor:pointer" title="Pick accent color">
+      </label>
       <a href="/docs/" target="_blank" class="tool-btn" title="Documentation" style="text-decoration:none">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -620,10 +674,18 @@
           <button class="shape-item" onclick="placeShape('terminal')">Start/End</button>
         </div>
         <div style="color:var(--fg-dim);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:2px 0 6px">ER</div>
-        <div class="shape-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px">
+        <div class="shape-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
           <button class="shape-item" onclick="placeShape('entity')">Entity</button>
         </div>
-        <div style="color:var(--fg-dim);font-size:10px;margin-top:10px">Fork/Join/Choice land with #22. Flowchart shape zoo is a follow-up.</div>
+        <div style="color:var(--fg-dim);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:2px 0 6px">Flowchart</div>
+        <div class="shape-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px">
+          <button class="shape-item" onclick="placeShape('cylinder')">Database</button>
+          <button class="shape-item" onclick="placeShape('hexagon')">Hexagon</button>
+          <button class="shape-item" onclick="placeShape('parallelogram')">I/O</button>
+          <button class="shape-item" onclick="placeShape('trapezoid')">Trapezoid</button>
+          <button class="shape-item" onclick="placeShape('subroutine')">Subroutine</button>
+        </div>
+        <div style="color:var(--fg-dim);font-size:10px;margin-top:10px">Fork/Join/Choice land with #22.</div>
       </div>
     </div>
 
@@ -915,6 +977,22 @@
     </div>
   </div>
 
+  <!-- Interactive coach-marks (#56): spotlight cutout over a live target + anchored tooltip -->
+  <div id="coachmarkOverlay" class="hidden">
+    <div id="coachmarkSpot"></div>
+    <div id="coachmarkTip">
+      <div id="cmTitle" style="font-size:14px;font-weight:700;color:var(--fg)"></div>
+      <div id="cmBody" style="font-size:12px;color:var(--fg-dim);margin-top:6px;line-height:1.5"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px">
+        <div id="cmDots" style="display:flex;gap:5px"></div>
+        <div style="display:flex;gap:8px">
+          <button onclick="skipCoachmarks()" style="padding:5px 9px;background:transparent;border:none;color:var(--fg-dim);font-size:12px;cursor:pointer">Skip</button>
+          <button id="cmNext" onclick="coachmarkNext()" style="padding:5px 13px;background:var(--accent);border:none;border-radius:6px;color:var(--bg);font-weight:600;font-size:12px;cursor:pointer">Next</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast notifications -->
   <div id="toastContainer"></div>
 
@@ -1018,6 +1096,7 @@
     let selectedId = null;       // id of the single selected node (or null)
     let selectedIds = [];        // ids in a multi-selection (marquee / shift-click)
     let selectedConnId = null;   // id of the selected connection (or null)
+    let readOnly = false;        // #77: read-only/embed viewer — chrome hidden, mutations gated, pan/zoom kept
     let currentTool = 'select';  // 'select' | a SHAPE_TOOLS entry
     let drawing = null;          // in-progress shape draw: { startX, startY, type }
     let penciling = null;        // in-progress freehand pencil stroke: { points: [{x,y}] } (absolute coords)
@@ -1120,24 +1199,60 @@
     };
     const COLORS = { ...THEMES.dark };
     let currentTheme = 'dark';
+    let accentOverride = null;   // #78: user's custom accent hex (overrides the theme default), or null
     // Switch theme: update the <html> data attribute (drives all CSS vars),
     // swap the canvas palette, persist, and re-render so canvas colors refresh.
     function applyTheme(theme, persist = true) {
       currentTheme = (theme === 'light') ? 'light' : 'dark';
       document.documentElement.dataset.theme = currentTheme;
       Object.assign(COLORS, THEMES[currentTheme]);
+      applyAccentOverride();   // #78: a custom accent survives theme switches
       if (persist) saveSetting('theme', currentTheme);
       const tbtn = document.getElementById('themeToggleBtn');
       if (tbtn) tbtn.title = currentTheme === 'light' ? 'Switch to dark theme' : 'Switch to light theme';
       if (typeof render === 'function' && nodes) render();
     }
     function toggleTheme() { applyTheme(currentTheme === 'light' ? 'dark' : 'light'); }
+
+    // ---- Custom accent override (#78) ----------------------------------------
+    // A user-chosen accent hex overrides the active theme's accent for both the
+    // CSS-driven UI (`--accent`) and the canvas palette (`COLORS.accent`). Stored
+    // via saveSetting('accent', hex) and re-applied after applyTheme() (which
+    // resets COLORS.accent to the theme default). resetAccentColor() clears it.
+    function applyAccentOverride() {
+      if (accentOverride) {
+        COLORS.accent = accentOverride;
+        document.documentElement.style.setProperty('--accent', accentOverride);
+      } else {
+        document.documentElement.style.removeProperty('--accent');
+      }
+      const inp = document.getElementById('accentInput');
+      if (inp) inp.value = COLORS.accent;   // keep the swatch in sync with the active accent
+    }
+    function setAccentColor(hex) {
+      accentOverride = hex;
+      saveSetting('accent', hex);
+      applyAccentOverride();
+      if (typeof render === 'function' && nodes) render();
+    }
+    function resetAccentColor() {
+      accentOverride = null;
+      removeSetting('accent');
+      COLORS.accent = THEMES[currentTheme].accent;
+      document.documentElement.style.removeProperty('--accent');
+      if (typeof render === 'function' && nodes) render();
+    }
     const GRID_SIZE = 20;
     const SHAPE_TOOLS = ['rect', 'pill', 'diamond', 'circle', 'container', 'text', 'note', 'line'];
     const CONFIG = {
       palette: ['#7aa2f7', '#9ece6a', '#f7768e', '#e0af68', '#bb9af7', '#7dcfff', '#ff9e64'],
       arrow: { length: 11, width: 5.5 },  // arrowhead size (px)
       node: { minWidth: 40, minHeight: 20 },
+      // Viewport culling (#71): for large diagrams, skip building DOM for nodes
+      // whose bbox is outside the visible viewBox. Off until a diagram exceeds
+      // cullThreshold nodes, so small diagrams render exactly as before.
+      cullThreshold: 300,  // node count above which off-screen nodes are culled
+      cullMargin: 1,       // extra rings of viewBox kept rendered around the visible rect (avoids edge popping on pan)
       // Label wrapping (#36): a single unbreakable token (long URL/identifier)
       // wider than maxWidth px is hard-broken at the character level so the node
       // respects the cap instead of stretching into one ultra-wide box.
@@ -1274,10 +1389,12 @@
     // Tool management
     function setTool(tool) {
       currentTool = tool;
-      // Update toolbar buttons (active class + aria-pressed for screen readers)
-      document.querySelectorAll('[id^="tool-"]').forEach(btn => { btn.classList.remove('active'); btn.setAttribute('aria-pressed', 'false'); });
-      const activeBtn = document.getElementById('tool-' + tool);
-      if (activeBtn) { activeBtn.classList.add('active'); activeBtn.setAttribute('aria-pressed', 'true'); }
+      // Update toolbar buttons: active class, roving tabindex (#58 — only the
+      // active tool is in the Tab order, arrows move focus within the group), and
+      // aria-pressed for screen readers (#45).
+      document.querySelectorAll('[id^="tool-"]').forEach(btn => { btn.classList.remove('active'); btn.setAttribute('tabindex', '-1'); btn.setAttribute('aria-pressed', 'false'); });
+      const activeToolBtn = document.getElementById('tool-' + tool);
+      if (activeToolBtn) { activeToolBtn.classList.add('active'); activeToolBtn.setAttribute('tabindex', '0'); activeToolBtn.setAttribute('aria-pressed', 'true'); }
       // Update cursor
       const container = document.getElementById('canvasContainer');
       if (SHAPE_TOOLS.includes(tool) || tool === 'pencil') {
@@ -1410,11 +1527,14 @@
       viewBox = { x: 0, y: 0, w: rect.width, h: rect.height };
       updateViewBox();
       // Restore the saved theme before the first render (no persist write).
+      // Load any custom accent first so applyTheme re-applies it (#78).
+      accentOverride = loadSetting('accent') || null;
       applyTheme(loadSetting('theme', 'dark'), false);
       buildPalettes();
       buildIconPicker();
       applyA11yLabels();
       bindCanvasEvents();
+      initKeyboardA11y();
       // Share-link hash wins; otherwise restore the last autosaved diagram.
       if (!loadFromUrl()) restoreAutosave();
       docStore._open();   // hydrate the document library from IndexedDB (best-effort; no-op without IDB)
@@ -1489,8 +1609,27 @@
       if (typeof saveActiveDoc === 'function') saveActiveDoc();
     }
     
+    // Toggle read-only/embed viewer mode (#77): a `read-only` root class hides the
+    // editing chrome (CSS) and the interaction handlers gate their mutations on the
+    // `readOnly` flag, while pan/zoom stay live. The Edit affordance links back to
+    // the same diagram without the flag.
+    function setReadOnly(on) {
+      readOnly = !!on;
+      document.documentElement.classList.toggle('read-only', readOnly);
+      if (readOnly) {
+        const link = document.getElementById('viewEditLink');
+        if (link) link.setAttribute('href', '#' + window.location.hash.replace(/^#?view#?/, ''));
+      }
+    }
+
     function loadFromUrl() {
-      const hash = window.location.hash.slice(1);
+      let hash = window.location.hash.slice(1);
+      if (!hash) { setReadOnly(false); return false; }
+      // Read-only flag: a leading `view` token (`#view` or `#view#<diagram>`) or
+      // `?embed=1`. Strip the token before decoding the diagram payload.
+      const viewFlag = /^view(#|$)/.test(hash) || /[?&]embed=1\b/.test(window.location.search);
+      if (/^view(#|$)/.test(hash)) hash = hash.replace(/^view#?/, '');
+      setReadOnly(viewFlag);
       if (!hash) return false;
       try { return loadDiagramJson(decodeURIComponent(atob(hash))); }
       catch (e) { console.error('Failed to load diagram from URL:', e); return false; }
@@ -1632,6 +1771,7 @@
           updated: now(),
           schemaVersion: doc.schemaVersion || (prev && prev.schemaVersion) || 1,
           data: doc.data !== undefined ? doc.data : (prev ? prev.data : null),
+          thumbnail: doc.thumbnail !== undefined ? doc.thumbnail : (prev ? prev.thumbnail : null),   // #79
         };
         cache.set(id, rec); _persist(rec); return clone(rec);
       }
@@ -1776,7 +1916,13 @@
         container: { w: 340, h: 220 },
         text: { w: 100, h: 24 },
         note: { w: 200, h: 150 },
-        line: { w: 100, h: 0 }  // width = dx, height = dy from start
+        line: { w: 100, h: 0 },  // width = dx, height = dy from start
+        // Flowchart shape zoo (#49)
+        cylinder: { w: 120, h: 80 },
+        hexagon: { w: 150, h: 70 },
+        parallelogram: { w: 170, h: 60 },
+        trapezoid: { w: 170, h: 70 },
+        subroutine: { w: 160, h: 60 },
       };
       const def = defaults[type] || { w: 120, h: 44 };
 
@@ -1812,6 +1958,7 @@
       }
       
       nodes.push(node);
+      announce(nodeTypeName(node) + ' added');   // #59: screen-reader edit announcement
       return node;
     }
 
@@ -1851,6 +1998,14 @@
           node.label = ''; node.isPseudo = true; node.width = 24; node.height = 24;
           node.fillStyle = 'infill'; node.color = COLORS.fg;
           break;
+        case 'cylinder': case 'hexagon': case 'parallelogram': case 'trapezoid': case 'subroutine': {
+          // Flowchart shape zoo (#49): created as their own node type; rendered by the
+          // matching renderNodes branch; behave like any other shape otherwise.
+          const k = kind.toLowerCase();
+          node = createNode(k, 0, 0);
+          node.label = { cylinder: 'Database', hexagon: 'Prepare', parallelogram: 'Input', trapezoid: 'Manual', subroutine: 'Process' }[k] || 'Node';
+          break;
+        }
         default: mkClass('NewClass', '', ['+ field: Type'], ['+ method() void']);
       }
       node.x = Math.round(x - node.width / 2);
@@ -2047,11 +2202,27 @@
 
     // Build the full route between two connectors. Returns the polyline (ending
     // exactly on the target connector) plus the inward arrow direction there.
-    function routeConnection(from, to, fromSide, toSide, fromFrac = 0.5, toFrac = 0.5) {
+    function routeConnection(from, to, fromSide, toSide, fromFrac = 0.5, toFrac = 0.5, waypoints = null) {
       const p1 = sidePoint(from, fromSide, fromFrac);
       const p2 = sidePoint(to, toSide, toFrac);
       const n1 = SIDE_NORMAL[fromSide] || { x:0, y:0 };
       const n2 = SIDE_NORMAL[toSide]  || { x:0, y:0 };
+
+      // Manual waypoints (#70): route an orthogonal path that passes THROUGH each
+      // user-placed bend. Leave the source stub, thread the waypoints with L-jogs,
+      // then enter the target stub square-on. (Auto-route below when none.)
+      if (waypoints && waypoints.length) {
+        const e1 = { x: p1.x + n1.x * ROUTE_CFG.maxClear, y: p1.y + n1.y * ROUTE_CFG.maxClear };
+        const e2 = { x: p2.x + n2.x * ROUTE_CFG.maxClear, y: p2.y + n2.y * ROUTE_CFG.maxClear };
+        const anchors = [p1, e1, ...waypoints.map(w => ({ x: w.x, y: w.y })), e2, p2];
+        const chain = [anchors[0]];
+        for (let i = 1; i < anchors.length; i++) {
+          const a = chain[chain.length - 1], b = anchors[i];
+          if (a.x !== b.x && a.y !== b.y) chain.push({ x: b.x, y: a.y });   // orthogonal corner
+          chain.push(b);
+        }
+        return { points: simplifyPath(chain), fromSide, toSide, endX: p2.x, endY: p2.y, inDir: { x: -n2.x, y: -n2.y } };
+      }
 
       // Perpendicular stub off each node, capped so the two stubs can never
       // overshoot past each other (which is what produced the strange hook).
@@ -2239,6 +2410,30 @@
       render();
     }
 
+    // === Viewport culling (#71) ===
+    // True when a node's bounding box intersects the visible viewBox, expanded by
+    // cullMargin screens on every side. Used to drop off-screen nodes from the DOM
+    // for large diagrams; render() re-runs on pan/zoom so culled nodes return.
+    function isNodeInViewport(node) {
+      const mx = viewBox.w * CONFIG.cullMargin, my = viewBox.h * CONFIG.cullMargin;
+      const vx1 = viewBox.x - mx, vy1 = viewBox.y - my;
+      const vx2 = viewBox.x + viewBox.w + mx, vy2 = viewBox.y + viewBox.h + my;
+      return node.x <= vx2 && node.x + node.width >= vx1 &&
+             node.y <= vy2 && node.y + node.height >= vy1;
+    }
+    // A node is exempt from culling if it's selected or being label-edited — those
+    // must always be present (the edit overlay sits on top of the node's box).
+    function isCullExempt(node) {
+      return node.id === selectedId || selectedIds.includes(node.id) ||
+             (labelEditor && labelEditor.nodeId === node.id);
+    }
+    // Filter a node list to what should be in the DOM. Below the threshold the list
+    // is returned untouched, so small diagrams behave exactly as before.
+    function cullNodes(list) {
+      if (list.length <= CONFIG.cullThreshold) return list;
+      return list.filter(n => isCullExempt(n) || isNodeInViewport(n));
+    }
+
     // Fast path used while dragging nodes: instead of regenerating every node's
     // SVG markup (patterns, wrapped text, clip paths, connectors) each frame,
     // just translate the dragged node group(s) and redraw the cheap connection
@@ -2371,11 +2566,19 @@
       // Connections
       const connGeom = computeConnectionGeometry(nodeById);
       let selHandles = null;  // endpoint coords for the selected connection (drawn on top)
+      const cullActive = nodes.length > CONFIG.cullThreshold;
       connectionsGroup.innerHTML = framesSvg + connections.map(conn => {
         const from = nodeById.get(conn.from);
         const to = nodeById.get(conn.to);
         if (!from || !to) return '';
-        
+
+        // Viewport culling (#71): drop a connection only when both endpoints are
+        // off-screen and the edge itself isn't selected — so a line stays drawn
+        // whenever either end (or the edge) is visible.
+        if (cullActive && selectedConnId !== conn.id &&
+            !isCullExempt(from) && !isNodeInViewport(from) &&
+            !isCullExempt(to) && !isNodeInViewport(to)) return '';
+
         // Sequence diagram message
         if (conn.isSequenceMessage) {
           const fromX = from.x + from.width / 2;
@@ -2418,7 +2621,7 @@
             
             const arrowHit = `<circle class="conn-hit" cx="${fromX + 5}" cy="${endY}" r="15" fill="transparent" data-conn="${conn.id}" style="cursor:pointer;pointer-events:all"/>`;
             
-            return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" style="cursor:pointer">
+            return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" role="img" aria-label="${esc(connAriaLabel(conn, nodeById))}" style="cursor:pointer">
               <path class="conn-hit" d="${loopPath}" fill="none" stroke="transparent" stroke-width="20" data-conn="${conn.id}" style="cursor:pointer;pointer-events:stroke"/>
               ${arrowHit}
               <path d="${loopPath}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" style="pointer-events:none"/>
@@ -2451,7 +2654,7 @@
           // Hit area for arrow head (circle around arrow tip)
           const arrowHitX = toX - dir * 5;
           const arrowHit = `<circle class="conn-hit" cx="${arrowHitX}" cy="${y}" r="15" fill="transparent" data-conn="${conn.id}" style="cursor:pointer;pointer-events:all"/>`;
-          return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" style="cursor:pointer">
+          return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" role="img" aria-label="${esc(connAriaLabel(conn, nodeById))}" style="cursor:pointer">
             <line class="conn-hit" x1="${fromX}" y1="${y}" x2="${toX}" y2="${y}" stroke="transparent" stroke-width="20" data-conn="${conn.id}" style="cursor:pointer;pointer-events:stroke"/>
             ${arrowHit}
             <line x1="${fromX}" y1="${y}" x2="${arrowX}" y2="${y}" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" class="connection" style="pointer-events:none"/>
@@ -2460,10 +2663,12 @@
           </g>`;
         }
         
-        // Smart routing — respects manually-locked sides, auto-distributes the rest
-        const lineStyle = conn.lineStyle || 'curved';   // curved is the default
+        // Smart routing — respects manually-locked sides, auto-distributes the rest.
+        // A waypoint'd edge renders orthogonally (rounded) so its bends are honored
+        // — 'curved' threads one bezier end-to-end and would smooth the bend away.
+        const lineStyle = (conn.waypoints && conn.waypoints.length) ? 'rounded' : (conn.lineStyle || 'curved');
         const cg = connGeom.sideOf.get(conn.id) || getOptimalSides(from, to);
-        const { points, endX, endY, inDir } = routeConnection(from, to, cg.fromSide, cg.toSide);
+        const { points, endX, endY, inDir } = routeConnection(from, to, cg.fromSide, cg.toSide, 0.5, 0.5, conn.waypoints);
         const [x1, y1] = [points[0].x, points[0].y];
         const [x2, y2] = [points[points.length-1].x, points[points.length-1].y];
         
@@ -2563,16 +2768,25 @@
         
         const connDashArray = conn.strokeStyle === 'dashed' ? '5,3' : 'none';
         // Endpoint drag-handles are drawn in the #connHandles overlay (above nodes)
-        if (isConnSelected) selHandles = { fromX: x1, fromY: y1, toX: endX, toY: endY };
-        return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" style="cursor:pointer">${hitArea}${arrowHit}<path class="connection" d="${path}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${connDashArray}" style="pointer-events:none"/>${startMarkerSvg}${endMarkerSvg}${labelEl}</g>`;
+        if (isConnSelected) {
+          // midpoint handle = the existing waypoint, else the geometric middle of the route (#70)
+          const wp = conn.waypoints && conn.waypoints[0];
+          const mid = wp || points[Math.floor(points.length / 2)] || { x: (x1 + endX) / 2, y: (y1 + endY) / 2 };
+          selHandles = { fromX: x1, fromY: y1, toX: endX, toY: endY, midX: mid.x, midY: mid.y, hasWp: !!wp };
+        }
+        return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" role="img" aria-label="${esc(connAriaLabel(conn, nodeById))}" style="cursor:pointer">${hitArea}${arrowHit}<path class="connection" d="${path}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${connDashArray}" style="pointer-events:none"/>${startMarkerSvg}${endMarkerSvg}${labelEl}</g>`;
       }).join('');
 
       // Endpoint handles on top of everything, with a generous transparent hit area
       const handle = (end, cx, cy) => `
         <circle class="conn-endpoint" data-conn="${selectedConnId}" data-end="${end}" cx="${cx}" cy="${cy}" r="13" fill="transparent" style="cursor:grab;pointer-events:all"/>
         <circle class="conn-endpoint" data-conn="${selectedConnId}" data-end="${end}" cx="${cx}" cy="${cy}" r="6" fill="${COLORS.accent}" stroke="${COLORS.bg}" stroke-width="2" style="cursor:grab;pointer-events:all"/>`;
+      // Midpoint handle: drag to create/move a waypoint, double-click to remove (#70).
+      const midHandle = (cx, cy, hasWp) => `
+        <rect class="conn-waypoint" data-conn="${selectedConnId}" x="${cx - 12}" y="${cy - 12}" width="24" height="24" fill="transparent" style="cursor:move;pointer-events:all"/>
+        <rect class="conn-waypoint" data-conn="${selectedConnId}" x="${cx - 5}" y="${cy - 5}" width="10" height="10" rx="2" fill="${hasWp ? COLORS.accent : COLORS.bg2}" stroke="${COLORS.accent}" stroke-width="2" style="cursor:move;pointer-events:all"/>`;
       connHandlesGroup.innerHTML = selHandles
-        ? handle('from', selHandles.fromX, selHandles.fromY) + handle('to', selHandles.toX, selHandles.toY)
+        ? handle('from', selHandles.fromX, selHandles.fromY) + handle('to', selHandles.toX, selHandles.toY) + midHandle(selHandles.midX, selHandles.midY, selHandles.hasWp)
         : '';
     }
 
@@ -2587,7 +2801,7 @@
         return (a.z || 0) - (b.z || 0);
       });
 
-      nodesGroup.innerHTML = sorted.map(node => {
+      nodesGroup.innerHTML = cullNodes(sorted).map(node => {
         const isSelected = node.id === selectedId || selectedIds.includes(node.id);
         const strokeColor = node.outlineColor || COLORS.fg;
         
@@ -2934,6 +3148,44 @@
           const w = isSelected ? 3 : 2;
           shape = `<path d="${d}" fill="none" stroke="transparent" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="${d}" fill="none" stroke="${stroke}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" class="node-border"/>`;
+        } else if (node.type === 'cylinder' || node.type === 'hexagon' || node.type === 'parallelogram' || node.type === 'trapezoid' || node.type === 'subroutine') {
+          // Flowchart shape zoo (#49): cylinder/hex/parallelogram/trapezoid as
+          // path/polygon, subroutine as a double-bordered rect. Label is wrapped
+          // and clipped to the shape, like the other branches.
+          const { fill, style } = getFill(node, 'infill');
+          const customPattern = getCustomPattern(node);
+          const txtColor = (style === 'outline' || style === 'stripe' || style === 'grid') ? (node.outlineColor || COLORS.fg) : textColor;
+          const x = node.x, y = node.y, w = node.width, h = node.height, cx = x + w / 2, cy = y + h / 2;
+          const clipId = 'clip-' + node.id;
+          let outline, clip;
+          if (node.type === 'cylinder') {
+            const ry = Math.min(14, h * 0.16);
+            clip = `<rect x="${x}" y="${y + ry}" width="${w}" height="${Math.max(1, h - ry * 2)}"/>`;
+            outline = `<path d="M${x},${y + ry} L${x},${y + h - ry} A${w / 2},${ry} 0 0 0 ${x + w},${y + h - ry} L${x + w},${y + ry} Z" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>
+              <ellipse cx="${cx}" cy="${y + ry}" rx="${w / 2}" ry="${ry}" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5"/>`;
+          } else if (node.type === 'hexagon') {
+            const n = Math.min(22, w * 0.2);
+            const pts = `${x + n},${y} ${x + w - n},${y} ${x + w},${cy} ${x + w - n},${y + h} ${x + n},${y + h} ${x},${cy}`;
+            clip = `<polygon points="${pts}"/>`;
+            outline = `<polygon points="${pts}" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>`;
+          } else if (node.type === 'parallelogram') {
+            const s = Math.min(26, w * 0.22);
+            const pts = `${x + s},${y} ${x + w},${y} ${x + w - s},${y + h} ${x},${y + h}`;
+            clip = `<polygon points="${pts}"/>`;
+            outline = `<polygon points="${pts}" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>`;
+          } else if (node.type === 'trapezoid') {
+            const s = Math.min(26, w * 0.22);
+            const pts = `${x + s},${y} ${x + w - s},${y} ${x + w},${y + h} ${x},${y + h}`;
+            clip = `<polygon points="${pts}"/>`;
+            outline = `<polygon points="${pts}" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>`;
+          } else { // subroutine: rect with a second vertical border on each side
+            const inset = 7;
+            clip = `<rect x="${x + inset}" y="${y}" width="${Math.max(1, w - inset * 2)}" height="${h}"/>`;
+            outline = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>
+              <line x1="${x + inset}" y1="${y}" x2="${x + inset}" y2="${y + h}" stroke="${strokeColor}" stroke-width="1.5"/>
+              <line x1="${x + w - inset}" y1="${y}" x2="${x + w - inset}" y2="${y + h}" stroke="${strokeColor}" stroke-width="1.5"/>`;
+          }
+          shape = `${customPattern}<defs><clipPath id="${clipId}">${clip}</clipPath></defs>${outline}<g clip-path="url(#${clipId})">${renderWrappedText(node.label, cx, cy, w * 0.7, 12, txtColor, '', node.icon)}</g>`;
         } else if (node.isClass) {
           // UML class box: header (with optional «stereotype»), then attribute
           // and method sections (each shown only when non-empty).
@@ -3030,13 +3282,49 @@
         const resizeHandle = (isSelected && node.type !== 'line' && node.type !== 'pencil') ?
           `<rect class="resize-handle" x="${node.x + node.width - 8}" y="${node.y + node.height - 8}" width="8" height="8" fill="${COLORS.accent}" rx="2"/>` : '';
         
-        return `<g class="node ${isSelected ? 'selected' : ''}" data-id="${node.id}">
+        return `<g class="node ${isSelected ? 'selected' : ''}" data-id="${node.id}" role="img" aria-label="${esc(nodeAriaLabel(node))}">
           ${lifeline}
           ${shape}
           ${connectors}
           ${resizeHandle}
         </g>`;
       }).join('');
+    }
+
+    // === Screen-reader semantics (#59) ===
+    // Human-readable type names for accessible labels.
+    const NODE_TYPE_NAMES = {
+      rect: 'Rectangle', pill: 'Pill', diamond: 'Diamond', circle: 'Circle', container: 'Group',
+      text: 'Text', note: 'Note', line: 'Line', pencil: 'Drawing', image: 'Image', link: 'Link',
+      cylinder: 'Database', hexagon: 'Hexagon', parallelogram: 'Input/Output', trapezoid: 'Trapezoid',
+      subroutine: 'Subroutine', pie: 'Pie chart', quadrant: 'Quadrant chart', xychart: 'XY chart', bar: 'Bar',
+    };
+    function nodeTypeName(node) {
+      if (node.isClass) return node.stereotype ? node.stereotype[0].toUpperCase() + node.stereotype.slice(1) : 'Class';
+      return NODE_TYPE_NAMES[node.type] || (node.type ? node.type[0].toUpperCase() + node.type.slice(1) : 'Node');
+    }
+    // Accessible name for a node group: "Type: label" (or just the type when unlabeled).
+    function nodeAriaLabel(node) {
+      const lbl = (node.label || '').trim();
+      return lbl ? `${nodeTypeName(node)}: ${lbl}` : nodeTypeName(node);
+    }
+    // Accessible name for a connection: "arrow from A to B" using endpoint labels.
+    function connAriaLabel(conn, nodeById) {
+      const from = nodeById ? nodeById.get(conn.from) : nodes.find(n => n.id === conn.from);
+      const to = nodeById ? nodeById.get(conn.to) : nodes.find(n => n.id === conn.to);
+      const name = (n) => n ? ((n.label || '').trim() || nodeTypeName(n)) : '?';
+      const verb = conn.label ? `${conn.label}: ` : '';
+      return `${verb}arrow from ${name(from)} to ${name(to)}`;
+    }
+    // Announce a structural edit through the visually-hidden aria-live region.
+    function announce(msg) {
+      const live = document.getElementById('a11yLive');
+      if (live) live.textContent = msg;
+    }
+    // Announce a new connection by endpoint names.
+    function announceConnect(fromId, toId) {
+      const nm = (id) => { const n = nodes.find(x => x.id === id); return n ? ((n.label || '').trim() || nodeTypeName(n)) : '?'; };
+      announce(`connected ${nm(fromId)} to ${nm(toId)}`);
     }
 
     // Event delegation: listeners are attached ONCE to the persistent group
@@ -3058,8 +3346,17 @@
         if (e.target.closest('[data-conn]')) onConnectionMouseDown(e);
       });
       connHandlesGroup.addEventListener('pointerdown', (e) => {
+        const wp = e.target.closest('.conn-waypoint');
+        if (wp) { e.preventDefault(); e.stopPropagation(); connWaypointDrag = { connId: wp.dataset.conn, moved: false }; return; }
         const ep = e.target.closest('.conn-endpoint');
         if (ep) startEndpointDrag(e, ep);
+      });
+      // Double-click a waypoint handle → remove the waypoint (edge re-auto-routes).
+      connHandlesGroup.addEventListener('dblclick', (e) => {
+        const wp = e.target.closest('.conn-waypoint');
+        if (!wp) return;
+        const conn = connections.find(c => c.id === wp.dataset.conn);
+        if (conn && conn.waypoints && conn.waypoints.length) { delete conn.waypoints; saveState(); render(); }
       });
     }
     
@@ -3214,6 +3511,7 @@
     // In-place label editing: an input overlaid on the node itself
     let labelEditor = null;
     function editNodeLabel(node) {
+      if (readOnly) return;   // #77: no label editing in the viewer
       if (labelEditor) labelEditor.commit(true);
       const canvasContainer = document.getElementById('canvasContainer');
       const canvasRect = canvas.getBoundingClientRect();
@@ -3251,7 +3549,7 @@
         else if (ev.key === 'Escape') { ev.preventDefault(); commit(false); }
         // plain Enter falls through → inserts a newline
       });
-      labelEditor = { commit };
+      labelEditor = { commit, nodeId: node.id };
     }
 
     function deleteSelected() {
@@ -3267,6 +3565,7 @@
         nodes = nodes.filter(n => !toDelete.includes(n.id));
         connections = connections.filter(c => !toDelete.includes(c.from) && !toDelete.includes(c.to));
         deselectAll();
+        announce(toDelete.length === 1 ? 'Node deleted' : toDelete.length + ' nodes deleted');   // #59
         saveState();
         render();
       }
@@ -3416,11 +3715,56 @@
           `<div class="grouphead">${g.group}</div>` + g.items.map(([k, v]) => `<div class="row"><span>${k}</span><kbd>${v}</kbd></div>`).join('')
         ).join('');
         cheatsheetOverlay.classList.remove('hidden');
+        trapModalFocus(cheatsheetOverlay);
       } else {
         cheatsheetOverlay.classList.add('hidden');
+        releaseModalFocus();
       }
     }
     cheatsheetOverlay.addEventListener('mousedown', (e) => { if (e.target === cheatsheetOverlay) toggleCheatsheet(false); });
+
+    // === Keyboard a11y (#58): modal focus trap/restore + toolbar arrow cycling ===
+    let _modalReturnFocus = null, _modalTrapHandler = null;
+    const focusablesIn = (root) => [...root.querySelectorAll('button, [href], input, textarea, select, [tabindex]')]
+      .filter(el => el.getAttribute('tabindex') !== '-1' && !el.disabled);
+    // Trap Tab within `overlay` (handler on document so it works regardless of
+    // where focus is) and remember the opener to restore on close.
+    function trapModalFocus(overlay) {
+      _modalReturnFocus = document.activeElement;
+      const items = focusablesIn(overlay);
+      if (items[0] && items[0].focus) items[0].focus();
+      _modalTrapHandler = (e) => {
+        if (e.key !== 'Tab') return;
+        const f = focusablesIn(overlay); if (!f.length) return;
+        const first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      };
+      document.addEventListener('keydown', _modalTrapHandler, true);
+    }
+    function releaseModalFocus() {
+      if (_modalTrapHandler) document.removeEventListener('keydown', _modalTrapHandler, true);
+      _modalTrapHandler = null;
+      if (_modalReturnFocus && _modalReturnFocus.focus) _modalReturnFocus.focus();
+      _modalReturnFocus = null;
+    }
+    // Roving-tabindex arrow cycling across the tool buttons.
+    function initKeyboardA11y() {
+      const tools = () => [...document.querySelectorAll('[id^="tool-"]')];
+      tools().forEach((b, i) => b.setAttribute('tabindex', b.classList.contains('active') ? '0' : '-1'));
+      if (!tools().some(b => b.getAttribute('tabindex') === '0') && tools()[0]) tools()[0].setAttribute('tabindex', '0');
+      document.addEventListener('keydown', (e) => {
+        if (!/^Arrow(Left|Right|Up|Down)$/.test(e.key)) return;
+        const btns = tools(); const i = btns.indexOf(document.activeElement);
+        if (i === -1) return;   // focus isn't on a tool button — leave arrows alone
+        e.preventDefault();
+        const dir = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : -1;
+        const next = btns[(i + dir + btns.length) % btns.length];
+        next.focus();
+        const toolName = next.id.replace(/^tool-/, '');
+        if (toolName) setTool(toolName);
+      });
+    }
 
     // === SECTION: FIRST-RUN ONBOARDING (one-time guided walkthrough) ===========
     // Completion is persisted under a VERSIONED key so the walkthrough can be
@@ -3455,7 +3799,11 @@
       document.getElementById('onboardingOverlay').classList.remove('hidden');
     }
     function onboardingNext() {
-      if (onboardingStep >= ONBOARDING_STEPS.length - 1) { finishOnboarding(); return; }
+      if (onboardingStep >= ONBOARDING_STEPS.length - 1) {
+        finishOnboarding();
+        startCoachmarks();   // #56: hand off from the static carousel to the interactive coach-marks
+        return;
+      }
       onboardingStep++; renderOnboarding();
     }
     function onboardingBack() { if (onboardingStep > 0) { onboardingStep--; renderOnboarding(); } }
@@ -3464,6 +3812,55 @@
       document.getElementById('onboardingOverlay').classList.add('hidden');
     }
     function skipOnboarding() { finishOnboarding(); }   // skip also writes the flag (don't nag again)
+
+    // === Interactive coach-marks (#56) ===
+    // Spotlight tooltips anchored to live toolbar elements, mirroring the
+    // cheatsheet overlay pattern. Shares #44's ONBOARDING_KEY so finishing either
+    // path stops the first-run nag. Targets are stable element ids; the tooltip is
+    // positioned from each target's getBoundingClientRect (no hard-coded pixels).
+    const coachmarkSteps = [
+      { target: '#tool-rect',    title: 'Pick a shape',     body: 'Choose the Rectangle tool to start drawing.' },
+      { target: '#canvas',       title: 'Draw it',          body: 'Drag anywhere on the canvas to place your shape.' },
+      { target: '#canvas',       title: 'Connect shapes',   body: 'Hover a node and drag its connector dot to another node to link them.' },
+      { target: '#mermaidToggle', title: 'Or write Mermaid', body: 'Toggle the Mermaid panel to type diagrams as text — they render live.' },
+    ];
+    let coachmarkStep = 0;
+    function renderCoachmark() {
+      const step = coachmarkSteps[coachmarkStep];
+      if (!step) return;
+      const el = document.querySelector(step.target);
+      const spot = document.getElementById('coachmarkSpot');
+      const tip = document.getElementById('coachmarkTip');
+      const r = el ? el.getBoundingClientRect() : { left: 20, top: 20, width: 40, height: 40, bottom: 60, right: 60 };
+      const pad = 4;
+      spot.style.left = (r.left - pad) + 'px';
+      spot.style.top = (r.top - pad) + 'px';
+      spot.style.width = (r.width + pad * 2) + 'px';
+      spot.style.height = (r.height + pad * 2) + 'px';
+      // Place the tooltip below the target, or above if it would overflow.
+      const below = r.bottom + 12;
+      const wantAbove = below + 140 > window.innerHeight;
+      tip.style.left = Math.max(12, Math.min(r.left, window.innerWidth - 252)) + 'px';
+      tip.style.top = (wantAbove ? Math.max(12, r.top - 150) : below) + 'px';
+      document.getElementById('cmTitle').textContent = step.title;
+      document.getElementById('cmBody').textContent = step.body;
+      document.getElementById('cmDots').innerHTML = coachmarkSteps.map((_, i) => `<span class="cm-dot${i === coachmarkStep ? ' on' : ''}"></span>`).join('');
+      document.getElementById('cmNext').textContent = coachmarkStep === coachmarkSteps.length - 1 ? 'Finish' : 'Next';
+    }
+    function startCoachmarks() {
+      coachmarkStep = 0;
+      document.getElementById('coachmarkOverlay').classList.remove('hidden');
+      renderCoachmark();
+    }
+    function coachmarkNext() {
+      if (coachmarkStep >= coachmarkSteps.length - 1) { finishCoachmarks(); return; }
+      coachmarkStep++; renderCoachmark();
+    }
+    function finishCoachmarks() {
+      try { localStorage.setItem(ONBOARDING_KEY, String(Date.now())); } catch (e) {}   // shares #44's flag
+      document.getElementById('coachmarkOverlay').classList.add('hidden');
+    }
+    function skipCoachmarks() { finishCoachmarks(); }
 
     // Connection toolbar functions
     const connToolbar = document.getElementById('connToolbar');
@@ -3496,7 +3893,7 @@
       const screenY = (midY - viewBox.y) * scaleX - 50;
       
       connLabelInput.value = conn.label || '';
-      document.getElementById('connColorBtn').style.borderColor = conn.color || '#a9b1d6';
+      document.getElementById('connColorBtn').style.borderColor = conn.color || COLORS.fg;
       // For sequence messages, detect default from arrow syntax
       const defaultStroke = conn.isSequenceMessage && conn.arrow?.includes('--') ? 'dashed' : 'solid';
       updateConnLineStyleBtns(conn.strokeStyle || defaultStroke);
@@ -3541,7 +3938,7 @@
       const conn = connections.find(c => c.id === selectedConnId);
       if (conn) {
         conn.color = color;
-        document.getElementById('connColorBtn').style.borderColor = color || '#a9b1d6';
+        document.getElementById('connColorBtn').style.borderColor = color || COLORS.fg;
         saveState();
         render();
       }
@@ -3560,8 +3957,8 @@
     function updateConnLineStyleBtns(style) {
       const solidBtn = document.getElementById('connSolidBtn');
       const dottedBtn = document.getElementById('connDottedBtn');
-      solidBtn.style.borderColor = style === 'dashed' ? 'transparent' : '#7aa2f7';
-      dottedBtn.style.borderColor = style === 'dashed' ? '#7aa2f7' : 'transparent';
+      solidBtn.style.borderColor = style === 'dashed' ? 'transparent' : COLORS.accent;
+      dottedBtn.style.borderColor = style === 'dashed' ? COLORS.accent : 'transparent';
     }
     
     // Update connection label on input
@@ -3629,8 +4026,8 @@
     function closeIconDropdown() { document.getElementById('iconDropdown').classList.add('hidden'); }
     
     function updateToolbarColors(node) {
-      document.getElementById('fillColorBtn').style.background = node.color || '#24283b';
-      document.getElementById('outlineColorBtn').style.borderColor = node.outlineColor || '#a9b1d6';
+      document.getElementById('fillColorBtn').style.background = node.color || COLORS.bg2;
+      document.getElementById('outlineColorBtn').style.borderColor = node.outlineColor || COLORS.fg;
       const style = node.fillStyle || (node.type === 'container' ? 'outline' : 'infill');
       const icons = { outline: '○', infill: '●', stripe: '▤', grid: '▦' };
       document.getElementById('fillStyleBtn').textContent = icons[style] || '●';
@@ -3734,13 +4131,13 @@
       const btn = document.getElementById('lifelineToggle');
       if (!btn) return;
       if (node.hasLifeline) {
-        btn.style.background = '#7aa2f7';
-        btn.style.color = '#1a1b26';
-        btn.style.borderColor = '#7aa2f7';
+        btn.style.background = COLORS.accent;
+        btn.style.color = COLORS.bg;        // contrast against the accent fill
+        btn.style.borderColor = COLORS.accent;
       } else {
-        btn.style.background = '#1a1b26';
-        btn.style.color = '#a9b1d6';
-        btn.style.borderColor = '#414868';
+        btn.style.background = COLORS.bg2;
+        btn.style.color = COLORS.fg;
+        btn.style.borderColor = COLORS.border;
       }
     }
     
@@ -3772,6 +4169,15 @@
       } else {
         activeDocId = docStore.save({ title: deriveTitle(), data: exportState() }).id;
       }
+      // Refresh the thumbnail on an explicit save only (#79) — rasterizing on every
+      // autosave would be wasteful; the snapshot is async so it lands a moment later.
+      if (force && nodes.length && typeof generateThumbnail === 'function') {
+        const id = activeDocId;
+        generateThumbnail((dataUrl) => {
+          docStore.save({ id, thumbnail: dataUrl });
+          if (galleryIsOpen()) renderGallery();
+        });
+      }
       if (galleryIsOpen()) renderGallery();
       return activeDocId;
     }
@@ -3797,7 +4203,7 @@
       const swatch = ['#7aa2f7', '#9ece6a', '#bb9af7', '#e0af68', '#f7768e'];
       grid.innerHTML = docs.map((d, i) => `
         <div class="gallery-card" data-id="${d.id}" style="border:1px solid ${d.id === activeDocId ? 'var(--accent)' : 'var(--border)'};border-radius:8px;overflow:hidden;background:var(--bg2)">
-          <div onclick="galleryOpen('${d.id}')" title="Open" style="height:72px;background:${swatch[i % swatch.length]};opacity:0.85;cursor:pointer"></div>
+          <div onclick="galleryOpen('${d.id}')" title="Open" style="height:72px;cursor:pointer;${d.thumbnail ? '' : `background:${swatch[i % swatch.length]};opacity:0.85`}">${d.thumbnail ? `<img src="${d.thumbnail}" alt="" style="display:block;width:100%;height:72px;object-fit:cover">` : ''}</div>
           <div style="padding:8px">
             <div class="gallery-title" style="font-size:12px;font-weight:600;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.title)}</div>
             <div style="font-size:10px;color:var(--fg-dim);margin-top:2px">${relTime(d.updated)}</div>
@@ -4168,6 +4574,7 @@
     // onConnectionMouseDown). The side change is only committed if the pointer
     // actually moves — a plain click just selects, it never silently re-routes.
     let connEndpointDrag = null;
+    let connWaypointDrag = null;   // dragging the midpoint handle to place a waypoint (#70)
     let _snapTargetEl = null;
     function beginEndpointDrag(connId, end, fixedPoint, downPos) {
       connEndpointDrag = { connId, end, fixed: fixedPoint || null, moved: false, downPos: downPos || null };
@@ -4213,6 +4620,7 @@
 
     // Event handlers
     function onNodeMouseDown(e) {
+      if (readOnly) return;   // #77: no select/drag/duplicate in the viewer
       if (e.target.classList.contains('connector') || e.target.classList.contains('resize-handle') || e.target.classList.contains('lifeline-connector')) return;
 
       // Keep the active tool selected (don't force back to the select tool) so
@@ -4386,6 +4794,7 @@
     // Canvas events
     // Double-click empty canvas to drop a rectangle (and start labeling it)
     canvas.addEventListener('dblclick', (e) => {
+      if (readOnly) return;   // #77: no node creation in the viewer
       if (currentTool !== 'select') return;
       if (e.target.closest('.node') || e.target.closest('[data-conn]') ||
           e.target.classList.contains('connector') || e.target.classList.contains('lifeline-connector')) return;
@@ -4409,7 +4818,16 @@
         canvas.style.cursor = 'grabbing';
         return;
       }
-      
+
+      // #77: in the read-only viewer, plain drag pans instead of drawing/selecting
+      // (pan/zoom stay live; nothing below this can mutate the diagram).
+      if (readOnly) {
+        panning = true;
+        panStart = { x: e.clientX, y: e.clientY };
+        canvas.style.cursor = 'grabbing';
+        return;
+      }
+
       // Freehand pencil: start a stroke (capture pen pressure per point)
       if (currentTool === 'pencil') {
         penciling = { points: [{ x: pos.x, y: pos.y, pressure: typeof e.pressure === 'number' ? e.pressure : 0 }] };
@@ -4451,6 +4869,13 @@
           penciling.points.push({ x: pos.x, y: pos.y, pressure: typeof e.pressure === 'number' ? e.pressure : 0 });
           tempPath.setAttribute('d', freehandPath(penciling.points));
         }
+        return;
+      }
+
+      // Dragging the midpoint handle: place/move the connection's waypoint at the cursor.
+      if (connWaypointDrag) {
+        const conn = connections.find(c => c.id === connWaypointDrag.connId);
+        if (conn) { conn.waypoints = [{ x: snap(pos.x), y: snap(pos.y) }]; connWaypointDrag.moved = true; scheduleRender(); }
         return;
       }
 
@@ -4634,6 +5059,12 @@
     document.addEventListener('pointerup', (e) => {
       const pos = screenToCanvas(e.clientX, e.clientY);
 
+      // Commit a waypoint drag (#70): persist + snapshot for undo.
+      if (connWaypointDrag) {
+        if (connWaypointDrag.moved) { saveState(); render(); }
+        connWaypointDrag = null;
+      }
+
       // Commit a connection endpoint re-route (only if the pointer actually
       // moved — a plain click near an endpoint just selects, no silent re-route)
       if (connEndpointDrag) {
@@ -4790,6 +5221,7 @@
                 lineStyle: globalLineStyle
               });
             }
+            announceConnect(connecting.from, toId);   // #59
             saveState();
             render();
           }
@@ -4810,6 +5242,7 @@
               toIdx: 1,
               lineStyle: globalLineStyle
             });
+            announceConnect(connecting.from, toNode.id);   // #59
             saveState();
             render();
           }
@@ -4967,10 +5400,13 @@
         const sp = document.getElementById('shapePanel');
         if (sp && /\bopen\b/.test(sp.className)) { toggleShapePanel(false); return; }
         if (!cheatsheetOverlay.classList.contains('hidden')) { toggleCheatsheet(false); return; }
+        const cm = document.getElementById('coachmarkOverlay');
+        if (cm && !cm.classList.contains('hidden')) { skipCoachmarks(); return; }
         hideContextMenu(); deselectAll(); setTool('select'); closeDropdowns(); return;
       }
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (e.key === '?') { toggleCheatsheet(); return; }
+      if (readOnly) return;   // #77: no tool/delete/clipboard/undo shortcuts in the viewer
 
       // Single-key shortcut (only without Cmd/Ctrl, so Cmd+V etc. fall through)
       const binding = KEY_BINDINGS[e.key.toLowerCase()];
@@ -5327,6 +5763,25 @@
       };
       img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
       return true;
+    }
+
+    // Generate a small thumbnail (data-URL) of the current diagram for the gallery
+    // (#79). Reuses the PNG-export raster path at low scale, then clamps to a max
+    // width so big diagrams don't bloat the stored record. cb(dataUrl) on success;
+    // returns false (and no cb) when there's nothing to render.
+    function generateThumbnail(cb) {
+      return rasterizeDiagram(0.5, (c) => {
+        const MAXW = 320;
+        let out = c;
+        if (c.width > MAXW) {
+          const s = MAXW / c.width;
+          const t = document.createElement('canvas');
+          t.width = MAXW; t.height = Math.max(1, Math.round(c.height * s));
+          t.getContext('2d').drawImage(c, 0, 0, t.width, t.height);
+          out = t;
+        }
+        cb(out.toDataURL('image/png'));
+      });
     }
 
     // Download a PNG at the given scale (1/2/3×). Default 2× for retina sharpness.
@@ -6684,7 +7139,7 @@
         if (t.milestone) {
           result.nodes.push({ id: t._nodeId, type: 'diamond', label: t.name, fixed: true, x: x - 20, y, width: 40, height: 40 });
         } else {
-          result.nodes.push({ id: t._nodeId, type: 'rect', label: t.name, fixed: true, x, y, width: Math.max(40, t._days * PXD), height: barH, color: '#7aa2f7', fillStyle: 'infill' });
+          result.nodes.push({ id: t._nodeId, type: 'rect', label: t.name, fixed: true, x, y, width: Math.max(40, t._days * PXD), height: barH, color: COLORS.accent, fillStyle: 'infill' });
         }
       });
 
@@ -7774,6 +8229,16 @@
 
       if (!code || code === 'flowchart TD' || code === 'flowchart TD\n    %% Empty diagram') {
         if (!append) { errorDiv.textContent = 'No code to import'; errorDiv.style.display = 'block'; }
+        else toast('Nothing to import — no Mermaid code found.', 'error');
+        return false;
+      }
+
+      // Recognized-but-unsupported Mermaid diagram types: bail with a named toast
+      // rather than letting the flowchart fallback emit spurious nodes (append flow).
+      const firstKw = (code.split('\n').find(l => l.trim() && !l.trim().startsWith('%%')) || '').trim().split(/\s+/)[0];
+      const UNSUPPORTED_MERMAID = /^(zenuml|kanban|packet-beta|radar|treemap|mindmap-beta|sankey)$/i;
+      if (append && firstKw && UNSUPPORTED_MERMAID.test(firstKw)) {
+        toast(`Can't import "${firstKw}" yet — unsupported diagram type.`, 'error');
         return false;
       }
 
@@ -7789,6 +8254,7 @@
 
         if (parsed.nodes.length === 0) {
           if (!append) { errorDiv.textContent = 'No nodes found in code'; errorDiv.style.display = 'block'; }
+          else toast('Couldn\'t import that Mermaid — no recognizable diagram found.', 'error');
           return false;
         }
 
