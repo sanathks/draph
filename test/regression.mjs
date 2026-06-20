@@ -556,10 +556,10 @@ group('Nodes grow to fit their label (label-aware sizing)');
   const textW = 'Authenticated?'.length * (11 * 0.62);
   check('diamond widened to fit a long label', d.width >= textW / 0.6, `w=${d.width} need~${Math.ceil(textW/0.6)}`);
   check('diamond grew from its default', d.width > 90);
-  // fit never shrinks below the user's larger size
-  const big = win.createNode('rect', 0, 0, 400, 200); big.label = 'Hi';
+  // fit never shrinks a node the user manually resized (#35: guarded by the flag)
+  const big = win.createNode('rect', 0, 0, 400, 200); big.label = 'Hi'; big.manuallyResized = true;
   win.fitNodeToLabel(big);
-  check('fit does not shrink a manually-large node', big.width === 400 && big.height === 200);
+  check('fit does not shrink a manually-resized node', big.width === 400 && big.height === 200);
   // typing in the toolbar grows the selected node live
   const r = win.createNode('rect', 0, 0, 120, 44); r.label = 'x'; win.render(); win.selectNode(r.id);
   const inp = doc.getElementById('toolbarLabel');
@@ -1082,15 +1082,15 @@ group('v2: Mermaid timeline import');
   const parsed = E(`parseMermaid(${JSON.stringify(code)})`);
   check('timeline makes period nodes (pills)', parsed.nodes.filter(n => n.type === 'pill').length === 3);
   check('timeline makes an event node per event', parsed.nodes.some(n => n.label === 'Facebook') && parsed.nodes.some(n => n.label === 'Google'));
-  check('timeline ignores the title line', !parsed.nodes.some(n => n.label === 'History'));
+  check('timeline title becomes a heading node (#29)', parsed.nodes.some(n => n.label === 'History'));
   // a period with two events -> two child edges from that period
   const p2004 = parsed.nodes.find(n => n.label === '2004').id;
   check('timeline links events to their period', parsed.connections.filter(c => c.from === p2004).length === 2);
-  // sections -> grouping containers
+  // sections -> period pills tinted per-section (#29: horizontal, not containers)
   const code2 = ['timeline', '  section Early', '    2002 : LinkedIn', '  section Later', '    2006 : Twitter'].join('\n');
   const p2 = E(`parseMermaid(${JSON.stringify(code2)})`);
-  check('timeline sections become subgraphs', Array.isArray(p2.subgraphs) && p2.subgraphs.length === 2);
-  check('section owns its period node', p2.subgraphs[0].children.length >= 1);
+  const e2002 = p2.nodes.find(n => n.label === '2002'), t2006 = p2.nodes.find(n => n.label === '2006');
+  check('timeline sections tint period pills with distinct colors', !!e2002.color && !!t2006.color && e2002.color !== t2006.color);
   // full import
   const ed = win.document.getElementById('mermaidEditor');
   ed.value = code; win.importMermaid(true);
@@ -1169,7 +1169,7 @@ group('v2: Mermaid user-journey import');
   ].join('\n');
   const p = E(`parseMermaid(${JSON.stringify(code)})`);
   check('journey makes a task node per task', p.nodes.filter(n => n.type === 'pill').length === 3);
-  check('journey shows actors in the label', p.nodes.some(n => /Do work \(Me, Cat\)/.test(n.label)));
+  check('journey carries actors as a list on the task (#31)', p.nodes.some(n => Array.isArray(n.actors) && n.actors.length === 2 && n.actors[0] === 'Me' && n.actors[1] === 'Cat'));
   check('journey chains tasks sequentially', p.connections.length === 2);
   // higher score => higher up (smaller y). "Make tea" (5) above "Do work" (1)
   const tea = p.nodes.find(n => /Make tea/.test(n.label));
@@ -1724,6 +1724,48 @@ group('Selection → Mermaid (#2): selection-scoped export');
   check('no selection falls back to whole-canvas export', /\bC\b/.test(E(`generateMermaid({ selectionOnly: true })`)));
 }
 
+group('SVG export (#37): buildExportSVG string assertions');
+{
+  const { win, E } = boot();
+  // empty canvas → null, no side effects
+  check('buildExportSVG returns null on an empty canvas', E(`buildExportSVG()`) === null);
+  const a = win.createNode('rect', 100, 100); E(`nodes.find(n=>n.id==='${a.id}').label='Alpha'`);
+  const b = win.createNode('rect', 400, 100); E(`nodes.find(n=>n.id==='${b.id}').label='Beta'`);
+  E(`connections.push({ id:'e', from:'${a.id}', to:'${b.id}' })`);
+  win.render();
+  const svg = E(`buildExportSVG()`);
+  check('export is a standalone <svg> with a viewBox', /^<svg[\s>]/.test(svg.trim()) && /viewBox=/.test(svg));
+  check('export includes every node label', /Alpha/.test(svg) && /Beta/.test(svg));
+  check('export includes the connection markup', /connection-group|class="connection"/.test(svg));
+  check('export omits UI chrome (connectors/hit-areas/grid/marquee)', !/connector|conn-hit|gridBg|selectBox|drawPreview|resize-handle/.test(svg));
+  // viewBox tightly bounds content (not the full 1200×800 canvas)
+  const vb = (svg.match(/viewBox="([^"]+)"/) || [])[1].split(/\s+/).map(Number);
+  check('viewBox crops to content, not the whole canvas', vb[2] < 1200 && vb[3] < 800 && vb[0] > 0);
+  // pure: calling it does not mutate state or trigger a download
+  const before = E(`nodes.length`);
+  E(`buildExportSVG()`);
+  check('buildExportSVG is side-effect free (node count unchanged)', E(`nodes.length`) === before);
+}
+
+group('Mermaid class import (#27): namespaces → grouping container');
+{
+  const { win, doc, E } = boot();
+  const code = 'classDiagram\n  namespace Payment {\n    class Card\n    class Wallet\n  }\n  Card --> Wallet';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const sg = (p.subgraphs || []).find(s => s.label === 'Payment');
+  check('namespace becomes a grouping container with its classes', !!sg && sg.children.includes('Card') && sg.children.includes('Wallet'));
+  check('namespaced classes still parse as class nodes', p.nodes.some(n => n.label === 'Card' && n.type === 'class') && p.nodes.some(n => n.label === 'Wallet'));
+  check('relationship inside/after the namespace still parsed', p.connections.some(c => c.from === 'Card' && c.to === 'Wallet'));
+  // classes inside a namespace keep stereotypes + members
+  const p2 = E(`parseMermaid(${JSON.stringify('classDiagram\n  namespace Bank {\n    class Account {\n      +Float balance\n      +deposit(n) void\n    }\n    class Ledger\n  }')})`);
+  const acct = p2.nodes.find(n => n.label === 'Account');
+  check('namespaced class keeps its members', !!acct && acct.properties.length >= 1 && acct.methods.length >= 1);
+  // import nests the classes inside the Payment container
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true);
+  check('import creates the Payment container', E(`nodes.some(n=>n.type==='container'&&n.label==='Payment')`));
+  check('namespaced class renders inside the container', E(`(()=>{const c=nodes.find(n=>n.type==='container'&&n.label==='Payment');const k=nodes.find(n=>n.label==='Card');return !!c&&!!k&&k.x>=c.x&&k.y>=c.y&&k.x+k.width<=c.x+c.width&&k.y+k.height<=c.y+c.height;})()`));
+}
+
 group("Mermaid ER import (#23): crow's-foot cardinality markers");
 {
   const { win, doc, E } = boot();
@@ -1741,6 +1783,35 @@ group("Mermaid ER import (#23): crow's-foot cardinality markers");
   // render: crow-foot glyphs draw as SVG (distinct, inline — no shared marker-id collisions)
   doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
   check('er crow-foot markers render as SVG', E(`connections[0].markerStart==='er-one' && connections[0].markerEnd==='er-zero-many'`) && doc.querySelectorAll('#connections circle').length >= 1);
+}
+
+group('Mermaid mindmap import (#24): radial layout + ::icon');
+{
+  const { win, doc, E } = boot();
+  const code = 'mindmap\n  root((Idea))\n  ::icon(fa fa-lightbulb)\n    Origins\n      Long history\n    Tools\n      Pen';
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true);
+  const ns = E(`nodes.map(n=>({l:n.label,x:n.x,y:n.y,w:n.width,h:n.height,icon:n.icon}))`);
+  const root = ns.find(n => n.l === 'Idea');
+  const dist = n => Math.hypot((n.x + n.w / 2) - (root.x + root.w / 2), (n.y + n.h / 2) - (root.y + root.h / 2));
+  check('radial: ring-1 nodes are away from root', ns.filter(n => ['Origins', 'Tools'].includes(n.l)).every(n => dist(n) > 60));
+  check('radial: depth maps to radius (ring-2 farther than ring-1)', dist(ns.find(n => n.l === 'Long history')) > dist(ns.find(n => n.l === 'Origins')));
+  let ov = false;
+  for (let i = 0; i < ns.length; i++) for (let j = i + 1; j < ns.length; j++) {
+    const a = ns[i], b = ns[j];
+    if (Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) > 1 && Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)) > 1) ov = true;
+  }
+  check('radial: no node overlap', !ov);
+  check('::icon(...) sets the node icon field', root.icon === 'lightbulb');
+  // existing parse/tree intact (layout-only change)
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('mindmap still builds the parent→child tree', p.nodes.length === 5 && p.connections.length === 4);
+  // review fix: every ::icon resolves to a RENDERABLE registry key — canonical
+  // `fa fa-book` renders, and an unknown name falls back (never a silent blank).
+  const p2 = E(`parseMermaid(${JSON.stringify('mindmap\n  root((R))\n    Has\n    ::icon(fa fa-book)\n    Wild\n    ::icon(fa fa-unicorn)')})`);
+  const reg = E(`Object.keys(ICONS)`);
+  const has = p2.nodes.find(n => n.label === 'Has'), wild = p2.nodes.find(n => n.label === 'Wild');
+  check('canonical fa fa-book resolves to a registered icon', has.icon === 'book' && reg.includes('book'));
+  check('unknown ::icon falls back to a renderable glyph (no blank)', !!wild.icon && reg.includes(wild.icon) && wild.icon === 'dot');
 }
 
 group('Mermaid gantt import (#25): dependency arrows + weekly axis');
@@ -1776,6 +1847,122 @@ group('Keyboard a11y (#58): roving arrows + modal focus trap/restore');
   // no regression: single-key shortcuts still fire
   key(doc, 'p');
   check('single-key shortcut still works (P → pencil)', E('currentTool') === 'pencil');
+}
+
+group('Mermaid C4 import (#28): directional Rel + person figure');
+{
+  const { win, doc, E } = boot();
+  const code = 'C4Context\n  Person(user, "User")\n  System(sys, "App")\n  Rel_D(user, sys, "uses")\n  Rel(sys, user, "replies")';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const cD = p.connections.find(c => c.from === 'user' && c.to === 'sys');
+  const cPlain = p.connections.find(c => c.from === 'sys' && c.to === 'user');
+  check('c4: Rel_D locks a downward (bottom→top) route', cD.fromSide === 'bottom' && cD.toSide === 'top' && cD.fromSideLocked === true && cD.toSideLocked === true);
+  check('c4: plain Rel is unchanged (no locked sides)', !cPlain.fromSide && !cPlain.fromSideLocked);
+  // per-direction sides pinned (review #28: the suite must check each variant)
+  const dirSides = (dir) => {
+    const pp = E(`parseMermaid(${JSON.stringify('C4Context\n  System(a, "A")\n  System(b, "B")\n  ' + dir + '(a, b, "x")')})`);
+    const c = pp.connections.find(x => x.from === 'a');
+    return c.fromSideLocked && c.toSideLocked ? c.fromSide + '/' + c.toSide : 'unlocked';
+  };
+  check('c4: Rel_R → right/left (locked)', dirSides('Rel_R') === 'right/left');
+  check('c4: Rel_L → left/right (locked)', dirSides('Rel_L') === 'left/right');
+  check('c4: Rel_U → top/bottom (locked)', dirSides('Rel_U') === 'top/bottom');
+  check('c4: Rel_D → bottom/top (locked)', dirSides('Rel_D') === 'bottom/top');
+  check('c4: long-form Rel_Right matches Rel_R', dirSides('Rel_Right') === 'right/left');
+  check('c4: Person box flagged for the figure', p.nodes.find(n => n.id === 'user').isPerson === true);
+  // render: the person figure (user icon) draws inside the box
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  const person = E(`nodes.find(n=>n.isPerson)`);
+  const el = doc.querySelector(`#nodes .node[data-id="${person.id}"]`);
+  check('c4: person figure renders in the box', !!el && /path|circle/.test(el.innerHTML));
+  // the locked direction must SURVIVE import + render (the re-seat pass must not
+  // override it) — this is what the logic-only parse check missed (review #28).
+  doc.getElementById('mermaidEditor').value = 'C4Context\n  System(a, "A")\n  System(b, "B")\n  Rel_R(a, b, "x")';
+  win.importMermaid(true); win.render();
+  check('c4: Rel_R leaves the right edge after import+render (lock survives)', E(`connections[0].fromSide`) === 'right' && E(`connections[0].fromSideLocked`) === true);
+}
+
+group('Mermaid timeline import (#29): horizontal lanes + title + section tint');
+{
+  const { win, doc, E } = boot();
+  const code = 'timeline\n  title History\n  2002 : LinkedIn\n  2004 : Facebook : Google';
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true);
+  const ns = E(`nodes.map(n=>({l:n.label,x:n.x,y:n.y,w:n.width,h:n.height}))`);
+  const p2002 = ns.find(n => n.l === '2002'), p2004 = ns.find(n => n.l === '2004');
+  check('timeline: periods laid left-to-right on one row', p2004.x > p2002.x && Math.abs(p2004.y - p2002.y) < 40);
+  check('timeline: title heading node present', ns.some(n => n.l === 'History'));
+  const fb = ns.find(n => n.l === 'Facebook');
+  check('timeline: events sit under their period', fb.x === p2004.x && fb.y > p2004.y);
+  // section tint: two sections → period pills get distinct colors
+  const p2 = E(`parseMermaid('timeline\\n  section A\\n  2002 : x\\n  section B\\n  2006 : y')`);
+  const a = p2.nodes.find(n => n.label === '2002'), b = p2.nodes.find(n => n.label === '2006');
+  check('timeline: per-section pill tint differs', a.color && b.color && a.color !== b.color);
+}
+
+group('Mermaid gitGraph import (#26): tags, commit types, cherry-pick');
+{
+  const { win, doc, E } = boot();
+  const code = 'gitGraph\n  commit id: "A"\n  commit tag: "v1.0"\n  branch dev\n  commit type: HIGHLIGHT\n  checkout main\n  cherry-pick id: "A"';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('gitgraph: tag captured on the commit', p.nodes.some(n => n.tag === 'v1.0'));
+  check('gitgraph: HIGHLIGHT type captured', p.nodes.some(n => n.commitType === 'HIGHLIGHT'));
+  check('gitgraph: cherry-pick adds a dashed link from the source commit', p.connections.some(c => c.strokeStyle === 'dashed' && c.label === 'cherry-pick'));
+  // existing geometry intact (commits are fixed circle dots on lanes)
+  check('gitgraph: commits still fixed circle dots', p.nodes.filter(n => /^gc/.test(n.id)).every(n => n.type === 'circle' && n.fixed === true));
+  // render: the tag label appears in the node layer
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  check('gitgraph: tag label rendered', /v1\.0/.test(doc.getElementById('nodes').textContent));
+  check('gitgraph: import carries tag + commitType onto nodes', E(`nodes.some(n=>n.tag==='v1.0')`) && E(`nodes.some(n=>n.commitType==='HIGHLIGHT')`));
+}
+
+group('fitNodeToLabel shrink-to-fit + manual-resize guard (#35)');
+{
+  const { win, E } = boot();
+  const n = win.createNode('rect', 100, 100, 'A very long label that makes the node quite wide indeed');
+  win.fitNodeToLabel(n); const wide = n.width;
+  E(`nodes.find(x=>x.id==='${n.id}').label='Hi'`); win.fitNodeToLabel(E(`nodes.find(x=>x.id==='${n.id}')`));
+  check('shrinks toward content when not manually resized', E(`nodes.find(x=>x.id==='${n.id}').width`) < wide);
+  check('does not shrink below the type minimum', E(`nodes.find(x=>x.id==='${n.id}').width`) >= E('CONFIG.node.minWidth'));
+  // manually-resized node is never auto-shrunk
+  const m = win.createNode('rect', 300, 300, 'x');
+  E(`(n=>{n.manuallyResized=true; n.width=400; n.label='y';})(nodes.find(x=>x.id==='${m.id}'))`);
+  win.fitNodeToLabel(E(`nodes.find(x=>x.id==='${m.id}')`));
+  check('manually-resized node keeps its width', E(`nodes.find(x=>x.id==='${m.id}').width`) === 400);
+}
+
+group('Mermaid journey import (#31): actor avatars + section bands');
+{
+  const { win, doc, E } = boot();
+  const code = 'journey\n  title My Day\n  section Morning\n    Wake: 3: Me\n    Coffee: 5: Me, Cat';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const coffee = p.nodes.find(n => /Coffee/.test(n.label));
+  check('journey: task carries its actor list', Array.isArray(coffee.actors) && coffee.actors.length === 2);
+  check('journey: each actor gets a distinct color', coffee.actorColors && coffee.actorColors[0] !== coffee.actorColors[1]);
+  check('journey: section band node present', p.nodes.some(n => /^jband/.test(n.id)));
+  // render: section label + actor glyphs draw
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  check('journey: section band/label rendered', /Morning/.test(doc.getElementById('nodes').textContent));
+  const cn = E(`nodes.find(n=>/Coffee/.test(n.label))`);
+  const el = doc.querySelector(`#nodes .node[data-id="${cn.id}"]`);
+  check('journey: actor glyphs render on the task', !!el && (el.innerHTML.match(/<circle/g) || []).length >= 2);
+}
+
+group('Mermaid pie import (#30): donut variant + leader lines');
+{
+  const { win, doc, E } = boot();
+  const code = 'pie title Browsers\n  "Chrome" : 60\n  "Safari" : 25\n  "Other" : 15';
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true);
+  check('pie: one pie node imported', E(`nodes.length`) === 1 && E(`nodes[0].type === 'pie'`));
+  // default (non-donut): slices are wedge paths + leader % labels present
+  win.render();
+  const elDef = doc.querySelector('#nodes .node');
+  check('pie: default renders slice paths', !!elDef && (elDef.innerHTML.match(/<path/g) || []).length === 3);
+  check('pie: leader lines show slice percentages', /\d+%/.test(elDef.textContent));
+  // donut flag → annulus paths (inner-arc reverse sweep), default parse unchanged
+  E(`nodes[0].donut = true`); win.render();
+  const el = doc.querySelector('#nodes .node');
+  check('pie: donut renders annulus paths', !!el && /A[\d.]+,[\d.]+ 0 \d 0/.test(el.innerHTML));
+  check('pie: donut flag does not alter the parsed slices', E(`nodes[0].slices.length`) === 3);
 }
 
 process.exit(report() ? 0 : 1);
