@@ -14,7 +14,7 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
 |---|---|---|---|
 | Flowchart | `flowchart` / `graph` | ✅ | nodes, shapes, edges, labels, subgraphs |
 | Sequence | `sequenceDiagram` | ✅ | participants, lifelines, messages, frames |
-| Class | `classDiagram` | ✅ | classes with properties/methods, relations |
+| Class | `classDiagram` | ✅ | classes w/ properties/methods; **now**: `<<interface/abstract/enumeration>>` stereotypes, generics `~T~`→`<T>` (generic class ids unified), `direction`, multiplicities `"1" o-- "0..*"`, all relation operators (`<\|--`, `..\|>`, `*--`, `o--`, `-->`, `..>`), dotted relations dashed, auto-size. TODO: per-relation arrowhead glyphs (triangle/diamond), namespaces |
 | State | `stateDiagram` / `-v2` | 🟡 | **NEW.** states→rounded rects, transitions+labels, `[*]`→small dot. TODO: composite (nested) states as containers, `note`, `<<fork>>/<<join>>/<<choice>>` shapes, `direction`, concurrency `--` |
 | Entity-Relationship | `erDiagram` | 🟡 | **NEW.** entities→class-style boxes w/ attribute rows (+PK/FK/UK tags), relationships→labeled edges, non-identifying `..`→dashed. TODO: crow's-foot cardinality markers (`||`, `o{`, `}|`…) on the edge ends |
 | Mindmap | `mindmap` | 🟡 | **NEW.** indentation-based tree → nodes + parent/child edges; shapes `((circle))`/`(round)`/`[square]`/`{{hex→rect}}`. TODO: radial layout (currently top-down tree), `::icon()` rendering, class styling |
@@ -42,6 +42,13 @@ Legend: ✅ supported · 🟡 partial · ⬜ not yet · ➖ n/a for a node-graph
   line, any needed render tweaks, and regression tests in `test/regression.mjs`.
 
 ## Changelog
+- **Class diagram — major upgrade (bugfix):** rewrote `parseClassDiagram` to
+  handle real-world diagrams: `<<interface/abstract/enumeration>>` stereotypes
+  (shown as «…» in the header), generics `~T~`→`<T>` with unified class ids
+  (`Foo~T~` == `Foo~Order~`), `direction` directives, multiplicity strings, the
+  full relation-operator set, dotted relations → dashed, enum values, and
+  auto-sized boxes (width from longest member, sections hidden when empty).
+  Verified against a 20-class e-commerce example. Tested.
 - **Git graph (first cut):** `parseGitGraph` — commits as per-lane dots, branch
   forks from current tip, merge creates a 2-parent commit, lane labels, dots
   colored per branch. Fixed geometry. Tags/types/cherry-pick links TODO. Tested.

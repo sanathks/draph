@@ -1211,4 +1211,68 @@ group('v2: Mermaid gitGraph import (commit DAG)');
   check('gitGraph import builds commit dots + edges', E(`nodes.filter(n=>n.type==='circle').length`) === 5 && E('connections.length') >= 4);
 }
 
+// ---------------------------------------------------------------------------
+group('v2: complex class diagram (generics, stereotypes, multiplicities)');
+{
+  const { win, E } = boot();
+  const code = `classDiagram
+direction TB
+class Identifiable {
+  <<interface>>
+  +UUID id
+  +getId() UUID
+}
+class Person {
+  <<abstract>>
+  #String firstName
+  +getFullName() String
+  +sendNotification(msg String)* void
+}
+class Customer {
+  -List~Address~ addresses
+  -LoyaltyTier tier
+  +placeOrder(cart Cart) Order
+}
+class Order {
+  -OrderStatus status
+  -List~OrderLine~ lines
+  +calculateTotal() Money
+}
+class OrderRepository~T~ {
+  <<interface>>
+  +findById(id UUID) T
+}
+class OrderStatus {
+  <<enumeration>>
+  PENDING
+  SHIPPED
+  CANCELLED
+}
+Person <|-- Customer
+Person ..|> Identifiable
+Customer "1" o-- "0..*" Address : ships to
+Customer "1" --> "0..*" Order : places
+Order --> OrderStatus : has
+OrderRepository~Order~ ..> Order : manages`;
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const byId = {}; p.nodes.forEach(n => byId[n.id] = n);
+  check('class: direction line is not a node', !byId['direction'] && !byId['TB']);
+  check('class: <<interface>> stereotype captured', byId['Identifiable'] && byId['Identifiable'].stereotype === 'interface');
+  check('class: <<abstract>> stereotype captured', byId['Person'].stereotype === 'abstract');
+  check('class: <<enumeration>> captured + values listed', byId['OrderStatus'].stereotype === 'enumeration' && byId['OrderStatus'].properties.includes('PENDING'));
+  check('class: generics ~T~ render as <T> in members', byId['Customer'].properties.some(s => /List<Address>/.test(s)));
+  check('class: generic class id ignores type param (Foo~T~ == Foo~Order~)', !!byId['OrderRepository'] && p.nodes.filter(n => n.id === 'OrderRepository').length === 1);
+  check('class: method with abstract * marker kept', byId['Person'].methods.some(s => /sendNotification/.test(s)));
+  check('class: inheritance relationship parsed', p.connections.some(c => c.from === 'Person' && c.to === 'Customer'));
+  check('class: multiplicity + label relationship parsed', p.connections.some(c => c.from === 'Customer' && c.to === 'Address' && c.label === 'ships to'));
+  check('class: dotted (..) relationships are dashed', p.connections.some(c => c.strokeStyle === 'dashed'));
+  // 6 defined + Address (auto-created from the relationship) = 7 nodes
+  check('class: all classes (+auto Address) + relationships parsed', p.nodes.length === 7 && p.connections.length === 6);
+  // full import doesn't throw and builds the boxes
+  const ed = win.document.getElementById('mermaidEditor');
+  ed.value = code; win.importMermaid(true);
+  check('complex class import builds class boxes + relations', E(`nodes.filter(n=>n.isClass).length`) === 7 && E('connections.length') === 6);
+  check('imported class carries its stereotype', E(`nodes.find(n=>n.label==='Identifiable').stereotype`) === 'interface');
+}
+
 process.exit(report() ? 0 : 1);
