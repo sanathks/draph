@@ -1641,4 +1641,35 @@ group('Document store (#38): docStore CRUD against the in-memory backend');
   check('remove drops the doc', E(`docStore.list().length`) === 1 && E(`docStore.load('${firstId}')`) === null);
 }
 
+group('Document library (#38): gallery UI + autosave write-through');
+{
+  const { win, doc, E } = boot();
+  E(`docStore._useMemory(); activeDocId = null;`);
+  // first edit autosaves through to a new active doc
+  win.createNode('rect', 100, 100);
+  win.updateUrlHash();
+  check('first edit creates an active library doc', E(`activeDocId !== null`) && E(`docStore.list().length`) === 1);
+  const id1 = E(`activeDocId`);
+  win.galleryRename(id1, 'Auth flow');
+  check('rename updates the doc title', E(`docStore.load('${id1}').title`) === 'Auth flow');
+  // "New" banks the current diagram and starts a fresh one (newest-first → 2 docs)
+  win.galleryNew();
+  check('New starts a 2nd doc and switches active', E(`docStore.list().length`) === 2 && E(`activeDocId`) !== id1);
+  // edit B, then open A → canvas restores A exactly
+  win.createNode('diamond', 200, 200); win.updateUrlHash();
+  win.galleryOpen(id1);
+  check('opening a doc restores its data + sets it active', E(`activeDocId`) === id1 && E(`nodes.length`) === 1 && E(`nodes[0].type`) === 'rect');
+  // autosave write-through bumps the active doc's data (B kept its diamond)
+  const other = E(`docStore.list().find(d=>d.id!=='${id1}').id`);
+  check('the other doc retained its own edited data', E(`docStore.load('${other}').data.n.some(n=>n.type==='diamond')`));
+  // duplicate + gallery DOM
+  win.galleryDuplicate(id1);
+  check('duplicate adds a 3rd card', E(`docStore.list().length`) === 3);
+  win.toggleGallery();
+  check('gallery opens and renders one card per doc', E(`galleryIsOpen()`) === true && doc.querySelectorAll('#galleryGrid .gallery-card').length === 3);
+  check('active doc card is highlighted', !!doc.querySelector(`#galleryGrid .gallery-card[data-id="${id1}"]`));
+  win.toggleGallery();
+  check('gallery toggles closed', E(`galleryIsOpen()`) === false);
+}
+
 process.exit(report() ? 0 : 1);

@@ -550,6 +550,22 @@
       </div>
     </div>
     
+    <!-- "My diagrams" gallery (document library over docStore) -->
+    <div id="galleryOverlay" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.45)" onclick="if(event.target===this)toggleGallery()">
+      <div style="position:absolute;top:0;right:0;height:100%;width:380px;max-width:90vw;background:var(--bg);border-left:1px solid var(--border);display:flex;flex-direction:column;box-shadow:-4px 0 24px rgba(0,0,0,0.4)">
+        <div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:13px;font-weight:600;color:var(--fg)">My diagrams</span>
+          <div style="display:flex;gap:6px">
+            <button onclick="galleryNew()" style="padding:4px 8px;background:var(--accent);border:none;border-radius:4px;font-size:11px;font-weight:600;color:var(--bg);cursor:pointer">+ New</button>
+            <button onclick="saveActiveDoc(true)" title="Save the current diagram to your library" style="padding:4px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;font-size:11px;color:var(--fg);cursor:pointer">Save current</button>
+            <button onclick="toggleGallery()" title="Close (G)" style="width:24px;height:24px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--fg);cursor:pointer">✕</button>
+          </div>
+        </div>
+        <div id="galleryGrid" style="flex:1;overflow:auto;padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-content:start"></div>
+        <div id="galleryEmpty" style="display:none;padding:24px;text-align:center;color:var(--fg-dim);font-size:12px">No saved diagrams yet — “+ New” starts one.</div>
+      </div>
+    </div>
+
     <!-- Canvas area -->
     <div id="canvasContainer" class="flex-1 relative overflow-hidden">
     <svg id="canvas" class="w-full h-full" style="background: var(--bg); touch-action: none;">
@@ -1334,6 +1350,10 @@
       history.replaceState(null, '', '#' + btoa(encodeURIComponent(json)));
       // Autosave locally so the diagram survives a reload even without the hash
       saveSetting('autosave', json);
+      // Write through to the document library (creates the active doc on first edit;
+      // updates its data + `updated` thereafter). Back-compat: a v1 URL-hash diagram
+      // becomes a library doc as soon as it's edited.
+      if (typeof saveActiveDoc === 'function') saveActiveDoc();
     }
     
     function loadFromUrl() {
@@ -3311,7 +3331,96 @@
         toast('Canvas cleared', 'success');
       }, { danger: true, okLabel: 'Clear' });
     }
-    
+
+    // === SECTION: "MY DIAGRAMS" GALLERY (document library UI over docStore) =====
+    let activeDocId = null;   // the library doc the canvas currently represents
+
+    function deriveTitle() {
+      const labeled = nodes.find(n => n.label && n.label.trim());
+      return labeled ? labeled.label.trim().slice(0, 40) : 'Untitled diagram';
+    }
+    // Write the live diagram through to its library doc. Creates the active doc on
+    // first save; `force` saves even an empty canvas (the "Save current" button).
+    function saveActiveDoc(force) {
+      if (!force && nodes.length === 0 && connections.length === 0) return null;
+      if (activeDocId && docStore.load(activeDocId)) {
+        docStore.save({ id: activeDocId, data: exportState() });   // keep title, refresh data+updated
+      } else {
+        activeDocId = docStore.save({ title: deriveTitle(), data: exportState() }).id;
+      }
+      if (galleryIsOpen()) renderGallery();
+      return activeDocId;
+    }
+    function galleryIsOpen() { const o = document.getElementById('galleryOverlay'); return !!o && o.style.display !== 'none' && o.style.display !== ''; }
+    function toggleGallery() {
+      const o = document.getElementById('galleryOverlay'); if (!o) return;
+      if (galleryIsOpen()) { o.style.display = 'none'; }
+      else { renderGallery(); o.style.display = 'block'; }
+    }
+    function relTime(ts) {
+      const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+      if (s < 60) return 'just now';
+      const m = Math.round(s / 60); if (m < 60) return m + 'm ago';
+      const h = Math.round(m / 60); if (h < 24) return h + 'h ago';
+      return Math.round(h / 24) + 'd ago';
+    }
+    function renderGallery() {
+      const grid = document.getElementById('galleryGrid'); if (!grid) return;
+      const docs = docStore.list();
+      const empty = document.getElementById('galleryEmpty');
+      if (empty) empty.style.display = docs.length ? 'none' : 'block';
+      grid.style.display = docs.length ? 'grid' : 'none';
+      const swatch = ['#7aa2f7', '#9ece6a', '#bb9af7', '#e0af68', '#f7768e'];
+      grid.innerHTML = docs.map((d, i) => `
+        <div class="gallery-card" data-id="${d.id}" style="border:1px solid ${d.id === activeDocId ? 'var(--accent)' : 'var(--border)'};border-radius:8px;overflow:hidden;background:var(--bg2)">
+          <div onclick="galleryOpen('${d.id}')" title="Open" style="height:72px;background:${swatch[i % swatch.length]};opacity:0.85;cursor:pointer"></div>
+          <div style="padding:8px">
+            <div class="gallery-title" style="font-size:12px;font-weight:600;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.title)}</div>
+            <div style="font-size:10px;color:var(--fg-dim);margin-top:2px">${relTime(d.updated)}</div>
+            <div style="display:flex;gap:4px;margin-top:6px">
+              <button onclick="galleryRenamePrompt('${d.id}')" style="flex:1;padding:2px;font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:3px;color:var(--fg);cursor:pointer">Rename</button>
+              <button onclick="galleryDuplicate('${d.id}')" style="flex:1;padding:2px;font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:3px;color:var(--fg);cursor:pointer">Dup</button>
+              <button onclick="galleryDelete('${d.id}')" style="flex:1;padding:2px;font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:3px;color:var(--danger);cursor:pointer">Del</button>
+            </div>
+          </div>
+        </div>`).join('');
+    }
+    function galleryNew() {
+      saveActiveDoc();                        // bank the current diagram first
+      nodes = []; connections = []; deselectAll();
+      activeDocId = docStore.save({ title: 'Untitled diagram', data: exportState() }).id;
+      saveState(); render();
+      if (galleryIsOpen()) renderGallery();
+    }
+    function galleryOpen(id) {
+      const d = docStore.load(id); if (!d) return;
+      saveActiveDoc();                        // bank current before switching
+      loadDiagramJson(JSON.stringify(d.data || { n: [], c: [], v: null }));
+      activeDocId = id;
+      saveState(); render();
+      if (galleryIsOpen()) toggleGallery();
+    }
+    function galleryDuplicate(id) { if (docStore.duplicate(id)) renderGallery(); }
+    function galleryDelete(id) {
+      confirmDialog('Delete this diagram from your library?', () => {
+        docStore.remove(id);
+        if (activeDocId === id) activeDocId = null;
+        renderGallery();
+        toast('Diagram deleted', 'success');
+      }, { danger: true, okLabel: 'Delete' });
+    }
+    function galleryRename(id, title) { docStore.save({ id, title }); if (galleryIsOpen()) renderGallery(); }
+    function galleryRenamePrompt(id) {
+      const card = document.querySelector(`.gallery-card[data-id="${id}"]`); if (!card) return;
+      const titleEl = card.querySelector('.gallery-title'); if (!titleEl) return;
+      const cur = (docStore.load(id) || {}).title || '';
+      titleEl.innerHTML = `<input class="gallery-rename-input" value="${esc(cur)}" style="width:100%;font-size:12px;font-weight:600;background:var(--bg);color:var(--fg);border:1px solid var(--accent);border-radius:3px;padding:1px 3px">`;
+      const input = titleEl.querySelector('input'); input.focus(); input.select();
+      const commit = () => galleryRename(id, input.value.trim() || cur);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } else if (e.key === 'Escape') renderGallery(); });
+      input.addEventListener('blur', commit);
+    }
+
     // Smart auto-arrange based on diagram type
     // === SECTION: LAYOUT (auto-arrange algorithms per diagram type) ===
 
@@ -4416,6 +4525,7 @@
       '0': () => shareDiagram(),
       a: () => arrangeDiagram(),
       m: () => toggleMermaidSidebar(),
+      g: () => toggleGallery(),
     };
 
     document.addEventListener('keydown', (e) => {
