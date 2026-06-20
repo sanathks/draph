@@ -2331,6 +2331,41 @@ group('#36 label wrapping: hard-break long unbreakable words');
   check('cap lives in CONFIG (no magic number)', typeof E('CONFIG.wrap.maxWidth') === 'number');
 }
 
+group('Keyboard nudge (#94): arrow moves selection, Shift = fine, undoable');
+{
+  const { win, doc, E } = boot();
+  const n = win.createNode('rect', 100, 100, 80, 40); win.selectNode(n.id);
+  const x0 = n.x;
+  key(doc, 'ArrowRight');
+  check('arrow nudges selection right by a grid step', n.x - x0 === E('GRID_SIZE'));
+  const x1 = n.x;
+  key(doc, 'ArrowRight', { shiftKey: true });
+  check('shift+arrow is a 1px fine step', n.x - x1 === 1);
+  const y0 = n.y;
+  key(doc, 'ArrowDown');
+  check('arrow down moves on Y', n.y - y0 === E('GRID_SIZE'));
+
+  // undoable — undo reverts the most recent nudge (undo swaps in fresh node
+  // objects from the snapshot, so re-read by id rather than the stale ref)
+  win.undo();
+  check('nudge is undoable', E(`nodes.find(x=>x.id==='${n.id}').y`) === y0);
+
+  // multi-selection nudges together
+  const a = win.createNode('rect', 300, 300, 80, 40);
+  const b = win.createNode('rect', 500, 300, 80, 40);
+  E(`selectedId = null; selectedIds = ['${a.id}','${b.id}']`);
+  const ax = a.x, bx = b.x;
+  key(doc, 'ArrowLeft');
+  check('multi-selection nudges together', a.x - ax === -E('GRID_SIZE') && b.x - bx === -E('GRID_SIZE'));
+
+  // no nudge while typing in an input
+  const before = a.x;
+  const inp = doc.createElement('input'); doc.body.appendChild(inp);
+  inp.dispatchEvent(new win.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'ArrowLeft' }));
+  check('no nudge while an input is focused', a.x === before);
+  inp.remove();
+}
+
 group('Gallery thumbnails (#79): generate helper + doc-record field + card render');
 {
   const { win, doc, E } = boot();

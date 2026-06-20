@@ -5328,6 +5328,21 @@
       if (e.key === '?') { toggleCheatsheet(); return; }
       if (readOnly) return;   // #77: no tool/delete/clipboard/undo shortcuts in the viewer
 
+      // Arrow-key nudge (#94): move the selection by one grid step, or 1px with
+      // Shift (fine). Whole nudge is one undo unit; ignored when nothing's selected.
+      const NUDGE = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+      if (NUDGE[e.key] && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const ids = selectedNodeIds();
+        if (!ids.length) return;
+        e.preventDefault();
+        saveState();
+        const step = e.shiftKey ? 1 : GRID_SIZE;
+        const [dx, dy] = NUDGE[e.key];
+        ids.forEach(id => { const n = nodes.find(x => x.id === id); if (n) { n.x += dx * step; n.y += dy * step; } });
+        render();
+        return;
+      }
+
       // Single-key shortcut (only without Cmd/Ctrl, so Cmd+V etc. fall through)
       const binding = KEY_BINDINGS[e.key.toLowerCase()];
       if (binding && !e.metaKey && !e.ctrlKey) { binding(); return; }
