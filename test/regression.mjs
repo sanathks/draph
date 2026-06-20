@@ -2032,4 +2032,29 @@ group('Mermaid pie import (#30): donut variant + leader lines');
   check('pie: donut flag does not alter the parsed slices', E(`nodes[0].slices.length`) === 3);
 }
 
+group('Custom accent color (#78): live override, persist, reset');
+{
+  const { win, doc, E } = boot();
+  win.setAccentColor('#ff5577');
+  check('accent applied to canvas palette', E(`COLORS.accent`) === '#ff5577');
+  check('accent set as CSS var', doc.documentElement.style.getPropertyValue('--accent').trim() === '#ff5577');
+  check('accent persists via saveSetting', E(`loadSetting('accent')`) === '#ff5577');
+
+  // Custom accent survives a theme switch (applyTheme must re-apply it).
+  win.applyTheme('light');
+  check('custom accent survives theme toggle', E(`COLORS.accent`) === '#ff5577');
+  win.applyTheme('dark');
+
+  // Reset restores the active theme's default accent and clears the override.
+  win.resetAccentColor();
+  check('reset restores theme default accent', E(`COLORS.accent`) === E(`THEMES[currentTheme].accent`));
+  check('reset clears the CSS var', doc.documentElement.style.getPropertyValue('--accent').trim() === '');
+  check('reset clears the persisted setting', !E(`loadSetting('accent')`));
+
+  // Light/dark toggle still works after reset (no regression).
+  win.applyTheme('light');
+  check('theme toggle still works', E(`COLORS.bg`) === E(`THEMES.light.bg`));
+  win.applyTheme('dark');
+}
+
 process.exit(report() ? 0 : 1);
