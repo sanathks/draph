@@ -1982,6 +1982,45 @@ group('Mermaid gantt import (#25): dependency arrows + weekly axis');
   check('gantt: bars keep fixed geometry', design.fixed === true && code2.fixed === true);
 }
 
+group('Theming (#62): render colors derive from the palette, not dark literals');
+{
+  const { win, E } = boot();
+  // palette swaps both ways
+  win.applyTheme('light', false);
+  check('light theme accent is the light value', E('COLORS.accent') === '#3d59a1');
+  const pL = E(`parseMermaid('gantt\\n  dateFormat YYYY-MM-DD\\n  A :a1, 2026-06-01, 3d')`);
+  check('gantt bar color derives from the (light) theme accent', pL.nodes.find(n => n.color).color === E('COLORS.accent'));
+  win.applyTheme('dark', false);
+  check('dark theme accent restored', E('COLORS.accent') === '#7aa2f7');
+  const pD = E(`parseMermaid('gantt\\n  dateFormat YYYY-MM-DD\\n  A :a1, 2026-06-01, 3d')`);
+  check('gantt bar color follows the (dark) theme accent', pD.nodes.find(n => n.color).color === '#7aa2f7');
+  // dark theme palette values byte-for-byte unchanged (no regression)
+  check('dark theme palette intact', E('COLORS.bg') === '#0f0f15' && E('COLORS.fg') === '#a9b1d6' && E('COLORS.border') === '#414868');
+}
+
+group('Keyboard a11y (#58): roving arrows + modal focus trap/restore');
+{
+  const { win, doc, E } = boot();
+  doc.getElementById('tool-select').focus();
+  key(doc, 'ArrowRight');
+  check('arrow cycles tool focus + selection', doc.activeElement === doc.getElementById('tool-rect') && E('currentTool') === 'rect');
+  key(doc, 'ArrowLeft');
+  check('arrow-left cycles back', doc.activeElement === doc.getElementById('tool-select') && E('currentTool') === 'select');
+  check('roving tabindex: active tool is the only tab stop', doc.getElementById('tool-select').getAttribute('tabindex') === '0' && doc.getElementById('tool-rect').getAttribute('tabindex') === '-1');
+  // modal focus trap + restore
+  const opener = doc.getElementById('tool-select'); opener.focus();
+  win.toggleCheatsheet(true);
+  check('opening a modal moves focus inside it', doc.getElementById('cheatsheetOverlay').contains(doc.activeElement));
+  key(doc, 'Tab');
+  check('Tab stays trapped within the modal', doc.getElementById('cheatsheetOverlay').contains(doc.activeElement));
+  key(doc, 'Escape');
+  check('Esc closes the modal', doc.getElementById('cheatsheetOverlay').classList.contains('hidden'));
+  check('focus restored to the opener on close', doc.activeElement === opener);
+  // no regression: single-key shortcuts still fire
+  key(doc, 'p');
+  check('single-key shortcut still works (P → pencil)', E('currentTool') === 'pencil');
+}
+
 group('Mermaid C4 import (#28): directional Rel + person figure');
 {
   const { win, doc, E } = boot();
@@ -2132,6 +2171,144 @@ group('Mermaid pie import (#30): donut variant + leader lines');
   check('pie: donut flag does not alter the parsed slices', E(`nodes[0].slices.length`) === 3);
 }
 
+group('Custom accent color (#78): live override, persist, reset');
+{
+  const { win, doc, E } = boot();
+  win.setAccentColor('#ff5577');
+  check('accent applied to canvas palette', E(`COLORS.accent`) === '#ff5577');
+  check('accent set as CSS var', doc.documentElement.style.getPropertyValue('--accent').trim() === '#ff5577');
+  check('accent persists via saveSetting', E(`loadSetting('accent')`) === '#ff5577');
+
+  // Custom accent survives a theme switch (applyTheme must re-apply it).
+  win.applyTheme('light');
+  check('custom accent survives theme toggle', E(`COLORS.accent`) === '#ff5577');
+  win.applyTheme('dark');
+
+  // Reset restores the active theme's default accent and clears the override.
+  win.resetAccentColor();
+  check('reset restores theme default accent', E(`COLORS.accent`) === E(`THEMES[currentTheme].accent`));
+  check('reset clears the CSS var', doc.documentElement.style.getPropertyValue('--accent').trim() === '');
+  check('reset clears the persisted setting', !E(`loadSetting('accent')`));
+
+  // Light/dark toggle still works after reset (no regression).
+  win.applyTheme('light');
+  check('theme toggle still works', E(`COLORS.bg`) === E(`THEMES.light.bg`));
+  win.applyTheme('dark');
+}
+
+group('Read-only viewer (#77): chrome hidden + mutations gated, pan/zoom kept');
+{
+  const { win, doc, E } = boot();
+  const canvas = doc.getElementById('canvas');
+  win.createNode('rect', 100, 100, 120, 60);
+
+  // Enter read-only via the URL flag.
+  E(`location.hash = '#view'`); win.loadFromUrl();
+  check('read-only root class set by #view flag', doc.documentElement.classList.contains('read-only'));
+
+  // Shape-draw is a no-op in read-only (plain drag pans instead).
+  const before = E('nodes.length'); win.setTool('rect');
+  mouse(canvas, 'mousedown', 300, 300); mouse(doc, 'mousemove', 380, 360); mouse(doc, 'mouseup', 380, 360);
+  check('shape-draw disabled in read-only', E('nodes.length') === before);
+
+  // Double-click create is gated too.
+  canvas.dispatchEvent(new win.MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: 500, clientY: 400 }));
+  check('dblclick create disabled in read-only', E('nodes.length') === before);
+
+  // Delete keyboard shortcut is gated.
+  E(`selectedId = nodes[0].id`);
+  key(doc, 'Delete');
+  check('Delete key disabled in read-only', E('nodes.length') === before);
+
+  // editNodeLabel is gated (no overlay textarea spawned).
+  E(`editNodeLabel(nodes[0])`);
+  check('label edit disabled in read-only', !doc.querySelector('.node-label-editor'));
+
+  // Pan still works (viewBox shifts on a plain drag).
+  const vbx = E('viewBox.x');
+  mouse(canvas, 'mousedown', 400, 400); mouse(doc, 'mousemove', 320, 400); mouse(doc, 'mouseup', 320, 400);
+  check('pan still works in read-only', E('viewBox.x') !== vbx);
+
+  // Edit affordance links back to the same diagram without the flag.
+  check('Edit link points to the no-flag hash', !/view/.test(doc.getElementById('viewEditLink').getAttribute('href')));
+
+  // Leaving view mode restores the editor (no-flag re-init clears the class).
+  E(`location.hash = ''`); win.loadFromUrl();
+  check('no-flag mode clears read-only', !doc.documentElement.classList.contains('read-only'));
+}
+
+group('#71 viewport culling for large diagrams');
+{
+  const { win, doc, E } = boot();
+  // Force culling on regardless of node count for the test.
+  E(`CONFIG.cullThreshold = 0`);
+  const near = win.createNode('rect', E('viewBox.x') + 100, E('viewBox.y') + 100, 80, 40);
+  const far  = win.createNode('rect', E('viewBox.x') + 99999, E('viewBox.y') + 99999, 80, 40);
+  win.render();
+  check('cull: on-screen node renders', !!doc.querySelector(`#nodes .node[data-id="${near.id}"]`));
+  check('cull: off-screen node is culled', !doc.querySelector(`#nodes .node[data-id="${far.id}"]`));
+
+  // Panning the viewBox over the far node brings it into the DOM.
+  E(`viewBox.x = ${far.x - 100}; viewBox.y = ${far.y - 100}`); win.render();
+  check('cull: panning to a culled node renders it', !!doc.querySelector(`#nodes .node[data-id="${far.id}"]`));
+
+  // The selected node is never culled, even when off-screen.
+  E(`viewBox.x = 0; viewBox.y = 0; selectedId = '${far.id}'`); win.render();
+  check('cull: selected node is exempt from culling', !!doc.querySelector(`#nodes .node[data-id="${far.id}"]`));
+  E(`selectedId = null`);
+
+  // A connection survives if either endpoint is in view; both off-screen → culled.
+  E(`connections.push({ id: 'cull-c', from: '${near.id}', to: '${far.id}' })`);
+  win.render();
+  check('cull: edge with one endpoint in view is drawn', E(`connectionsGroup.querySelectorAll('path').length`) > 0);
+  // Move both endpoints off-screen → the edge is culled too.
+  E(`viewBox.x = 50000; viewBox.y = 50000`); win.render();
+  check('cull: edge with both endpoints off-screen is culled', E(`connectionsGroup.querySelectorAll('path').length`) === 0);
+
+  // Below the threshold, nothing is culled (no regression for small diagrams).
+  E(`CONFIG.cullThreshold = 300; viewBox.x = 0; viewBox.y = 0`); win.render();
+  check('cull: small diagrams keep the off-screen node', !!doc.querySelector(`#nodes .node[data-id="${far.id}"]`));
+}
+
+group('#70 manual connection waypoints');
+{
+  const { win, doc, E } = boot();
+  const A = win.createNode('rect', 0, 0, 80, 40);
+  const B = win.createNode('rect', 400, 0, 80, 40);
+  E(`connections.push({ id: 'wp', from: '${A.id}', to: '${B.id}' })`);
+  E(`connections[0].waypoints = [{ x: 200, y: 150 }]`);
+  win.render();
+
+  // Router honors waypoints: the routed path passes through each one.
+  const through = E(`(() => {
+    const o = getOptimalSides(nodes[0], nodes[1]);
+    const r = routeConnection(nodes[0], nodes[1], o.fromSide, o.toSide, 0.5, 0.5, connections[0].waypoints);
+    return r.points.some(p => Math.abs(p.x - 200) < 1 && Math.abs(p.y - 150) < 1);
+  })()`);
+  check('waypoint: routed path passes through the waypoint', through === true);
+
+  // The rendered <path> visits the waypoint coordinate.
+  const d = doc.querySelector('#connections path');
+  check('waypoint: rendered path includes the waypoint', !!d && /200[ ,]\s*150/.test(d.getAttribute('d').replace(/,/g, ', ')));
+
+  // A draggable midpoint handle renders for the selected connection.
+  E(`selectedConnId = 'wp'`); win.render();
+  check('waypoint: midpoint handle renders', !!doc.querySelector('.conn-waypoint'));
+
+  // Persistence: waypoint survives the serialize round-trip.
+  const json = E(`JSON.stringify(connections)`);
+  check('waypoint: survives serialize', /"waypoints"/.test(json) && /150/.test(json));
+
+  // Auto-routing resumes once the waypoint is removed.
+  E(`delete connections[0].waypoints`); win.render();
+  const auto = E(`(() => {
+    const o = getOptimalSides(nodes[0], nodes[1]);
+    const r = routeConnection(nodes[0], nodes[1], o.fromSide, o.toSide, 0.5, 0.5, connections[0].waypoints);
+    return r.points.some(p => Math.abs(p.y - 150) < 1);
+  })()`);
+  check('waypoint: removing it resumes auto-routing (no longer through 150)', auto === false);
+}
+
 group('#36 label wrapping: hard-break long unbreakable words');
 {
   const { win, E } = boot();
@@ -2152,6 +2329,102 @@ group('#36 label wrapping: hard-break long unbreakable words');
   const w = E(`nodes.find(x=>x.id==='${n.id}').width`);
   check('long token does not force an ultra-wide node', w <= E('CONFIG.wrap.maxWidth') + 30);
   check('cap lives in CONFIG (no magic number)', typeof E('CONFIG.wrap.maxWidth') === 'number');
+}
+
+group('Keyboard nudge (#94): arrow moves selection, Shift = fine, undoable');
+{
+  const { win, doc, E } = boot();
+  const n = win.createNode('rect', 100, 100, 80, 40); win.selectNode(n.id);
+  const x0 = n.x;
+  key(doc, 'ArrowRight');
+  check('arrow nudges selection right by a grid step', n.x - x0 === E('GRID_SIZE'));
+  const x1 = n.x;
+  key(doc, 'ArrowRight', { shiftKey: true });
+  check('shift+arrow is a 1px fine step', n.x - x1 === 1);
+  const y0 = n.y;
+  key(doc, 'ArrowDown');
+  check('arrow down moves on Y', n.y - y0 === E('GRID_SIZE'));
+
+  // undoable — undo reverts the most recent nudge (undo swaps in fresh node
+  // objects from the snapshot, so re-read by id rather than the stale ref)
+  win.undo();
+  check('nudge is undoable', E(`nodes.find(x=>x.id==='${n.id}').y`) === y0);
+
+  // multi-selection nudges together
+  const a = win.createNode('rect', 300, 300, 80, 40);
+  const b = win.createNode('rect', 500, 300, 80, 40);
+  E(`selectedId = null; selectedIds = ['${a.id}','${b.id}']`);
+  const ax = a.x, bx = b.x;
+  key(doc, 'ArrowLeft');
+  check('multi-selection nudges together', a.x - ax === -E('GRID_SIZE') && b.x - bx === -E('GRID_SIZE'));
+
+  // no nudge while typing in an input
+  const before = a.x;
+  const inp = doc.createElement('input'); doc.body.appendChild(inp);
+  inp.dispatchEvent(new win.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'ArrowLeft' }));
+  check('no nudge while an input is focused', a.x === before);
+  inp.remove();
+}
+
+group('Gallery thumbnails (#79): generate helper + doc-record field + card render');
+{
+  const { win, doc, E } = boot();
+  check('thumbnail helper exists', typeof win.generateThumbnail === 'function');
+
+  // docStore persists a thumbnail field through save/load (jsdom has no canvas,
+  // so the raster itself is untestable — assert the storage wiring).
+  E(`docStore._useMemory()`);
+  const id = E(`docStore.save({ title: 't', data: exportState(), thumbnail: 'data:image/png;base64,AAAA' }).id`);
+  check('doc record stores a thumbnail field', /^data:image/.test(E(`docStore.load('${id}').thumbnail`)));
+
+  // A save without a thumbnail keeps the field null (placeholder path), no error.
+  const id2 = E(`docStore.save({ title: 'n', data: exportState() }).id`);
+  check('missing thumbnail is null (placeholder)', E(`docStore.load('${id2}').thumbnail`) === null);
+
+  // updating a doc without passing thumbnail preserves the existing one
+  E(`docStore.save({ id: '${id}', title: 't2' })`);
+  check('thumbnail preserved across a partial save', /^data:image/.test(E(`docStore.load('${id}').thumbnail`)));
+
+  // Gallery card renders an <img> when a thumbnail is present.
+  E(`activeDocId = '${id}'`); win.toggleGallery();
+  const card = doc.querySelector(`#galleryGrid .gallery-card[data-id="${id}"]`);
+  check('gallery card renders the thumbnail image', !!card && !!card.querySelector('img[src^="data:image"]'));
+  const card2 = doc.querySelector(`#galleryGrid .gallery-card[data-id="${id2}"]`);
+  check('thumbnail-less card shows no img (placeholder)', !!card2 && !card2.querySelector('img'));
+  win.toggleGallery();
+}
+
+group('Coach-marks (#56): spotlight steps + shared onboarding flag');
+{
+  const { win, doc, E } = boot();
+  E(`localStorage.removeItem('draph.onboarding.v1')`);
+  const ov = doc.getElementById('coachmarkOverlay');
+  check('coachmark overlay starts hidden', !!ov && ov.classList.contains('hidden'));
+
+  win.startCoachmarks();
+  check('coachmarks overlay visible', !ov.classList.contains('hidden'));
+  check('step 1 targets the rect tool', E(`coachmarkSteps[coachmarkStep].target`) === '#tool-rect');
+
+  win.coachmarkNext();
+  check('Next advances the step', E(`coachmarkStep`) === 1);
+
+  // Last-step Next finishes.
+  E(`coachmarkStep = coachmarkSteps.length - 1`); win.coachmarkNext();
+  check('overlay hidden after finish', ov.classList.contains('hidden'));
+  check('shares onboarding flag (no re-trigger)', E(`localStorage.getItem('draph.onboarding.v1')`) !== null);
+  check('finishing coachmarks suppresses first-run', E(`shouldShowOnboarding()`) === false);
+
+  // Skip also hides + writes the flag.
+  E(`localStorage.removeItem('draph.onboarding.v1')`); win.startCoachmarks();
+  win.skipCoachmarks();
+  check('skip hides the overlay', ov.classList.contains('hidden'));
+  check('skip writes the shared flag', E(`localStorage.getItem('draph.onboarding.v1')`) !== null);
+
+  // Finishing the #44 carousel hands off to coach-marks.
+  const { win: w2, doc: d2, E: E2 } = boot();
+  E2(`localStorage.removeItem('draph.onboarding.v1')`);
+  w2.startOnboarding(); E2(`onboardingStep = ONBOARDING_STEPS.length - 1`); w2.onboardingNext();
+  check('carousel finish opens coach-marks', !d2.getElementById('coachmarkOverlay').classList.contains('hidden'));
 }
 
 group('Flowchart shapes (#49): placeShape + renderNodes branches');
@@ -2217,6 +2490,79 @@ group('Lock / unlock node position (#96): flag + drag gate + badge + persist');
   mouse(doc, 'mousemove', n.x + 120, n.y + 20);
   mouse(doc, 'mouseup', n.x + 120, n.y + 20);
   check('unlocked node moves again', n.x !== ux0);
+}
+
+group('Screen-reader semantics (#59): node/conn aria-labels + live region');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 100, 100, 120, 60);
+  E(`nodes.find(n=>n.id==='${a.id}').label = 'Login'`);
+  win.render();
+  const el = doc.querySelector(`#nodes .node[data-id="${a.id}"]`);
+  check('node group has role=img', !!el && el.getAttribute('role') === 'img');
+  check('node aria-label includes type + label', !!el && /Rectangle: Login/.test(el.getAttribute('aria-label') || ''));
+
+  // unlabeled node falls back to the type name
+  const u = win.createNode('diamond', 300, 100, 100, 60);
+  E(`nodes.find(n=>n.id==='${u.id}').label = ''`);
+  win.render();
+  const elu = doc.querySelector(`#nodes .node[data-id="${u.id}"]`);
+  check('unlabeled node aria-label is the type', (elu.getAttribute('aria-label') || '') === 'Diamond');
+
+  // connection accessible name describes from→to
+  const b = win.createNode('pill', 500, 100, 120, 60);
+  E(`nodes.find(n=>n.id==='${b.id}').label = 'Home'`);
+  E(`connections.push({ id: 'e1', from: '${a.id}', to: '${b.id}' })`);
+  win.render();
+  const ce = doc.querySelector(`.connection-group[data-id="e1"]`);
+  check('connection has role=img', !!ce && ce.getAttribute('role') === 'img');
+  check('connection aria-label describes from→to', !!ce && /from Login to Home/.test(ce.getAttribute('aria-label') || ''));
+
+  // live region exists and receives announcements
+  const live = doc.querySelector('[aria-live]');
+  check('an aria-live region exists', !!live);
+  win.createNode('rect', 700, 100, 80, 40);
+  check('add announces via the live region', /added/.test((live.textContent || '')));
+  E(`selectedId = '${a.id}'`); win.deleteSelected();
+  check('delete announces via the live region', /deleted/i.test((live.textContent || '')));
+  win.announceConnect(b.id, u.id);
+  check('connect announcement names endpoints', /connected Home to Diamond/.test(live.textContent || ''));
+
+  // no visual regression: node groups still render their shape markup
+  check('node still renders its shape', !!doc.querySelector(`#nodes .node[data-id="${b.id}"] rect, #nodes .node[data-id="${b.id}"] path`));
+}
+
+group('Group resize of a multi-selection (#101): scale + reposition, undoable');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 0, 0, 100, 50);
+  const b = win.createNode('rect', 300, 0, 100, 50);
+  win.saveState();   // baseline snapshot (both nodes present) so undo has somewhere to land
+  E(`selectedIds = ['${a.id}','${b.id}']; selectedId = null;`);
+  const wA = a.width, gap0 = b.x - a.x;
+  check('resizeSelection scales members', win.resizeSelection(1.5) === true && a.width > wA && b.width > wA);
+  check('resizeSelection scales spacing (proportional layout)', (b.x - a.x) > gap0);
+  check('scale is about the bbox origin (a stays at min)', a.x === 0 && a.y === 0);
+
+  // undoable — one undo reverts the whole group resize
+  win.undo();
+  check('group resize is undoable', E(`nodes.find(n=>n.id==='${a.id}').width`) === wA && E(`nodes.find(n=>n.id==='${b.id}').x`) === 300);
+
+  // group-resize handle renders only for a 2+ selection
+  E(`selectedIds = ['${a.id}','${b.id}']; selectedId = null;`); win.render();
+  check('group-resize handle renders for 2+ selection', !!doc.querySelector('.group-resize-handle'));
+  E(`selectedIds = []; selectedId = '${a.id}'`); win.render();
+  check('no group handle for a single selection', !doc.querySelector('.group-resize-handle'));
+
+  // guards: <2 nodes or bad factor is a no-op
+  E(`selectedIds = ['${a.id}']; selectedId = null;`);
+  check('resizeSelection no-ops under 2 nodes', win.resizeSelection(2) === false);
+  E(`selectedIds = ['${a.id}','${b.id}']`);
+  check('resizeSelection rejects a non-positive factor', win.resizeSelection(0) === false);
+
+  // single-node resize still works (no regression) — width changes via direct field
+  const before = E(`nodes.find(n=>n.id==='${a.id}').width`);
+  check('single-node geometry untouched by failed group ops', before === wA);
 }
 
 process.exit(report() ? 0 : 1);
