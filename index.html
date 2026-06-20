@@ -1270,6 +1270,7 @@
       bindCanvasEvents();
       // Share-link hash wins; otherwise restore the last autosaved diagram.
       if (!loadFromUrl()) restoreAutosave();
+      docStore._open();   // hydrate the document library from IndexedDB (best-effort; no-op without IDB)
       saveState();
       render();
       // Restore the saved line-style preference (defaults to curved).
@@ -1414,7 +1415,84 @@
         }
         return nodes.length > 0;
     }
-    
+
+    // Snapshot the live diagram as the persisted `{n, c, v}` payload (same shape
+    // as the share-link / autosave / .draph file). Used by the document store.
+    function exportState() {
+      return { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom } };
+    }
+
+    // === SECTION: DOCUMENT STORE ("My diagrams") ===============================
+    // A thin, SYNCHRONOUS document store over an in-memory cache, with optional
+    // IndexedDB write-through for persistence in the browser. jsdom has no
+    // IndexedDB, so the cache is the source of truth and IDB is best-effort:
+    // every mutation updates the cache immediately (sync) and fires an async IDB
+    // write; on load the cache is hydrated from IDB. Tests call `_useMemory()` to
+    // force the pure in-memory backend. Doc shape:
+    //   { id, title, created, updated, schemaVersion, data:{n,c,v} }
+    const docStore = (() => {
+      const STORE = 'docs', DB_NAME = 'draph-docs';
+      const cache = new Map();              // id -> doc (the synchronous view)
+      let idb = null;                       // IDBDatabase, or null = memory-only
+      let useIDB = (typeof indexedDB !== 'undefined' && indexedDB);
+      const now = () => Date.now();
+      const uid = () => 'doc-' + Math.random().toString(36).slice(2, 9) + now().toString(36);
+      const clone = (o) => (o == null ? o : JSON.parse(JSON.stringify(o)));
+
+      function _useMemory() { useIDB = false; idb = null; cache.clear(); }  // test hook
+
+      function _persist(doc) {
+        if (!useIDB || !idb) return;
+        try { idb.transaction(STORE, 'readwrite').objectStore(STORE).put(clone(doc)); } catch (e) {}
+      }
+      function _evict(id) {
+        if (!useIDB || !idb) return;
+        try { idb.transaction(STORE, 'readwrite').objectStore(STORE).delete(id); } catch (e) {}
+      }
+      // Open IndexedDB and hydrate the cache. Returns a Promise; safe to ignore.
+      function _open() {
+        if (!useIDB) return Promise.resolve(false);
+        return new Promise((resolve) => {
+          let req;
+          try { req = indexedDB.open(DB_NAME, 1); } catch (e) { useIDB = false; return resolve(false); }
+          req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' }); };
+          req.onsuccess = () => {
+            idb = req.result;
+            try {
+              const all = idb.transaction(STORE, 'readonly').objectStore(STORE).getAll();
+              all.onsuccess = () => { (all.result || []).forEach(d => cache.set(d.id, d)); resolve(true); };
+              all.onerror = () => resolve(false);
+            } catch (e) { resolve(false); }
+          };
+          req.onerror = () => { useIDB = false; resolve(false); };
+        });
+      }
+
+      // Create or update. Pass {id} to update; omit for a new doc. Returns the rec.
+      function save(doc = {}) {
+        const id = doc.id || uid();
+        const prev = cache.get(id);
+        const rec = {
+          id,
+          title: doc.title != null ? doc.title : (prev ? prev.title : 'Untitled'),
+          created: prev ? prev.created : (doc.created || now()),
+          updated: now(),
+          schemaVersion: doc.schemaVersion || (prev && prev.schemaVersion) || 1,
+          data: doc.data !== undefined ? doc.data : (prev ? prev.data : null),
+        };
+        cache.set(id, rec); _persist(rec); return clone(rec);
+      }
+      function list() { return [...cache.values()].sort((a, b) => b.updated - a.updated).map(clone); }
+      function load(id) { return cache.has(id) ? clone(cache.get(id)) : null; }
+      function duplicate(id) {
+        const src = cache.get(id); if (!src) return null;
+        return save({ title: src.title + ' copy', data: clone(src.data), schemaVersion: src.schemaVersion });
+      }
+      function remove(id) { const had = cache.delete(id); if (had) _evict(id); return had; }
+
+      return { save, list, load, duplicate, remove, _open, _useMemory };
+    })();
+
     // The full share URL (hash-encoded diagram) WITHOUT touching the address bar,
     // so we can measure its length before committing.
     function diagramShareUrl() {

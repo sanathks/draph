@@ -1616,4 +1616,29 @@ group('Touch & pointer input (#21): multi-touch pinch/pan + palm rejection');
   check('penActive clears when the pen lifts', E3('penActive === false'));
 }
 
+group('Document store (#38): docStore CRUD against the in-memory backend');
+{
+  const { win, E } = boot();
+  E(`docStore._useMemory()`);                                       // swap to the test backend
+  // a real diagram to persist
+  win.createNode('rect', 100, 100);
+  E(`docStore.save({ title:'Auth flow', data: exportState() })`);
+  check('doc saved + listed', E(`docStore.list().length`) === 1);
+  check('list item carries title + timestamps', E(`(d=>d.title==='Auth flow' && typeof d.created==='number' && typeof d.updated==='number')(docStore.list()[0])`));
+  check('load round-trips the title + data', E(`(d=>d.title==='Auth flow' && Array.isArray(d.data.n) && d.data.n.length===1)(docStore.load(docStore.list()[0].id))`));
+  // duplicate → new id, same content
+  E(`docStore.duplicate(docStore.list()[0].id)`);
+  check('duplicate adds a 2nd doc with a new id', E(`docStore.list().length`) === 2 && E(`docStore.list()[0].id`) !== E(`docStore.list()[1].id`));
+  check('duplicate title is derived', E(`docStore.list().some(d=>/ copy$/.test(d.title))`));
+  // save with an existing id updates in place (no new doc), bumps updated, keeps created
+  const firstId = E(`docStore.list().find(d=>d.title==='Auth flow').id`);
+  const created0 = E(`docStore.load('${firstId}').created`);
+  E(`docStore.save({ id:'${firstId}', title:'Auth flow v2' })`);
+  check('save with id updates in place (count unchanged)', E(`docStore.list().length`) === 2);
+  check('update keeps created, changes title', E(`docStore.load('${firstId}').title`) === 'Auth flow v2' && E(`docStore.load('${firstId}').created`) === created0);
+  // remove
+  E(`docStore.remove('${firstId}')`);
+  check('remove drops the doc', E(`docStore.list().length`) === 1 && E(`docStore.load('${firstId}')`) === null);
+}
+
 process.exit(report() ? 0 : 1);
