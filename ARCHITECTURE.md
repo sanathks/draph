@@ -112,7 +112,7 @@ In the GEOMETRY & ROUTING section. Pure geometry, no side effects:
 | New tunable / magic number | Add to `CONFIG` (don't sprinkle literals). |
 | New palette color | Add one hex to `CONFIG.palette` — all three pickers update. |
 | New keyboard shortcut | Add an entry to `KEY_BINDINGS`; update the empty-state hint. |
-| New node shape | Add a default size in `createNode()`, a branch in `renderNodes()`, and a toolbar button. |
+| New node shape | Add a default size in `createNode()`, a branch in `renderNodes()`, and a toolbar button. For diagram-specific shapes (UML/sequence/state/ER), add a `placeShape(kind, x, y)` branch + a button in the **shape library panel** (`#shapePanel`, toggled via `toggleShapePanel()` / the `S` toolbar button) rather than a top-level tool. |
 | Routing behavior | `ROUTE_CFG` + `routeConnection()` / `connectExits()`. |
 | New Mermaid syntax | `parseMermaid()` (code→diagram) and `generateMermaid()` (diagram→code). |
 
