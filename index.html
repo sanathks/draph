@@ -3657,7 +3657,7 @@
       const screenY = (midY - viewBox.y) * scaleX - 50;
       
       connLabelInput.value = conn.label || '';
-      document.getElementById('connColorBtn').style.borderColor = conn.color || '#a9b1d6';
+      document.getElementById('connColorBtn').style.borderColor = conn.color || COLORS.fg;
       // For sequence messages, detect default from arrow syntax
       const defaultStroke = conn.isSequenceMessage && conn.arrow?.includes('--') ? 'dashed' : 'solid';
       updateConnLineStyleBtns(conn.strokeStyle || defaultStroke);
@@ -3702,7 +3702,7 @@
       const conn = connections.find(c => c.id === selectedConnId);
       if (conn) {
         conn.color = color;
-        document.getElementById('connColorBtn').style.borderColor = color || '#a9b1d6';
+        document.getElementById('connColorBtn').style.borderColor = color || COLORS.fg;
         saveState();
         render();
       }
@@ -3721,8 +3721,8 @@
     function updateConnLineStyleBtns(style) {
       const solidBtn = document.getElementById('connSolidBtn');
       const dottedBtn = document.getElementById('connDottedBtn');
-      solidBtn.style.borderColor = style === 'dashed' ? 'transparent' : '#7aa2f7';
-      dottedBtn.style.borderColor = style === 'dashed' ? '#7aa2f7' : 'transparent';
+      solidBtn.style.borderColor = style === 'dashed' ? 'transparent' : COLORS.accent;
+      dottedBtn.style.borderColor = style === 'dashed' ? COLORS.accent : 'transparent';
     }
     
     // Update connection label on input
@@ -3790,8 +3790,8 @@
     function closeIconDropdown() { document.getElementById('iconDropdown').classList.add('hidden'); }
     
     function updateToolbarColors(node) {
-      document.getElementById('fillColorBtn').style.background = node.color || '#24283b';
-      document.getElementById('outlineColorBtn').style.borderColor = node.outlineColor || '#a9b1d6';
+      document.getElementById('fillColorBtn').style.background = node.color || COLORS.bg2;
+      document.getElementById('outlineColorBtn').style.borderColor = node.outlineColor || COLORS.fg;
       const style = node.fillStyle || (node.type === 'container' ? 'outline' : 'infill');
       const icons = { outline: '○', infill: '●', stripe: '▤', grid: '▦' };
       document.getElementById('fillStyleBtn').textContent = icons[style] || '●';
@@ -3895,13 +3895,13 @@
       const btn = document.getElementById('lifelineToggle');
       if (!btn) return;
       if (node.hasLifeline) {
-        btn.style.background = '#7aa2f7';
-        btn.style.color = '#1a1b26';
-        btn.style.borderColor = '#7aa2f7';
+        btn.style.background = COLORS.accent;
+        btn.style.color = COLORS.bg;        // contrast against the accent fill
+        btn.style.borderColor = COLORS.accent;
       } else {
-        btn.style.background = '#1a1b26';
-        btn.style.color = '#a9b1d6';
-        btn.style.borderColor = '#414868';
+        btn.style.background = COLORS.bg2;
+        btn.style.color = COLORS.fg;
+        btn.style.borderColor = COLORS.border;
       }
     }
     
@@ -6849,7 +6849,7 @@
         if (t.milestone) {
           result.nodes.push({ id: t._nodeId, type: 'diamond', label: t.name, fixed: true, x: x - 20, y, width: 40, height: 40 });
         } else {
-          result.nodes.push({ id: t._nodeId, type: 'rect', label: t.name, fixed: true, x, y, width: Math.max(40, t._days * PXD), height: barH, color: '#7aa2f7', fillStyle: 'infill' });
+          result.nodes.push({ id: t._nodeId, type: 'rect', label: t.name, fixed: true, x, y, width: Math.max(40, t._days * PXD), height: barH, color: COLORS.accent, fillStyle: 'infill' });
         }
       });
 
