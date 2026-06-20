@@ -1696,4 +1696,23 @@ group('Selection → Mermaid (#2): selection-scoped export');
   check('no selection falls back to whole-canvas export', /\bC\b/.test(E(`generateMermaid({ selectionOnly: true })`)));
 }
 
+group('Mermaid class import (#27): namespaces → grouping container');
+{
+  const { win, doc, E } = boot();
+  const code = 'classDiagram\n  namespace Payment {\n    class Card\n    class Wallet\n  }\n  Card --> Wallet';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const sg = (p.subgraphs || []).find(s => s.label === 'Payment');
+  check('namespace becomes a grouping container with its classes', !!sg && sg.children.includes('Card') && sg.children.includes('Wallet'));
+  check('namespaced classes still parse as class nodes', p.nodes.some(n => n.label === 'Card' && n.type === 'class') && p.nodes.some(n => n.label === 'Wallet'));
+  check('relationship inside/after the namespace still parsed', p.connections.some(c => c.from === 'Card' && c.to === 'Wallet'));
+  // classes inside a namespace keep stereotypes + members
+  const p2 = E(`parseMermaid(${JSON.stringify('classDiagram\n  namespace Bank {\n    class Account {\n      +Float balance\n      +deposit(n) void\n    }\n    class Ledger\n  }')})`);
+  const acct = p2.nodes.find(n => n.label === 'Account');
+  check('namespaced class keeps its members', !!acct && acct.properties.length >= 1 && acct.methods.length >= 1);
+  // import nests the classes inside the Payment container
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true);
+  check('import creates the Payment container', E(`nodes.some(n=>n.type==='container'&&n.label==='Payment')`));
+  check('namespaced class renders inside the container', E(`(()=>{const c=nodes.find(n=>n.type==='container'&&n.label==='Payment');const k=nodes.find(n=>n.label==='Card');return !!c&&!!k&&k.x>=c.x&&k.y>=c.y&&k.x+k.width<=c.x+c.width&&k.y+k.height<=c.y+c.height;})()`));
+}
+
 process.exit(report() ? 0 : 1);
