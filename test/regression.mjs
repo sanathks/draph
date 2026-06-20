@@ -2158,4 +2158,41 @@ group('Flowchart shapes (#49): placeShape + renderNodes branches');
   check('flowchart shape is connectable', win.eval(`connections.some(c=>c.from==='${cyl.id}')`));
 }
 
+group('Lock / unlock node position (#96): flag + drag gate + badge + persist');
+{
+  const { win, doc, E } = boot();
+  const n = win.createNode('rect', 100, 100, 80, 40);
+  check('toggleNodeLock returns the new state', win.toggleNodeLock(n.id) === true);
+  check('node marked locked', n.locked === true);
+  win.render();
+
+  // lock badge renders
+  const el = doc.querySelector(`#nodes .node[data-id="${n.id}"]`);
+  check('lock badge renders on a locked node', !!el && !!el.querySelector('.lock-badge'));
+  check('locked node carries the .locked class', el.classList.contains('locked'));
+  check('locked node hides its resize handle', !el.querySelector('.resize-handle') || !win.eval(`selectedId==='${n.id}'`));
+
+  // locked node ignores drag
+  win.selectNode(n.id); win.render();
+  const x0 = n.x, y0 = n.y;
+  const nodeEl = doc.querySelector(`#nodes .node[data-id="${n.id}"]`);
+  mouse(nodeEl, 'mousedown', n.x + 20, n.y + 20);
+  mouse(doc, 'mousemove', n.x + 120, n.y + 60);
+  mouse(doc, 'mouseup', n.x + 120, n.y + 60);
+  check('locked node ignores drag-move', n.x === x0 && n.y === y0);
+
+  // persists through serialize (URL/autosave round-trip)
+  check('locked flag survives serialize', /"locked":true/.test(E(`JSON.stringify(serializeNodes())`)));
+
+  // unlock restores drag
+  check('toggleNodeLock back to false', win.toggleNodeLock(n.id) === false);
+  win.selectNode(n.id); win.render();
+  const ux0 = n.x;
+  const el2 = doc.querySelector(`#nodes .node[data-id="${n.id}"]`);
+  mouse(el2, 'mousedown', n.x + 20, n.y + 20);
+  mouse(doc, 'mousemove', n.x + 120, n.y + 20);
+  mouse(doc, 'mouseup', n.x + 120, n.y + 20);
+  check('unlocked node moves again', n.x !== ux0);
+}
+
 process.exit(report() ? 0 : 1);
