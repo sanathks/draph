@@ -56,10 +56,14 @@ and, when ready, implement + verify with `npm test`:
 - **`fitNodeToLabel` shrink-to-fit:** ✅ **DONE (#35)** — now shrinks toward
   content (down to the type minimum) as well as grows; dragging the resize handle
   sets `manuallyResized:true`, and such nodes are never auto-shrunk.
-- **Hard-break very long words:** a single unbreakable token still forces a very
-  wide node; offer character-level wrapping past a width cap.
-- **Export test coverage:** PNG/SVG/GIF export is untested (jsdom lacks canvas).
-  Add SVG-string assertions (cropping, no UI chrome) which are testable.
+- **Hard-break very long words:** ✅ DONE (#36) — `wrapLabel` hard-breaks a token
+  wider than the line cap at the character level (code-point safe); `fitNodeToLabel`
+  caps width at `CONFIG.wrap.maxWidth` instead of stretching the node.
+- **Export test coverage:** ✅ **DONE (#37)** — SVG export factored into
+  `buildExportSVG()` (returns the string, no download); regression checks cover
+  content-cropped viewBox, all node labels + connection markup, and no UI chrome
+  (connectors/conn-hit/grid/marquee). PNG/GIF pixel output stays a manual check
+  (jsdom can't rasterize).
 - **Deploy source reconciliation (ops):** `draph.sanath.dev` auto-deploys from
   the `draph-core` repo, but development happens in `draph`. Align them so manual
   CLI deploys aren't required.
