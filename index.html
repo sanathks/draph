@@ -1019,6 +1019,9 @@
     // A node opts in via node.icon = '<key>'. Add one by pasting paths here.
     const ICONS = {
       database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>',
+      book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+      lightbulb: '<path d="M9 18h6"/><path d="M10 22h4"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.6 4.6 0 0 1 8.91 14"/>',
+      dot: '<circle cx="12" cy="12" r="5"/>',
       table: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/>',
       filter: '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
       link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
@@ -6117,6 +6120,22 @@
     // on the raw code. Each line is a node; its parent is the nearest line with
     // smaller indentation. Shapes: ((circle)), (rounded), [square], {{hex}}.
     // Rendered as a top-down tree (Mermaid draws it radially — see tracker).
+    // Map a Mermaid `::icon(...)` token to a renderable ICONS key. FontAwesome
+    // has thousands of names; the registry has ~30. So: strip fa-prefixes, apply a
+    // few common aliases, and ALWAYS fall back to a generic glyph ('dot') if the
+    // name isn't registered — an icon slot is never left silently blank.
+    const MINDMAP_ICON_ALIAS = {
+      bulb: 'lightbulb', idea: 'lightbulb', rocket: 'zap', bolt: 'zap', flash: 'zap',
+      pen: 'code', pencil: 'code', edit: 'code', gear: 'settings', cog: 'settings',
+      envelope: 'mail', 'magnifying-glass': 'search', clock: 'clock', calendar: 'clock',
+      person: 'user', group: 'users', team: 'users', tag: 'box', circle: 'dot',
+    };
+    function resolveMindmapIcon(raw) {
+      let key = (raw || '').trim().split(/\s+/).pop().replace(/^fa[srlbd]?-/, '').replace(/^fa-/, '').toLowerCase();
+      if (MINDMAP_ICON_ALIAS[key]) key = MINDMAP_ICON_ALIAS[key];
+      return ICONS[key] ? key : 'dot';   // guaranteed-renderable fallback
+    }
+
     function parseMindmap(rawCode) {
       const result = { nodes: [], connections: [], errors: [], diagramType: 'mindmap' };
       const used = new Set();
@@ -6130,7 +6149,7 @@
         if (content.startsWith('%%')) continue;
         // ::icon(fa fa-book) decoration → attach the icon to the most-recent node
         let im = content.match(/^::icon\(\s*(.+?)\s*\)\s*$/i);
-        if (im) { const last = result.nodes[result.nodes.length - 1]; if (last) last.icon = im[1].trim().split(/\s+/).pop().replace(/^fa-/, ''); continue; }
+        if (im) { const last = result.nodes[result.nodes.length - 1]; if (last) last.icon = resolveMindmapIcon(im[1]); continue; }
         content = content.replace(/:::\S+\s*$/, '').trim();                   // drop ::: class suffix
         if (!content) continue;
         const indent = raw.match(/^\s*/)[0].replace(/\t/g, '  ').length;

@@ -1763,6 +1763,13 @@ group('Mermaid mindmap import (#24): radial layout + ::icon');
   // existing parse/tree intact (layout-only change)
   const p = E(`parseMermaid(${JSON.stringify(code)})`);
   check('mindmap still builds the parent→child tree', p.nodes.length === 5 && p.connections.length === 4);
+  // review fix: every ::icon resolves to a RENDERABLE registry key — canonical
+  // `fa fa-book` renders, and an unknown name falls back (never a silent blank).
+  const p2 = E(`parseMermaid(${JSON.stringify('mindmap\n  root((R))\n    Has\n    ::icon(fa fa-book)\n    Wild\n    ::icon(fa fa-unicorn)')})`);
+  const reg = E(`Object.keys(ICONS)`);
+  const has = p2.nodes.find(n => n.label === 'Has'), wild = p2.nodes.find(n => n.label === 'Wild');
+  check('canonical fa fa-book resolves to a registered icon', has.icon === 'book' && reg.includes('book'));
+  check('unknown ::icon falls back to a renderable glyph (no blank)', !!wild.icon && reg.includes(wild.icon) && wild.icon === 'dot');
 }
 
 process.exit(report() ? 0 : 1);
