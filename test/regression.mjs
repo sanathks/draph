@@ -1784,4 +1784,21 @@ group('Mermaid gantt import (#25): dependency arrows + weekly axis');
   check('gantt: bars keep fixed geometry', design.fixed === true && code2.fixed === true);
 }
 
+group('Mermaid C4 import (#28): directional Rel + person figure');
+{
+  const { win, doc, E } = boot();
+  const code = 'C4Context\n  Person(user, "User")\n  System(sys, "App")\n  Rel_D(user, sys, "uses")\n  Rel(sys, user, "replies")';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const cD = p.connections.find(c => c.from === 'user' && c.to === 'sys');
+  const cPlain = p.connections.find(c => c.from === 'sys' && c.to === 'user');
+  check('c4: Rel_D locks a downward (bottom→top) route', cD.fromSide === 'bottom' && cD.toSide === 'top' && cD.fromSideLocked === true && cD.toSideLocked === true);
+  check('c4: plain Rel is unchanged (no locked sides)', !cPlain.fromSide && !cPlain.fromSideLocked);
+  check('c4: Person box flagged for the figure', p.nodes.find(n => n.id === 'user').isPerson === true);
+  // render: the person figure (user icon) draws inside the box
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  const person = E(`nodes.find(n=>n.isPerson)`);
+  const el = doc.querySelector(`#nodes .node[data-id="${person.id}"]`);
+  check('c4: person figure renders in the box', !!el && /path|circle/.test(el.innerHTML));
+}
+
 process.exit(report() ? 0 : 1);

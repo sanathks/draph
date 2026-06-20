@@ -2600,6 +2600,7 @@
             ${propsText}
             ${methods.length ? `<line x1="${node.x}" y1="${methodsY}" x2="${node.x + node.width}" y2="${methodsY}" stroke="${COLORS.border}" stroke-width="1"/>` : ''}
             ${methodsText}
+            ${node.isPerson ? iconSvg('user', node.x + 6, node.y + 5, 16, COLORS.bg) : ''}
           `;
         } else {
           const { fill, style } = getFill(node, 'infill');
@@ -5601,6 +5602,14 @@
           ensure(from); ensure(to);
           const conn = { from, to, label: techn ? `${label} [${techn}]` : label, markerEnd: 'arrow' };
           if (/^BiRel/i.test(m[1])) conn.markerStart = 'arrow';
+          // directional Rel_U/D/L/R (and _Up/_Down/_Left/_Right): set + lock sides
+          // so the layout honours the requested direction.
+          const dirm = m[1].match(/_(U|Up|D|Down|L|Left|R|Right)$/i);
+          if (dirm) {
+            const d = dirm[1][0].toUpperCase();
+            const SIDES = { U: ['top', 'bottom'], D: ['bottom', 'top'], L: ['left', 'right'], R: ['right', 'left'] }[d];
+            if (SIDES) { conn.fromSide = SIDES[0]; conn.toSide = SIDES[1]; conn.fromSideLocked = true; conn.toSideLocked = true; }
+          }
           result.connections.push(conn);
           continue;
         }
@@ -5611,6 +5620,7 @@
           const node = ensure(a[0]);
           node.label = unq(a[1]) || a[0];
           node.stereotype = type.replace(/_/g, ' ');
+          if (/^Person/i.test(type)) { node.isPerson = true; node.icon = 'user'; }   // person figure
           node.properties = [];
           a.slice(2).map(unq).filter(Boolean).forEach(e => wrap(e).forEach(l => node.properties.push(l)));
           if (stack.length) stack[stack.length - 1].children.push(node.id);
@@ -7244,6 +7254,7 @@
             node.properties = n.properties || [];
             node.methods = n.methods || [];
             node.stereotype = n.stereotype || '';
+            if (n.isPerson) node.isPerson = true;   // C4 Person → person figure
           }
 
           // Mark as sequence participant with lifeline
