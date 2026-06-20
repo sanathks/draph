@@ -2182,4 +2182,44 @@ group('Flowchart shapes (#49): placeShape + renderNodes branches');
   check('flowchart shape is connectable', win.eval(`connections.some(c=>c.from==='${cyl.id}')`));
 }
 
+group('Screen-reader semantics (#59): node/conn aria-labels + live region');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 100, 100, 120, 60);
+  E(`nodes.find(n=>n.id==='${a.id}').label = 'Login'`);
+  win.render();
+  const el = doc.querySelector(`#nodes .node[data-id="${a.id}"]`);
+  check('node group has role=img', !!el && el.getAttribute('role') === 'img');
+  check('node aria-label includes type + label', !!el && /Rectangle: Login/.test(el.getAttribute('aria-label') || ''));
+
+  // unlabeled node falls back to the type name
+  const u = win.createNode('diamond', 300, 100, 100, 60);
+  E(`nodes.find(n=>n.id==='${u.id}').label = ''`);
+  win.render();
+  const elu = doc.querySelector(`#nodes .node[data-id="${u.id}"]`);
+  check('unlabeled node aria-label is the type', (elu.getAttribute('aria-label') || '') === 'Diamond');
+
+  // connection accessible name describes from→to
+  const b = win.createNode('pill', 500, 100, 120, 60);
+  E(`nodes.find(n=>n.id==='${b.id}').label = 'Home'`);
+  E(`connections.push({ id: 'e1', from: '${a.id}', to: '${b.id}' })`);
+  win.render();
+  const ce = doc.querySelector(`.connection-group[data-id="e1"]`);
+  check('connection has role=img', !!ce && ce.getAttribute('role') === 'img');
+  check('connection aria-label describes from→to', !!ce && /from Login to Home/.test(ce.getAttribute('aria-label') || ''));
+
+  // live region exists and receives announcements
+  const live = doc.querySelector('[aria-live]');
+  check('an aria-live region exists', !!live);
+  win.createNode('rect', 700, 100, 80, 40);
+  check('add announces via the live region', /added/.test((live.textContent || '')));
+  E(`selectedId = '${a.id}'`); win.deleteSelected();
+  check('delete announces via the live region', /deleted/i.test((live.textContent || '')));
+  win.announceConnect(b.id, u.id);
+  check('connect announcement names endpoints', /connected Home to Diamond/.test(live.textContent || ''));
+
+  // no visual regression: node groups still render their shape markup
+  check('node still renders its shape', !!doc.querySelector(`#nodes .node[data-id="${b.id}"] rect, #nodes .node[data-id="${b.id}"] path`));
+}
+
 process.exit(report() ? 0 : 1);

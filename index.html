@@ -363,9 +363,16 @@
       font-size: 11px; color: var(--fg); cursor: pointer; text-align: center; transition: border-color .12s, background .12s;
     }
     .shape-item:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg2)); }
+    /* Visually-hidden, screen-reader-only (#59) */
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+    }
   </style>
 </head>
 <body class="h-screen flex flex-col">
+  <!-- Screen-reader live region (#59): announces structural edits (add/delete/connect) -->
+  <div id="a11yLive" class="sr-only" aria-live="polite" aria-atomic="true"></div>
   <!-- Top Toolbar -->
   <header class="h-14 flex items-center px-4 z-20 absolute top-0 left-0 right-0" style="background:transparent;pointer-events:none">
     <!-- Left: Logo -->
@@ -1795,6 +1802,7 @@
       }
       
       nodes.push(node);
+      announce(nodeTypeName(node) + ' added');   // #59: screen-reader edit announcement
       return node;
     }
 
@@ -2360,7 +2368,7 @@
             
             const arrowHit = `<circle class="conn-hit" cx="${fromX + 5}" cy="${endY}" r="15" fill="transparent" data-conn="${conn.id}" style="cursor:pointer;pointer-events:all"/>`;
             
-            return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" style="cursor:pointer">
+            return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" role="img" aria-label="${esc(connAriaLabel(conn, nodeById))}" style="cursor:pointer">
               <path class="conn-hit" d="${loopPath}" fill="none" stroke="transparent" stroke-width="20" data-conn="${conn.id}" style="cursor:pointer;pointer-events:stroke"/>
               ${arrowHit}
               <path d="${loopPath}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" style="pointer-events:none"/>
@@ -2393,7 +2401,7 @@
           // Hit area for arrow head (circle around arrow tip)
           const arrowHitX = toX - dir * 5;
           const arrowHit = `<circle class="conn-hit" cx="${arrowHitX}" cy="${y}" r="15" fill="transparent" data-conn="${conn.id}" style="cursor:pointer;pointer-events:all"/>`;
-          return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" style="cursor:pointer">
+          return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" role="img" aria-label="${esc(connAriaLabel(conn, nodeById))}" style="cursor:pointer">
             <line class="conn-hit" x1="${fromX}" y1="${y}" x2="${toX}" y2="${y}" stroke="transparent" stroke-width="20" data-conn="${conn.id}" style="cursor:pointer;pointer-events:stroke"/>
             ${arrowHit}
             <line x1="${fromX}" y1="${y}" x2="${arrowX}" y2="${y}" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" class="connection" style="pointer-events:none"/>
@@ -2506,7 +2514,7 @@
         const connDashArray = conn.strokeStyle === 'dashed' ? '5,3' : 'none';
         // Endpoint drag-handles are drawn in the #connHandles overlay (above nodes)
         if (isConnSelected) selHandles = { fromX: x1, fromY: y1, toX: endX, toY: endY };
-        return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" style="cursor:pointer">${hitArea}${arrowHit}<path class="connection" d="${path}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${connDashArray}" style="pointer-events:none"/>${startMarkerSvg}${endMarkerSvg}${labelEl}</g>`;
+        return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" role="img" aria-label="${esc(connAriaLabel(conn, nodeById))}" style="cursor:pointer">${hitArea}${arrowHit}<path class="connection" d="${path}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${connDashArray}" style="pointer-events:none"/>${startMarkerSvg}${endMarkerSvg}${labelEl}</g>`;
       }).join('');
 
       // Endpoint handles on top of everything, with a generous transparent hit area
@@ -3010,13 +3018,49 @@
         const resizeHandle = (isSelected && node.type !== 'line' && node.type !== 'pencil') ?
           `<rect class="resize-handle" x="${node.x + node.width - 8}" y="${node.y + node.height - 8}" width="8" height="8" fill="${COLORS.accent}" rx="2"/>` : '';
         
-        return `<g class="node ${isSelected ? 'selected' : ''}" data-id="${node.id}">
+        return `<g class="node ${isSelected ? 'selected' : ''}" data-id="${node.id}" role="img" aria-label="${esc(nodeAriaLabel(node))}">
           ${lifeline}
           ${shape}
           ${connectors}
           ${resizeHandle}
         </g>`;
       }).join('');
+    }
+
+    // === Screen-reader semantics (#59) ===
+    // Human-readable type names for accessible labels.
+    const NODE_TYPE_NAMES = {
+      rect: 'Rectangle', pill: 'Pill', diamond: 'Diamond', circle: 'Circle', container: 'Group',
+      text: 'Text', note: 'Note', line: 'Line', pencil: 'Drawing', image: 'Image', link: 'Link',
+      cylinder: 'Database', hexagon: 'Hexagon', parallelogram: 'Input/Output', trapezoid: 'Trapezoid',
+      subroutine: 'Subroutine', pie: 'Pie chart', quadrant: 'Quadrant chart', xychart: 'XY chart', bar: 'Bar',
+    };
+    function nodeTypeName(node) {
+      if (node.isClass) return node.stereotype ? node.stereotype[0].toUpperCase() + node.stereotype.slice(1) : 'Class';
+      return NODE_TYPE_NAMES[node.type] || (node.type ? node.type[0].toUpperCase() + node.type.slice(1) : 'Node');
+    }
+    // Accessible name for a node group: "Type: label" (or just the type when unlabeled).
+    function nodeAriaLabel(node) {
+      const lbl = (node.label || '').trim();
+      return lbl ? `${nodeTypeName(node)}: ${lbl}` : nodeTypeName(node);
+    }
+    // Accessible name for a connection: "arrow from A to B" using endpoint labels.
+    function connAriaLabel(conn, nodeById) {
+      const from = nodeById ? nodeById.get(conn.from) : nodes.find(n => n.id === conn.from);
+      const to = nodeById ? nodeById.get(conn.to) : nodes.find(n => n.id === conn.to);
+      const name = (n) => n ? ((n.label || '').trim() || nodeTypeName(n)) : '?';
+      const verb = conn.label ? `${conn.label}: ` : '';
+      return `${verb}arrow from ${name(from)} to ${name(to)}`;
+    }
+    // Announce a structural edit through the visually-hidden aria-live region.
+    function announce(msg) {
+      const live = document.getElementById('a11yLive');
+      if (live) live.textContent = msg;
+    }
+    // Announce a new connection by endpoint names.
+    function announceConnect(fromId, toId) {
+      const nm = (id) => { const n = nodes.find(x => x.id === id); return n ? ((n.label || '').trim() || nodeTypeName(n)) : '?'; };
+      announce(`connected ${nm(fromId)} to ${nm(toId)}`);
     }
 
     // Event delegation: listeners are attached ONCE to the persistent group
@@ -3247,6 +3291,7 @@
         nodes = nodes.filter(n => !toDelete.includes(n.id));
         connections = connections.filter(c => !toDelete.includes(c.from) && !toDelete.includes(c.to));
         deselectAll();
+        announce(toDelete.length === 1 ? 'Node deleted' : toDelete.length + ' nodes deleted');   // #59
         saveState();
         render();
       }
@@ -4770,6 +4815,7 @@
                 lineStyle: globalLineStyle
               });
             }
+            announceConnect(connecting.from, toId);   // #59
             saveState();
             render();
           }
@@ -4790,6 +4836,7 @@
               toIdx: 1,
               lineStyle: globalLineStyle
             });
+            announceConnect(connecting.from, toNode.id);   // #59
             saveState();
             render();
           }
