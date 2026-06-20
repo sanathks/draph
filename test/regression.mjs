@@ -3,7 +3,7 @@
 //  Locks in logic-level behavior so agents can refactor with confidence.
 //  See harness.mjs for what this can and cannot catch.
 // =============================================================================
-import { boot, mouse, key, check, group, report } from './harness.mjs';
+import { boot, mouse, pointer, key, check, group, report } from './harness.mjs';
 
 const SIDE_OUT = { top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0] };
 
@@ -1514,6 +1514,35 @@ group('v2: Mermaid block diagram import (block-beta)');
   const code2 = ['block-beta', '  x y z'].join('\n');
   const p2 = E(`parseMermaid(${JSON.stringify(code2)})`);
   check('block with no columns lays out one row', p2.nodes.length === 3 && p2.nodes[0].y === p2.nodes[1].y && p2.nodes[1].y === p2.nodes[2].y);
+}
+
+group('Touch & pointer input (#21): pointer-event migration + pen pressure');
+{
+  const { win, doc, E } = boot();
+  const canvas = doc.getElementById('canvas');
+  // (1) browser must not hijack gestures over the canvas
+  check('canvas declares touch-action:none', /touch-action:\s*none/.test(canvas.getAttribute('style') || ''));
+  // (2) a pen pointer draws a pencil node whose points each carry pressure
+  win.setTool('pencil');
+  pointer(canvas, 'pointerdown', 100, 100, { pointerType: 'pen', pressure: 0.4 });
+  pointer(doc, 'pointermove', 140, 160, { pointerType: 'pen', pressure: 0.6 });
+  pointer(doc, 'pointermove', 180, 200, { pointerType: 'pen', pressure: 0.7 });
+  pointer(doc, 'pointerup', 180, 200, { pointerType: 'pen', pressure: 0 });
+  const pencils = E(`JSON.parse(JSON.stringify(nodes.filter(n=>n.type==='pencil')))`);
+  check('pen pointer draws exactly one pencil node', pencils.length === 1);
+  check('every stroke point carries a numeric pressure', pencils[0].points.length >= 2 && pencils[0].points.every(p => typeof p.pressure === 'number'));
+  check('a pen pressure value is actually captured (>0)', pencils[0].points.some(p => p.pressure > 0));
+  // (3) desktop no-regression: a mouse drag still draws (mouse() drives the pointer path)
+  win.setTool('pencil');
+  mouse(canvas, 'mousedown', 300, 300);
+  mouse(doc, 'mousemove', 340, 340);
+  mouse(doc, 'mouseup', 360, 360);
+  check('mouse still draws a pencil node after the pointer migration', E(`nodes.filter(n=>n.type==='pencil').length`) === 2);
+  // (4) a touch pointer drives the canvas too (marquee select starts on empty canvas)
+  win.setTool('select');
+  pointer(canvas, 'pointerdown', 60, 60, { pointerType: 'touch' });
+  check('touch pointer reaches the canvas handler (marquee selection begins)', E(`selecting !== null && typeof selecting === 'object'`));
+  pointer(doc, 'pointerup', 60, 60, { pointerType: 'touch' });
 }
 
 process.exit(report() ? 0 : 1);

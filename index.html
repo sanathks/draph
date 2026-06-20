@@ -552,7 +552,7 @@
     
     <!-- Canvas area -->
     <div id="canvasContainer" class="flex-1 relative overflow-hidden">
-    <svg id="canvas" class="w-full h-full" style="background: var(--bg);">
+    <svg id="canvas" class="w-full h-full" style="background: var(--bg); touch-action: none;">
       <defs>
         <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
           <circle cx="12" cy="12" r="1.1" fill="#414868" opacity="0.55"/>
@@ -1796,7 +1796,7 @@
         width: Math.max(1, maxX - minX),
         height: Math.max(1, maxY - minY),
         label: '',
-        points: rawPoints.map(p => ({ x: p.x - minX, y: p.y - minY })),
+        points: rawPoints.map(p => ({ x: p.x - minX, y: p.y - minY, pressure: typeof p.pressure === 'number' ? p.pressure : 0 })),
       };
       nodes.push(node);
       return node;
@@ -2582,7 +2582,7 @@
     // on every render no longer re-binds hundreds of listeners. Dispatch runs
     // most-specific-first so a click on a handle/connector wins over the node.
     function bindCanvasEvents() {
-      nodesGroup.addEventListener('mousedown', (e) => {
+      nodesGroup.addEventListener('pointerdown', (e) => {
         if (e.target.closest('.resize-handle')) return onResizeMouseDown(e);
         if (e.target.closest('.line-handle')) return onLineHandleMouseDown(e);
         if (e.target.closest('.lifeline-connector')) return onLifelineConnectorMouseDown(e);
@@ -2592,10 +2592,10 @@
       nodesGroup.addEventListener('dblclick', (e) => {
         if (e.target.closest('.node')) onNodeDblClick(e);
       });
-      connectionsGroup.addEventListener('mousedown', (e) => {
+      connectionsGroup.addEventListener('pointerdown', (e) => {
         if (e.target.closest('[data-conn]')) onConnectionMouseDown(e);
       });
-      connHandlesGroup.addEventListener('mousedown', (e) => {
+      connHandlesGroup.addEventListener('pointerdown', (e) => {
         const ep = e.target.closest('.conn-endpoint');
         if (ep) startEndpointDrag(e, ep);
       });
@@ -3783,7 +3783,7 @@
       setTimeout(() => { const i = document.getElementById('toolbarLabel'); if (i) { i.focus(); i.select(); } }, 60);
     });
 
-    canvas.addEventListener('mousedown', (e) => {
+    canvas.addEventListener('pointerdown', (e) => {
       if (e.target.closest('.node') || e.target.classList.contains('connector')) return;
 
       const pos = screenToCanvas(e.clientX, e.clientY);
@@ -3796,9 +3796,9 @@
         return;
       }
       
-      // Freehand pencil: start a stroke
+      // Freehand pencil: start a stroke (capture pen pressure per point)
       if (currentTool === 'pencil') {
-        penciling = { points: [{ x: pos.x, y: pos.y }] };
+        penciling = { points: [{ x: pos.x, y: pos.y, pressure: typeof e.pressure === 'number' ? e.pressure : 0 }] };
         tempPath.setAttribute('d', freehandPath(penciling.points));
         showTempLine();
         return;
@@ -3827,14 +3827,14 @@
       }
     });
     
-    document.addEventListener('mousemove', (e) => {
+    document.addEventListener('pointermove', (e) => {
       const pos = screenToCanvas(e.clientX, e.clientY);
 
       // Freehand pencil: append points (skip tiny moves) and preview live
       if (penciling) {
         const last = penciling.points[penciling.points.length - 1];
         if (Math.hypot(pos.x - last.x, pos.y - last.y) >= 2) {
-          penciling.points.push({ x: pos.x, y: pos.y });
+          penciling.points.push({ x: pos.x, y: pos.y, pressure: typeof e.pressure === 'number' ? e.pressure : 0 });
           tempPath.setAttribute('d', freehandPath(penciling.points));
         }
         return;
@@ -4016,7 +4016,7 @@
       }
     });
     
-    document.addEventListener('mouseup', (e) => {
+    document.addEventListener('pointerup', (e) => {
       const pos = screenToCanvas(e.clientX, e.clientY);
 
       // Commit a connection endpoint re-route (only if the pointer actually
