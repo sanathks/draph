@@ -5446,6 +5446,9 @@
       if (firstLine.match(/^C4(Context|Container|Component|Dynamic|Deployment)/i)) {
         return parseC4(lines.slice(1));
       }
+      if (firstLine.match(/^architecture-beta/i)) {
+        return parseArchitecture(lines.slice(1));
+      }
       if (firstLine.match(/^block-beta/i)) {
         return parseBlock(lines.slice(1));
       }
@@ -5508,6 +5511,67 @@
         n.width = Math.max(170, longest * 7 + 24);
         n.height = Math.max(70, (n.stereotype ? 42 : 28) + n.properties.length * 16 + 8);
       });
+      return result;
+    }
+
+    // Architecture diagrams (architecture-beta). `group id(icon)[Title]` →
+    // subgraph container; `service id(icon)[Title] in g` → node (in group g);
+    // `junction id in g` → small node; edges `a:L -- R:b` (and -->, <--, <-->)
+    // → connections. Reuses the flowchart Sugiyama layout + subgraph containers
+    // (diagramType 'flowchart'). Icons and explicit edge sides are dropped for
+    // this first cut; group-in-group nesting is flattened (TODO).
+    function parseArchitecture(lines) {
+      const result = { nodes: [], connections: [], errors: [], diagramType: 'flowchart', subgraphs: [] };
+      const nodeMap = {}, groupMap = {};
+      const ensureNode = (id, label, type) => {
+        if (!nodeMap[id]) { nodeMap[id] = { id, type: type || 'rect', label: label != null ? label : id }; result.nodes.push(nodeMap[id]); }
+        else if (label != null) nodeMap[id].label = label;
+        return nodeMap[id];
+      };
+      const addToGroup = (id, g) => { if (g && groupMap[g]) groupMap[g].children.push(id); };
+      // `name(icon)[Title]` → captures id, optional icon, optional title
+      const decl = /^([A-Za-z0-9_]+)\s*(?:\(([^)]*)\))?\s*(?:\[([^\]]*)\])?\s*(?:in\s+([A-Za-z0-9_]+))?\s*$/;
+
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith('%%') || /^architecture-beta/i.test(line)) continue;
+        let m;
+        if ((m = line.match(/^group\s+(.+)$/i))) {
+          const d = m[1].match(decl); if (!d) continue;
+          const id = d[1], title = d[3] || id;
+          if (!groupMap[id]) { groupMap[id] = { id, label: title, children: [] }; result.subgraphs.push(groupMap[id]); }
+          else groupMap[id].label = title;
+          continue;
+        }
+        if ((m = line.match(/^service\s+(.+)$/i))) {
+          const d = m[1].match(decl); if (!d) continue;
+          ensureNode(d[1], d[3] || d[1]); addToGroup(d[1], d[4]);
+          continue;
+        }
+        if ((m = line.match(/^junction\s+(.+)$/i))) {
+          const d = m[1].match(decl); if (!d) continue;
+          ensureNode(d[1], '', 'circle'); addToGroup(d[1], d[4]);
+          continue;
+        }
+        // edge: a:L -- R:b  /  a --> b  /  a <-- b  /  a <--> b  (endpoints may carry {group})
+        const op = (line.match(/<-->|<--|-->|--/) || [])[0];
+        if (op) {
+          const i = line.indexOf(op);
+          const lm = line.slice(0, i).trim().match(/^([A-Za-z0-9_]+)(?:\{[^}]*\})?(?::[LRTB])?$/);
+          const rm = line.slice(i + op.length).trim().match(/^(?:[LRTB]:)?([A-Za-z0-9_]+)(?:\{[^}]*\})?$/);
+          if (lm && rm) {
+            const from = lm[1], to = rm[1];
+            // an endpoint may be a group id (container) — keep it; importMermaid maps it
+            if (!nodeMap[from] && !groupMap[from]) ensureNode(from);
+            if (!nodeMap[to] && !groupMap[to]) ensureNode(to);
+            const conn = { from, to };
+            if (op.endsWith('>')) conn.markerEnd = 'arrow';
+            if (op.startsWith('<')) conn.markerStart = 'arrow';
+            result.connections.push(conn);
+          }
+        }
+      }
+      if (!result.subgraphs.length) delete result.subgraphs;
       return result;
     }
 
