@@ -1817,4 +1817,22 @@ group('Mermaid gitGraph import (#26): tags, commit types, cherry-pick');
   check('gitgraph: import carries tag + commitType onto nodes', E(`nodes.some(n=>n.tag==='v1.0')`) && E(`nodes.some(n=>n.commitType==='HIGHLIGHT')`));
 }
 
+group('Mermaid quadrant import (#33): per-point radius/color styling');
+{
+  const { win, doc, E } = boot();
+  const code = 'quadrantChart\n  x-axis Low --> High\n  y-axis Low --> High\n  Campaign A: [0.3, 0.6] radius: 10, color: #ff0000\n  Plain B: [0.5, 0.5]';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const a = p.nodes[0].points[0], b = p.nodes[0].points[1];
+  check('quadrant: per-point radius parsed', a.radius === 10);
+  check('quadrant: per-point color parsed', a.color === '#ff0000');
+  check('quadrant: unstyled point keeps defaults', b.radius === undefined && b.color === undefined);
+  // render: styled dot uses its custom radius + color, default dot stays r=5
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  const el = doc.querySelector('#nodes .node');
+  const radii = [...el.querySelectorAll('circle')].map(c => c.getAttribute('r'));
+  check('quadrant: styled dot uses custom radius', radii.includes('10'));
+  check('quadrant: default dot still r=5', radii.includes('5'));
+  check('quadrant: custom color rendered', /fill="#ff0000"/.test(el.innerHTML));
+}
+
 process.exit(report() ? 0 : 1);

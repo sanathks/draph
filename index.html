@@ -2439,8 +2439,10 @@
           let pts = '';
           (node.points || []).forEach(p => {
             const cx = px + p.x * pw, cy = py + (1 - p.y) * ph;
-            pts += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="5" fill="${COLORS.accent}"/>`;
-            pts += `<text x="${(cx + 8).toFixed(1)}" y="${(cy + 4).toFixed(1)}" fill="${COLORS.fg}" font-size="11" font-family="system-ui, sans-serif" style="pointer-events:none">${esc(p.label)}</text>`;
+            const r = p.radius || 5, fill = p.color || COLORS.accent;
+            const stroke = p.strokeColor ? ` stroke="${p.strokeColor}" stroke-width="${p.strokeWidth || 1}"` : '';
+            pts += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r}" fill="${fill}"${stroke}/>`;
+            pts += `<text x="${(cx + r + 3).toFixed(1)}" y="${(cy + 4).toFixed(1)}" fill="${COLORS.fg}" font-size="11" font-family="system-ui, sans-serif" style="pointer-events:none">${esc(p.label)}</text>`;
           });
           const ax = node.xAxis || {}, ay = node.yAxis || {};
           const axis =
@@ -5918,7 +5920,16 @@
         if ((m = line.match(/^x-axis\s+(.+)$/i))) { const a = m[1].split('-->'); node.xAxis = { left: a[0].trim(), right: (a[1] || '').trim() }; continue; }
         if ((m = line.match(/^y-axis\s+(.+)$/i))) { const a = m[1].split('-->'); node.yAxis = { bottom: a[0].trim(), top: (a[1] || '').trim() }; continue; }
         if ((m = line.match(/^quadrant-([1-4])\s+(.+)$/i))) { node.quadrants[+m[1] - 1] = m[2].trim(); continue; }
-        if ((m = line.match(/^(.+?):\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*\]/))) { node.points.push({ label: m[1].trim(), x: parseFloat(m[2]), y: parseFloat(m[3]) }); }
+        if ((m = line.match(/^(.+?):\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*\]\s*(.*)$/))) {
+          const pt = { label: m[1].trim().replace(/:::\S+/, '').trim(), x: parseFloat(m[2]), y: parseFloat(m[3]) };
+          const rest = m[4] || '';   // per-point styling: radius:N, color:#hex, stroke-color:#hex, stroke-width:N
+          let s;
+          if ((s = rest.match(/radius:\s*([\d.]+)/i))) pt.radius = parseFloat(s[1]);
+          if ((s = rest.match(/(?:^|[\s,])color:\s*(#[0-9a-f]{3,8}|\w+)/i))) pt.color = s[1];
+          if ((s = rest.match(/stroke-color:\s*(#[0-9a-f]{3,8}|\w+)/i))) pt.strokeColor = s[1];
+          if ((s = rest.match(/stroke-width:\s*([\d.]+)/i))) pt.strokeWidth = parseFloat(s[1]);
+          node.points.push(pt);
+        }
       }
       node.label = node.title || 'Quadrant';
       return { nodes: [node], connections: [], errors: [], diagramType: 'quadrant' };
