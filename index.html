@@ -6517,13 +6517,18 @@
         else cls.properties.push((vis || '+') + member);
       };
       let current = null;
+      const nsStack = [];        // open `namespace` blocks → grouping containers
+      const subgraphs = [];
 
       for (const raw of lines) {
         const line = raw.trim();
         if (!line || line.startsWith('%%')) continue;
-        if (line === '}') { current = null; continue; }
+        if (line === '}') { if (current) current = null; else if (nsStack.length) nsStack.pop(); continue; }
+        // namespace Foo {  → a container grouping the classes declared inside it
+        let nm = line.match(/^namespace\s+([A-Za-z_]\w*)\s*\{?\s*$/i);
+        if (nm && !current) { const sg = { id: '__ns_' + nm[1], label: nm[1], children: [] }; subgraphs.push(sg); nsStack.push(sg); continue; }
         // ignore layout/styling directives (only when not inside a class block)
-        if (!current && /^(direction|namespace|click|callback|link|style|classDef|cssClass|note)\b/i.test(line)) continue;
+        if (!current && /^(direction|click|callback|link|style|classDef|cssClass|note)\b/i.test(line)) continue;
 
         // class definition: `class Name[~G~] [:::style] [["label"]] [{]`
         let m = line.match(/^class\s+([A-Za-z_][\w~,]*)\s*(?::::\S+)?\s*(?:\["([^"]*)"\])?\s*(\{)?\s*$/);
@@ -6531,6 +6536,7 @@
           const cls = ensure(m[1]);
           if (m[2]) cls.label = m[2];
           if (m[3]) current = cls.id;       // a block was opened
+          if (nsStack.length) { const ch = nsStack[nsStack.length - 1].children; if (!ch.includes(cls.id)) ch.push(cls.id); }
           continue;
         }
 
@@ -6587,9 +6593,11 @@
         n.width = Math.max(160, longest * 7 + 24);
         n.height = Math.max(70, (n.stereotype ? 42 : 28) + n.properties.length * 16 + n.methods.length * 16 + 8);
       });
+      const ns = subgraphs.filter(sg => sg.children.length);
+      if (ns.length) result.subgraphs = ns;
       return result;
     }
-    
+
     function parseFlowchart(lines) {
       const result = { nodes: [], connections: [], errors: [], diagramType: 'flowchart' };
       const nodeMap = {};
