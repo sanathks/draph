@@ -1835,6 +1835,22 @@ group('Mermaid append import (#46): feedback on silent failures');
   check('replace-mode unsupported does not toast (errorDiv path unchanged)', doc.querySelectorAll('.toast').length === before4);
 }
 
+group('Accessibility (#45): icon-button ARIA labels + pressed state');
+{
+  const { win, doc } = boot();
+  const btns = [...doc.querySelectorAll('.tool-btn')];
+  check('every tool button has a non-empty aria-label', btns.length >= 10 && btns.every(b => (b.getAttribute('aria-label') || '').trim().length > 0));
+  check('decorative button SVGs are aria-hidden', btns.every(b => { const s = b.querySelector('svg'); return !s || s.getAttribute('aria-hidden') === 'true'; }));
+  win.setTool('rect');
+  const rectBtn = doc.getElementById('tool-rect');
+  check('active tool is marked aria-pressed=true', rectBtn.getAttribute('aria-pressed') === 'true');
+  win.setTool('pencil');
+  check('previously-active tool clears aria-pressed', rectBtn.getAttribute('aria-pressed') === 'false');
+  check('newly-active tool is pressed', doc.getElementById('tool-pencil').getAttribute('aria-pressed') === 'true');
+  // exactly one tool is pressed at a time
+  check('exactly one tool button is pressed', [...doc.querySelectorAll('[id^="tool-"]')].filter(b => b.getAttribute('aria-pressed') === 'true').length === 1);
+}
+
 group('First-run onboarding (#44): walkthrough + versioned flag');
 {
   const { win, doc, E } = boot();
@@ -2136,6 +2152,34 @@ group('#36 label wrapping: hard-break long unbreakable words');
   const w = E(`nodes.find(x=>x.id==='${n.id}').width`);
   check('long token does not force an ultra-wide node', w <= E('CONFIG.wrap.maxWidth') + 30);
   check('cap lives in CONFIG (no magic number)', typeof E('CONFIG.wrap.maxWidth') === 'number');
+}
+
+group('Flowchart shapes (#49): placeShape + renderNodes branches');
+{
+  const { win, doc } = boot();
+  for (const kind of ['cylinder', 'hexagon', 'parallelogram', 'trapezoid', 'subroutine']) {
+    const n = win.placeShape(kind, 200, 200);
+    check(kind + ' node created with that type', n && n.type === kind);
+    check(kind + ' has a default size', n && n.width > 0 && n.height > 0);
+  }
+  win.render();
+  // cylinder renders a path + ellipse
+  const cyl = win.placeShape('cylinder', 400, 200); win.render();
+  const elc = doc.querySelector(`#nodes .node[data-id="${cyl.id}"]`);
+  check('cylinder renders a path/ellipse', !!elc && /<path|<ellipse/i.test(elc.innerHTML));
+  // hexagon / parallelogram / trapezoid render polygons
+  const hex = win.placeShape('hexagon', 600, 200); win.render();
+  const elh = doc.querySelector(`#nodes .node[data-id="${hex.id}"]`);
+  check('hexagon renders a polygon', !!elh && /<polygon/i.test(elh.innerHTML));
+  // subroutine renders a rect plus inner vertical border lines
+  const sub = win.placeShape('subroutine', 800, 200); win.render();
+  const els = doc.querySelector(`#nodes .node[data-id="${sub.id}"]`);
+  check('subroutine renders a double border (rect + lines)', !!els && /<rect/i.test(els.innerHTML) && (els.innerHTML.match(/<line/g) || []).length >= 2);
+  // label/connect parity: a flowchart shape carries a label and can be an edge endpoint
+  check('flowchart shape carries a default label', !!cyl.label);
+  const other = win.createNode('rect', 1000, 200, 80, 40);
+  win.eval(`connections.push({ id: 'fc', from: '${cyl.id}', to: '${other.id}' })`); win.render();
+  check('flowchart shape is connectable', win.eval(`connections.some(c=>c.from==='${cyl.id}')`));
 }
 
 process.exit(report() ? 0 : 1);
