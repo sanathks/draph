@@ -1999,7 +1999,68 @@
     //  All tunables live in ROUTE_CFG so future tweaks are one-liners.
     // =====================================================================
     const SIDE_NORMAL = { top: {x:0,y:-1}, bottom: {x:0,y:1}, left: {x:-1,y:0}, right: {x:1,y:0} };
-    const ROUTE_CFG = { maxClear: 24 }; // max perpendicular stub off a node connector
+    const ROUTE_CFG = { maxClear: 24, obstacleMargin: 12 }; // stub cap + clearance around obstacle boxes
+
+    // Obstacle-aware routing (#69): given an orthogonal polyline, nudge any segment
+    // that cuts through a non-endpoint node's rect (+margin) up/down (horizontal
+    // seg) or left/right (vertical seg) with a single bump bend. Pure geometry —
+    // reads the live `nodes` for obstacle rects but mutates nothing. Local
+    // avoidance only (one box per segment, a few passes), not full pathfinding.
+    function obstacleRects(fromNode, toNode) {
+      const m = ROUTE_CFG.obstacleMargin;
+      return nodes.filter(n =>
+        n.id !== fromNode.id && n.id !== toNode.id &&
+        !['line', 'pencil', 'text', 'container'].includes(n.type) &&
+        n.width > 0 && n.height > 0
+      ).map(n => ({ x: n.x - m, y: n.y - m, w: n.width + 2 * m, h: n.height + 2 * m }));
+    }
+    function segHitsRect(a, b, r) {
+      if (a.y === b.y) {                                    // horizontal segment
+        if (a.y <= r.y || a.y >= r.y + r.h) return false;
+        return Math.max(a.x, b.x) > r.x && Math.min(a.x, b.x) < r.x + r.w;
+      }
+      if (a.x === b.x) {                                    // vertical segment
+        if (a.x <= r.x || a.x >= r.x + r.w) return false;
+        return Math.max(a.y, b.y) > r.y && Math.min(a.y, b.y) < r.y + r.h;
+      }
+      return false;                                         // diagonal: not our concern
+    }
+    function avoidObstacles(points, fromNode, toNode) {
+      const rects = obstacleRects(fromNode, toNode);
+      if (!rects.length) return points;
+      let out = points.slice();
+      for (let pass = 0; pass < 6; pass++) {
+        let bumped = false;
+        for (let i = 0; i < out.length - 1; i++) {
+          const a = out[i], b = out[i + 1];
+          const r = rects.find(rr => segHitsRect(a, b, rr));
+          if (!r) continue;
+          if (a.y === b.y) {                                // horizontal → bump above/below
+            const above = r.y - 1, below = r.y + r.h + 1;
+            const dy = Math.abs(above - a.y) <= Math.abs(below - a.y) ? above : below;
+            const dir = b.x >= a.x ? 1 : -1;
+            let enterX = dir > 0 ? r.x - 1 : r.x + r.w + 1;
+            let exitX = dir > 0 ? r.x + r.w + 1 : r.x - 1;
+            enterX = Math.min(Math.max(enterX, Math.min(a.x, b.x)), Math.max(a.x, b.x));
+            exitX = Math.min(Math.max(exitX, Math.min(a.x, b.x)), Math.max(a.x, b.x));
+            out.splice(i + 1, 0, { x: enterX, y: a.y }, { x: enterX, y: dy }, { x: exitX, y: dy }, { x: exitX, y: a.y });
+          } else {                                          // vertical → bump left/right
+            const left = r.x - 1, right = r.x + r.w + 1;
+            const dx = Math.abs(left - a.x) <= Math.abs(right - a.x) ? left : right;
+            const dir = b.y >= a.y ? 1 : -1;
+            let enterY = dir > 0 ? r.y - 1 : r.y + r.h + 1;
+            let exitY = dir > 0 ? r.y + r.h + 1 : r.y - 1;
+            enterY = Math.min(Math.max(enterY, Math.min(a.y, b.y)), Math.max(a.y, b.y));
+            exitY = Math.min(Math.max(exitY, Math.min(a.y, b.y)), Math.max(a.y, b.y));
+            out.splice(i + 1, 0, { x: a.x, y: enterY }, { x: dx, y: enterY }, { x: dx, y: exitY }, { x: a.x, y: exitY });
+          }
+          bumped = true;
+          break;
+        }
+        if (!bumped) break;
+      }
+      return out;
+    }
 
     // Point on a node's side at a fractional position along it (0..1).
     function sidePoint(node, side, frac = 0.5) {
@@ -2104,7 +2165,8 @@
       const e1 = { x: p1.x + n1.x * clear, y: p1.y + n1.y * clear };
       const e2 = { x: p2.x + n2.x * clear, y: p2.y + n2.y * clear };
 
-      const points = simplifyPath([p1, e1, ...connectExits(e1, n1, e2, n2), e2, p2]);
+      let points = simplifyPath([p1, e1, ...connectExits(e1, n1, e2, n2), e2, p2]);
+      points = simplifyPath(avoidObstacles(points, from, to));   // route around unrelated boxes (#69)
       return { points, fromSide, toSide, endX: p2.x, endY: p2.y, inDir: { x: -n2.x, y: -n2.y } };
     }
 

@@ -2155,6 +2155,28 @@ group('Mermaid pie import (#30): donut variant + leader lines');
   check('pie: donut flag does not alter the parsed slices', E(`nodes[0].slices.length`) === 3);
 }
 
+group('Obstacle-aware routing (#69): edges detour around unrelated nodes');
+{
+  const { win, E } = boot();
+  const A = win.createNode('rect', 0, 200, 80, 40);
+  const C = win.createNode('rect', 220, 200, 80, 40);   // directly between A and B
+  const B = win.createNode('rect', 440, 200, 80, 40);
+  const r = E(`routeConnection(nodes.find(n=>n.id==='${A.id}'),nodes.find(n=>n.id==='${B.id}'),'right','left')`);
+  // segment-vs-rect: no polyline segment may pass through C's rect
+  const segHitsC = (a, b) => Math.max(a.x, b.x) > C.x && Math.min(a.x, b.x) < C.x + C.width && Math.max(a.y, b.y) > C.y && Math.min(a.y, b.y) < C.y + C.height;
+  let through = false;
+  for (let i = 0; i < r.points.length - 1; i++) if (segHitsC(r.points[i], r.points[i + 1])) through = true;
+  check('route detours around the obstacle node (no segment crosses it)', !through);
+  check('detour added at least one bend', r.points.length > 3);
+  check('route still ends exactly on the target connector', Math.abs(r.endX - 440) < 1);
+  // clear path (obstacle removed) → simple route, no extra bends
+  const { win: w2, E: E2 } = boot();
+  const A2 = w2.createNode('rect', 0, 200, 80, 40);
+  const B2 = w2.createNode('rect', 440, 200, 80, 40);
+  const r2 = E2(`routeConnection(nodes.find(n=>n.id==='${A2.id}'),nodes.find(n=>n.id==='${B2.id}'),'right','left')`);
+  check('clear path is left unchanged (≤3 points, no detour)', r2.points.length <= 3);
+}
+
 group('#36 label wrapping: hard-break long unbreakable words');
 {
   const { win, E } = boot();
