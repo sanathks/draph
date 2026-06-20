@@ -361,6 +361,26 @@
       padding: 1px 6px; background: var(--bg2); border: 1px solid var(--border); border-radius: 4px;
       font-size: 11px; color: var(--fg); font-family: 'JetBrains Mono', Consolas, monospace;
     }
+    /* Read-only / embed viewer (#77): hide all editing chrome, keep the diagram
+       full-bleed and pan/zoom-able. Triggered by a `#view` URL flag (see loadFromUrl). */
+    .read-only header,
+    .read-only #floatingToolbar,
+    .read-only #connHandles,
+    .read-only .connector,
+    .read-only .lifeline-connector,
+    .read-only .resize-handle,
+    .read-only .conn-endpoint,
+    .read-only .conn-waypoint { display: none !important; }
+    .read-only #canvas { cursor: grab; }
+    #viewEditLink { display: none; }
+    .read-only #viewEditLink {
+      display: inline-flex; align-items: center; gap: 6px;
+      position: absolute; top: 12px; right: 12px; z-index: 40;
+      padding: 6px 12px; background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--fg); font-size: 13px; text-decoration: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    .read-only #viewEditLink:hover { border-color: var(--accent); }
     /* Interactive coach-marks (#56): a spotlight cutout (box-shadow dims everything
        except the target rect) plus a positioned tooltip. */
     #coachmarkOverlay { position: fixed; inset: 0; z-index: 320; }
@@ -390,6 +410,8 @@
   </style>
 </head>
 <body class="h-screen flex flex-col">
+  <!-- Read-only viewer affordance (#77): links back to the editable view (same hash, no #view flag) -->
+  <a id="viewEditLink" href="#" title="Open in editor">✎ Edit</a>
   <!-- Screen-reader live region (#59): announces structural edits (add/delete/connect) -->
   <div id="a11yLive" class="sr-only" aria-live="polite" aria-atomic="true"></div>
   <!-- Top Toolbar -->
@@ -1043,6 +1065,7 @@
     let selectedId = null;       // id of the single selected node (or null)
     let selectedIds = [];        // ids in a multi-selection (marquee / shift-click)
     let selectedConnId = null;   // id of the selected connection (or null)
+    let readOnly = false;        // #77: read-only/embed viewer — chrome hidden, mutations gated, pan/zoom kept
     let currentTool = 'select';  // 'select' | a SHAPE_TOOLS entry
     let drawing = null;          // in-progress shape draw: { startX, startY, type }
     let penciling = null;        // in-progress freehand pencil stroke: { points: [{x,y}] } (absolute coords)
@@ -1194,6 +1217,11 @@
       palette: ['#7aa2f7', '#9ece6a', '#f7768e', '#e0af68', '#bb9af7', '#7dcfff', '#ff9e64'],
       arrow: { length: 11, width: 5.5 },  // arrowhead size (px)
       node: { minWidth: 40, minHeight: 20 },
+      // Viewport culling (#71): for large diagrams, skip building DOM for nodes
+      // whose bbox is outside the visible viewBox. Off until a diagram exceeds
+      // cullThreshold nodes, so small diagrams render exactly as before.
+      cullThreshold: 300,  // node count above which off-screen nodes are culled
+      cullMargin: 1,       // extra rings of viewBox kept rendered around the visible rect (avoids edge popping on pan)
       // Label wrapping (#36): a single unbreakable token (long URL/identifier)
       // wider than maxWidth px is hard-broken at the character level so the node
       // respects the cap instead of stretching into one ultra-wide box.
@@ -1550,8 +1578,27 @@
       if (typeof saveActiveDoc === 'function') saveActiveDoc();
     }
     
+    // Toggle read-only/embed viewer mode (#77): a `read-only` root class hides the
+    // editing chrome (CSS) and the interaction handlers gate their mutations on the
+    // `readOnly` flag, while pan/zoom stay live. The Edit affordance links back to
+    // the same diagram without the flag.
+    function setReadOnly(on) {
+      readOnly = !!on;
+      document.documentElement.classList.toggle('read-only', readOnly);
+      if (readOnly) {
+        const link = document.getElementById('viewEditLink');
+        if (link) link.setAttribute('href', '#' + window.location.hash.replace(/^#?view#?/, ''));
+      }
+    }
+
     function loadFromUrl() {
-      const hash = window.location.hash.slice(1);
+      let hash = window.location.hash.slice(1);
+      if (!hash) { setReadOnly(false); return false; }
+      // Read-only flag: a leading `view` token (`#view` or `#view#<diagram>`) or
+      // `?embed=1`. Strip the token before decoding the diagram payload.
+      const viewFlag = /^view(#|$)/.test(hash) || /[?&]embed=1\b/.test(window.location.search);
+      if (/^view(#|$)/.test(hash)) hash = hash.replace(/^view#?/, '');
+      setReadOnly(viewFlag);
       if (!hash) return false;
       try { return loadDiagramJson(decodeURIComponent(atob(hash))); }
       catch (e) { console.error('Failed to load diagram from URL:', e); return false; }
@@ -2282,6 +2329,30 @@
       updateEmptyState();
     }
 
+    // === Viewport culling (#71) ===
+    // True when a node's bounding box intersects the visible viewBox, expanded by
+    // cullMargin screens on every side. Used to drop off-screen nodes from the DOM
+    // for large diagrams; render() re-runs on pan/zoom so culled nodes return.
+    function isNodeInViewport(node) {
+      const mx = viewBox.w * CONFIG.cullMargin, my = viewBox.h * CONFIG.cullMargin;
+      const vx1 = viewBox.x - mx, vy1 = viewBox.y - my;
+      const vx2 = viewBox.x + viewBox.w + mx, vy2 = viewBox.y + viewBox.h + my;
+      return node.x <= vx2 && node.x + node.width >= vx1 &&
+             node.y <= vy2 && node.y + node.height >= vy1;
+    }
+    // A node is exempt from culling if it's selected or being label-edited — those
+    // must always be present (the edit overlay sits on top of the node's box).
+    function isCullExempt(node) {
+      return node.id === selectedId || selectedIds.includes(node.id) ||
+             (labelEditor && labelEditor.nodeId === node.id);
+    }
+    // Filter a node list to what should be in the DOM. Below the threshold the list
+    // is returned untouched, so small diagrams behave exactly as before.
+    function cullNodes(list) {
+      if (list.length <= CONFIG.cullThreshold) return list;
+      return list.filter(n => isCullExempt(n) || isNodeInViewport(n));
+    }
+
     // Fast path used while dragging nodes: instead of regenerating every node's
     // SVG markup (patterns, wrapped text, clip paths, connectors) each frame,
     // just translate the dragged node group(s) and redraw the cheap connection
@@ -2414,11 +2485,19 @@
       // Connections
       const connGeom = computeConnectionGeometry(nodeById);
       let selHandles = null;  // endpoint coords for the selected connection (drawn on top)
+      const cullActive = nodes.length > CONFIG.cullThreshold;
       connectionsGroup.innerHTML = framesSvg + connections.map(conn => {
         const from = nodeById.get(conn.from);
         const to = nodeById.get(conn.to);
         if (!from || !to) return '';
-        
+
+        // Viewport culling (#71): drop a connection only when both endpoints are
+        // off-screen and the edge itself isn't selected — so a line stays drawn
+        // whenever either end (or the edge) is visible.
+        if (cullActive && selectedConnId !== conn.id &&
+            !isCullExempt(from) && !isNodeInViewport(from) &&
+            !isCullExempt(to) && !isNodeInViewport(to)) return '';
+
         // Sequence diagram message
         if (conn.isSequenceMessage) {
           const fromX = from.x + from.width / 2;
@@ -2641,7 +2720,7 @@
         return (a.z || 0) - (b.z || 0);
       });
 
-      nodesGroup.innerHTML = sorted.map(node => {
+      nodesGroup.innerHTML = cullNodes(sorted).map(node => {
         const isSelected = node.id === selectedId || selectedIds.includes(node.id);
         const strokeColor = node.outlineColor || COLORS.fg;
         
@@ -3351,6 +3430,7 @@
     // In-place label editing: an input overlaid on the node itself
     let labelEditor = null;
     function editNodeLabel(node) {
+      if (readOnly) return;   // #77: no label editing in the viewer
       if (labelEditor) labelEditor.commit(true);
       const canvasContainer = document.getElementById('canvasContainer');
       const canvasRect = canvas.getBoundingClientRect();
@@ -3388,7 +3468,7 @@
         else if (ev.key === 'Escape') { ev.preventDefault(); commit(false); }
         // plain Enter falls through → inserts a newline
       });
-      labelEditor = { commit };
+      labelEditor = { commit, nodeId: node.id };
     }
 
     function deleteSelected() {
@@ -4450,6 +4530,7 @@
 
     // Event handlers
     function onNodeMouseDown(e) {
+      if (readOnly) return;   // #77: no select/drag/duplicate in the viewer
       if (e.target.classList.contains('connector') || e.target.classList.contains('resize-handle') || e.target.classList.contains('lifeline-connector')) return;
 
       // Keep the active tool selected (don't force back to the select tool) so
@@ -4623,6 +4704,7 @@
     // Canvas events
     // Double-click empty canvas to drop a rectangle (and start labeling it)
     canvas.addEventListener('dblclick', (e) => {
+      if (readOnly) return;   // #77: no node creation in the viewer
       if (currentTool !== 'select') return;
       if (e.target.closest('.node') || e.target.closest('[data-conn]') ||
           e.target.classList.contains('connector') || e.target.classList.contains('lifeline-connector')) return;
@@ -4646,7 +4728,16 @@
         canvas.style.cursor = 'grabbing';
         return;
       }
-      
+
+      // #77: in the read-only viewer, plain drag pans instead of drawing/selecting
+      // (pan/zoom stay live; nothing below this can mutate the diagram).
+      if (readOnly) {
+        panning = true;
+        panStart = { x: e.clientX, y: e.clientY };
+        canvas.style.cursor = 'grabbing';
+        return;
+      }
+
       // Freehand pencil: start a stroke (capture pen pressure per point)
       if (currentTool === 'pencil') {
         penciling = { points: [{ x: pos.x, y: pos.y, pressure: typeof e.pressure === 'number' ? e.pressure : 0 }] };
@@ -5225,6 +5316,7 @@
       }
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (e.key === '?') { toggleCheatsheet(); return; }
+      if (readOnly) return;   // #77: no tool/delete/clipboard/undo shortcuts in the viewer
 
       // Single-key shortcut (only without Cmd/Ctrl, so Cmd+V etc. fall through)
       const binding = KEY_BINDINGS[e.key.toLowerCase()];

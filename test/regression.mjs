@@ -2196,6 +2196,80 @@ group('Custom accent color (#78): live override, persist, reset');
   win.applyTheme('dark');
 }
 
+group('Read-only viewer (#77): chrome hidden + mutations gated, pan/zoom kept');
+{
+  const { win, doc, E } = boot();
+  const canvas = doc.getElementById('canvas');
+  win.createNode('rect', 100, 100, 120, 60);
+
+  // Enter read-only via the URL flag.
+  E(`location.hash = '#view'`); win.loadFromUrl();
+  check('read-only root class set by #view flag', doc.documentElement.classList.contains('read-only'));
+
+  // Shape-draw is a no-op in read-only (plain drag pans instead).
+  const before = E('nodes.length'); win.setTool('rect');
+  mouse(canvas, 'mousedown', 300, 300); mouse(doc, 'mousemove', 380, 360); mouse(doc, 'mouseup', 380, 360);
+  check('shape-draw disabled in read-only', E('nodes.length') === before);
+
+  // Double-click create is gated too.
+  canvas.dispatchEvent(new win.MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: 500, clientY: 400 }));
+  check('dblclick create disabled in read-only', E('nodes.length') === before);
+
+  // Delete keyboard shortcut is gated.
+  E(`selectedId = nodes[0].id`);
+  key(doc, 'Delete');
+  check('Delete key disabled in read-only', E('nodes.length') === before);
+
+  // editNodeLabel is gated (no overlay textarea spawned).
+  E(`editNodeLabel(nodes[0])`);
+  check('label edit disabled in read-only', !doc.querySelector('.node-label-editor'));
+
+  // Pan still works (viewBox shifts on a plain drag).
+  const vbx = E('viewBox.x');
+  mouse(canvas, 'mousedown', 400, 400); mouse(doc, 'mousemove', 320, 400); mouse(doc, 'mouseup', 320, 400);
+  check('pan still works in read-only', E('viewBox.x') !== vbx);
+
+  // Edit affordance links back to the same diagram without the flag.
+  check('Edit link points to the no-flag hash', !/view/.test(doc.getElementById('viewEditLink').getAttribute('href')));
+
+  // Leaving view mode restores the editor (no-flag re-init clears the class).
+  E(`location.hash = ''`); win.loadFromUrl();
+  check('no-flag mode clears read-only', !doc.documentElement.classList.contains('read-only'));
+}
+
+group('#71 viewport culling for large diagrams');
+{
+  const { win, doc, E } = boot();
+  // Force culling on regardless of node count for the test.
+  E(`CONFIG.cullThreshold = 0`);
+  const near = win.createNode('rect', E('viewBox.x') + 100, E('viewBox.y') + 100, 80, 40);
+  const far  = win.createNode('rect', E('viewBox.x') + 99999, E('viewBox.y') + 99999, 80, 40);
+  win.render();
+  check('cull: on-screen node renders', !!doc.querySelector(`#nodes .node[data-id="${near.id}"]`));
+  check('cull: off-screen node is culled', !doc.querySelector(`#nodes .node[data-id="${far.id}"]`));
+
+  // Panning the viewBox over the far node brings it into the DOM.
+  E(`viewBox.x = ${far.x - 100}; viewBox.y = ${far.y - 100}`); win.render();
+  check('cull: panning to a culled node renders it', !!doc.querySelector(`#nodes .node[data-id="${far.id}"]`));
+
+  // The selected node is never culled, even when off-screen.
+  E(`viewBox.x = 0; viewBox.y = 0; selectedId = '${far.id}'`); win.render();
+  check('cull: selected node is exempt from culling', !!doc.querySelector(`#nodes .node[data-id="${far.id}"]`));
+  E(`selectedId = null`);
+
+  // A connection survives if either endpoint is in view; both off-screen → culled.
+  E(`connections.push({ id: 'cull-c', from: '${near.id}', to: '${far.id}' })`);
+  win.render();
+  check('cull: edge with one endpoint in view is drawn', E(`connectionsGroup.querySelectorAll('path').length`) > 0);
+  // Move both endpoints off-screen → the edge is culled too.
+  E(`viewBox.x = 50000; viewBox.y = 50000`); win.render();
+  check('cull: edge with both endpoints off-screen is culled', E(`connectionsGroup.querySelectorAll('path').length`) === 0);
+
+  // Below the threshold, nothing is culled (no regression for small diagrams).
+  E(`CONFIG.cullThreshold = 300; viewBox.x = 0; viewBox.y = 0`); win.render();
+  check('cull: small diagrams keep the off-screen node', !!doc.querySelector(`#nodes .node[data-id="${far.id}"]`));
+}
+
 group('#70 manual connection waypoints');
 {
   const { win, doc, E } = boot();
