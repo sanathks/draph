@@ -3,7 +3,7 @@
 //  Locks in logic-level behavior so agents can refactor with confidence.
 //  See harness.mjs for what this can and cannot catch.
 // =============================================================================
-import { boot, mouse, key, check, group, report } from './harness.mjs';
+import { boot, mouse, pointer, key, check, group, report } from './harness.mjs';
 
 const SIDE_OUT = { top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0] };
 
@@ -1542,6 +1542,78 @@ group('v2: Mermaid sankey diagram import (sankey-beta)');
   ed.value = code; win.importMermaid(true);
   check('sankey import builds nodes + edges', E(`nodes.length`) === 6 && E('connections.length') === 5);
   check('sankey import keeps the value labels', E(`connections.some(c=>c.label==='40')`) && E(`connections.some(c=>c.label==='10')`));
+}
+
+group('Touch & pointer input (#21): pointer-event migration + pen pressure');
+{
+  const { win, doc, E } = boot();
+  const canvas = doc.getElementById('canvas');
+  // (1) browser must not hijack gestures over the canvas
+  check('canvas declares touch-action:none', /touch-action:\s*none/.test(canvas.getAttribute('style') || ''));
+  // (2) a pen pointer draws a pencil node whose points each carry pressure
+  win.setTool('pencil');
+  pointer(canvas, 'pointerdown', 100, 100, { pointerType: 'pen', pressure: 0.4 });
+  pointer(doc, 'pointermove', 140, 160, { pointerType: 'pen', pressure: 0.6 });
+  pointer(doc, 'pointermove', 180, 200, { pointerType: 'pen', pressure: 0.7 });
+  pointer(doc, 'pointerup', 180, 200, { pointerType: 'pen', pressure: 0 });
+  const pencils = E(`JSON.parse(JSON.stringify(nodes.filter(n=>n.type==='pencil')))`);
+  check('pen pointer draws exactly one pencil node', pencils.length === 1);
+  check('every stroke point carries a numeric pressure', pencils[0].points.length >= 2 && pencils[0].points.every(p => typeof p.pressure === 'number'));
+  check('a pen pressure value is actually captured (>0)', pencils[0].points.some(p => p.pressure > 0));
+  // (3) desktop no-regression: a mouse drag still draws (mouse() drives the pointer path)
+  win.setTool('pencil');
+  mouse(canvas, 'mousedown', 300, 300);
+  mouse(doc, 'mousemove', 340, 340);
+  mouse(doc, 'mouseup', 360, 360);
+  check('mouse still draws a pencil node after the pointer migration', E(`nodes.filter(n=>n.type==='pencil').length`) === 2);
+  // (4) a touch pointer drives the canvas too (marquee select starts on empty canvas)
+  win.setTool('select');
+  pointer(canvas, 'pointerdown', 60, 60, { pointerType: 'touch' });
+  check('touch pointer reaches the canvas handler (marquee selection begins)', E(`selecting !== null && typeof selecting === 'object'`));
+  pointer(doc, 'pointerup', 60, 60, { pointerType: 'touch' });
+}
+
+group('Touch & pointer input (#21): multi-touch pinch/pan + palm rejection');
+{
+  const { doc, E } = boot();
+  const canvas = doc.getElementById('canvas');
+  // --- pinch-zoom: two fingers moving apart zooms IN (zoom value decreases) ---
+  E('zoom=1; viewBox.x=0; viewBox.y=0; viewBox.w=1200; viewBox.h=800;');
+  pointer(canvas, 'pointerdown', 400, 400, { pointerType: 'touch', pointerId: 1 });
+  pointer(canvas, 'pointerdown', 600, 400, { pointerType: 'touch', pointerId: 2 });
+  check('two touch pointers begin a pinch gesture', E('pinch !== null'));
+  const z0 = E('zoom');
+  pointer(doc, 'pointermove', 350, 400, { pointerType: 'touch', pointerId: 1 });
+  pointer(doc, 'pointermove', 650, 400, { pointerType: 'touch', pointerId: 2 });
+  check('fingers apart zooms in (zoom value drops)', E('zoom') < z0);
+  pointer(doc, 'pointerup', 350, 400, { pointerType: 'touch', pointerId: 1 });
+  pointer(doc, 'pointerup', 650, 400, { pointerType: 'touch', pointerId: 2 });
+  check('lifting a finger ends the pinch', E('pinch === null'));
+
+  // --- two-finger pan: dragging both fingers shifts the viewBox ---
+  const { doc: doc2, E: E2 } = boot();
+  const canvas2 = doc2.getElementById('canvas');
+  E2('zoom=1; viewBox.x=0; viewBox.y=0; viewBox.w=1200; viewBox.h=800;');
+  pointer(canvas2, 'pointerdown', 400, 400, { pointerType: 'touch', pointerId: 1 });
+  pointer(canvas2, 'pointerdown', 500, 400, { pointerType: 'touch', pointerId: 2 });
+  const vx0 = E2('viewBox.x');
+  pointer(doc2, 'pointermove', 450, 400, { pointerType: 'touch', pointerId: 1 });
+  pointer(doc2, 'pointermove', 550, 400, { pointerType: 'touch', pointerId: 2 });
+  check('two-finger drag moves the viewBox (pan)', E2('viewBox.x') !== vx0);
+
+  // --- palm rejection: a stray finger during a pen stroke is ignored ---
+  const { win: win3, doc: doc3, E: E3 } = boot();
+  const canvas3 = doc3.getElementById('canvas');
+  win3.setTool('pencil');
+  pointer(canvas3, 'pointerdown', 100, 100, { pointerType: 'pen', pointerId: 1, pressure: 0.5 });
+  pointer(doc3, 'pointermove', 140, 140, { pointerType: 'pen', pointerId: 1, pressure: 0.5 });
+  check('pen stroke marks penActive', E3('penActive === true'));
+  pointer(canvas3, 'pointerdown', 300, 300, { pointerType: 'touch', pointerId: 2 });
+  check('stray finger does not start a pinch while pen draws', E3('pinch === null'));
+  check('stray finger does not reset the in-progress pen stroke', E3('penciling !== null && penciling.points.length >= 2'));
+  pointer(doc3, 'pointerup', 140, 140, { pointerType: 'pen', pointerId: 1 });
+  check('exactly one pencil node after the pen stroke + palm touch', E3(`nodes.filter(n=>n.type==='pencil').length`) === 1);
+  check('penActive clears when the pen lifts', E3('penActive === false'));
 }
 
 process.exit(report() ? 0 : 1);
