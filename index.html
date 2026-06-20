@@ -584,6 +584,12 @@
         <!-- shown in light mode (click → dark) -->
         <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
+      <!-- Custom accent color (#78): pick a hex; double-click swatch resets to theme default -->
+      <label id="accentPicker" class="tool-btn" title="Custom accent color (double-click to reset)" style="position:relative;overflow:hidden;cursor:pointer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.563-2.512 5.563-5.563C22 6.012 17.5 2 12 2z"/></svg>
+        <input type="color" id="accentInput" onchange="setAccentColor(this.value)" ondblclick="resetAccentColor()"
+               style="position:absolute;inset:0;opacity:0;cursor:pointer" title="Pick accent color">
+      </label>
       <a href="/docs/" target="_blank" class="tool-btn" title="Documentation" style="text-decoration:none">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -1162,18 +1168,49 @@
     };
     const COLORS = { ...THEMES.dark };
     let currentTheme = 'dark';
+    let accentOverride = null;   // #78: user's custom accent hex (overrides the theme default), or null
     // Switch theme: update the <html> data attribute (drives all CSS vars),
     // swap the canvas palette, persist, and re-render so canvas colors refresh.
     function applyTheme(theme, persist = true) {
       currentTheme = (theme === 'light') ? 'light' : 'dark';
       document.documentElement.dataset.theme = currentTheme;
       Object.assign(COLORS, THEMES[currentTheme]);
+      applyAccentOverride();   // #78: a custom accent survives theme switches
       if (persist) saveSetting('theme', currentTheme);
       const tbtn = document.getElementById('themeToggleBtn');
       if (tbtn) tbtn.title = currentTheme === 'light' ? 'Switch to dark theme' : 'Switch to light theme';
       if (typeof render === 'function' && nodes) render();
     }
     function toggleTheme() { applyTheme(currentTheme === 'light' ? 'dark' : 'light'); }
+
+    // ---- Custom accent override (#78) ----------------------------------------
+    // A user-chosen accent hex overrides the active theme's accent for both the
+    // CSS-driven UI (`--accent`) and the canvas palette (`COLORS.accent`). Stored
+    // via saveSetting('accent', hex) and re-applied after applyTheme() (which
+    // resets COLORS.accent to the theme default). resetAccentColor() clears it.
+    function applyAccentOverride() {
+      if (accentOverride) {
+        COLORS.accent = accentOverride;
+        document.documentElement.style.setProperty('--accent', accentOverride);
+      } else {
+        document.documentElement.style.removeProperty('--accent');
+      }
+      const inp = document.getElementById('accentInput');
+      if (inp) inp.value = COLORS.accent;   // keep the swatch in sync with the active accent
+    }
+    function setAccentColor(hex) {
+      accentOverride = hex;
+      saveSetting('accent', hex);
+      applyAccentOverride();
+      if (typeof render === 'function' && nodes) render();
+    }
+    function resetAccentColor() {
+      accentOverride = null;
+      removeSetting('accent');
+      COLORS.accent = THEMES[currentTheme].accent;
+      document.documentElement.style.removeProperty('--accent');
+      if (typeof render === 'function' && nodes) render();
+    }
     const GRID_SIZE = 20;
     const SHAPE_TOOLS = ['rect', 'pill', 'diamond', 'circle', 'container', 'text', 'note', 'line'];
     const CONFIG = {
@@ -1459,6 +1496,8 @@
       viewBox = { x: 0, y: 0, w: rect.width, h: rect.height };
       updateViewBox();
       // Restore the saved theme before the first render (no persist write).
+      // Load any custom accent first so applyTheme re-applies it (#78).
+      accentOverride = loadSetting('accent') || null;
       applyTheme(loadSetting('theme', 'dark'), false);
       buildPalettes();
       buildIconPicker();
