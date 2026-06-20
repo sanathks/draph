@@ -6118,15 +6118,19 @@
     // smaller indentation. Shapes: ((circle)), (rounded), [square], {{hex}}.
     // Rendered as a top-down tree (Mermaid draws it radially — see tracker).
     function parseMindmap(rawCode) {
-      const result = { nodes: [], connections: [], errors: [], diagramType: 'flowchart' };
+      const result = { nodes: [], connections: [], errors: [], diagramType: 'mindmap' };
       const used = new Set();
       const stack = [];   // [{ indent, id }]
-      let auto = 0;
+      const byId = {};    // id -> { node, depth, children: [] }
+      let auto = 0, rootId = null;
       for (const raw of rawCode.split('\n')) {
         if (!raw.trim()) continue;
         if (/^\s*mindmap\s*$/i.test(raw)) continue;
         let content = raw.trim();
-        if (content.startsWith('%%') || /^::icon/i.test(content)) continue;   // skip icon decorations
+        if (content.startsWith('%%')) continue;
+        // ::icon(fa fa-book) decoration → attach the icon to the most-recent node
+        let im = content.match(/^::icon\(\s*(.+?)\s*\)\s*$/i);
+        if (im) { const last = result.nodes[result.nodes.length - 1]; if (last) last.icon = im[1].trim().split(/\s+/).pop().replace(/^fa-/, ''); continue; }
         content = content.replace(/:::\S+\s*$/, '').trim();                   // drop ::: class suffix
         if (!content) continue;
         const indent = raw.match(/^\s*/)[0].replace(/\t/g, '  ').length;
@@ -6140,11 +6144,39 @@
         let nodeId = (id && id.length) ? id : ('mm' + (++auto));
         while (used.has(nodeId)) nodeId = 'mm' + (++auto);
         used.add(nodeId);
-        result.nodes.push({ id: nodeId, type, label });
+        const node = { id: nodeId, type, label, fixed: true };
+        result.nodes.push(node);
 
         while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
-        if (stack.length) result.connections.push({ from: stack[stack.length - 1].id, to: nodeId });
+        const depth = stack.length;
+        const parent = stack.length ? stack[stack.length - 1].id : null;
+        if (parent) result.connections.push({ from: parent, to: nodeId }); else rootId = nodeId;
+        byId[nodeId] = { node, depth, children: [] };
+        if (parent && byId[parent]) byId[parent].children.push(nodeId);
         stack.push({ indent, id: nodeId });
+      }
+
+      // pre-size each node (fixed geometry; the layout passes mindmaps through)
+      result.nodes.forEach(n => {
+        const w = Math.max(70, (n.label || '').length * 7 + 28);
+        if (n.type === 'circle') { const s = Math.max(64, (n.label || '').length * 7 + 28); n.width = s; n.height = s; }
+        else { n.width = w; n.height = 44; }
+      });
+
+      // radial layout: root centered, each depth on a ring, siblings spread by
+      // angle proportional to their subtree's leaf count (so they don't overlap).
+      if (rootId) {
+        const RING = 200, CX = 600, CY = 500;
+        const leaves = (id) => { const c = byId[id].children; return c.length ? c.reduce((s, k) => s + leaves(k), 0) : 1; };
+        const place = (id, a0, a1) => {
+          const info = byId[id], ang = (a0 + a1) / 2, r = info.depth * RING;
+          info.node.x = Math.round(CX + r * Math.cos(ang) - info.node.width / 2);
+          info.node.y = Math.round(CY + r * Math.sin(ang) - info.node.height / 2);
+          const ch = info.children; if (!ch.length) return;
+          const total = leaves(id); let a = a0;
+          for (const k of ch) { const span = (a1 - a0) * leaves(k) / total; place(k, a, a + span); a += span; }
+        };
+        place(rootId, 0, Math.PI * 2);
       }
       return result;
     }
@@ -6704,7 +6736,7 @@
       const startY = 100;
 
       // These carry their own absolute geometry — don't re-layout.
-      if (diagramType === 'gantt' || diagramType === 'pie' || diagramType === 'journey' || diagramType === 'gitgraph' || diagramType === 'quadrant' || diagramType === 'block' || diagramType === 'xychart') return parsedNodes;
+      if (diagramType === 'gantt' || diagramType === 'pie' || diagramType === 'journey' || diagramType === 'gitgraph' || diagramType === 'quadrant' || diagramType === 'block' || diagramType === 'xychart' || diagramType === 'mindmap') return parsedNodes;
 
       // Sequence diagram: horizontal layout at top
       if (diagramType === 'sequence') {
@@ -7163,6 +7195,7 @@
           if (n.type === 'pie') { node.slices = n.slices; node.title = n.title; }
           if (n.type === 'quadrant') { node.title = n.title; node.xAxis = n.xAxis; node.yAxis = n.yAxis; node.quadrants = n.quadrants; node.points = n.points; }
           if (n.type === 'xychart') { node.title = n.title; node.xAxis = n.xAxis; node.yAxis = n.yAxis; node.series = n.series; }
+          if (n.icon) node.icon = n.icon;   // mindmap ::icon(...) → node icon
 
           // Store class properties/methods
           if (isClass) {

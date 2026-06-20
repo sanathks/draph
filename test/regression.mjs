@@ -1743,4 +1743,26 @@ group("Mermaid ER import (#23): crow's-foot cardinality markers");
   check('er crow-foot markers render as SVG', E(`connections[0].markerStart==='er-one' && connections[0].markerEnd==='er-zero-many'`) && doc.querySelectorAll('#connections circle').length >= 1);
 }
 
+group('Mermaid mindmap import (#24): radial layout + ::icon');
+{
+  const { win, doc, E } = boot();
+  const code = 'mindmap\n  root((Idea))\n  ::icon(fa fa-lightbulb)\n    Origins\n      Long history\n    Tools\n      Pen';
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true);
+  const ns = E(`nodes.map(n=>({l:n.label,x:n.x,y:n.y,w:n.width,h:n.height,icon:n.icon}))`);
+  const root = ns.find(n => n.l === 'Idea');
+  const dist = n => Math.hypot((n.x + n.w / 2) - (root.x + root.w / 2), (n.y + n.h / 2) - (root.y + root.h / 2));
+  check('radial: ring-1 nodes are away from root', ns.filter(n => ['Origins', 'Tools'].includes(n.l)).every(n => dist(n) > 60));
+  check('radial: depth maps to radius (ring-2 farther than ring-1)', dist(ns.find(n => n.l === 'Long history')) > dist(ns.find(n => n.l === 'Origins')));
+  let ov = false;
+  for (let i = 0; i < ns.length; i++) for (let j = i + 1; j < ns.length; j++) {
+    const a = ns[i], b = ns[j];
+    if (Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) > 1 && Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)) > 1) ov = true;
+  }
+  check('radial: no node overlap', !ov);
+  check('::icon(...) sets the node icon field', root.icon === 'lightbulb');
+  // existing parse/tree intact (layout-only change)
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('mindmap still builds the parent→child tree', p.nodes.length === 5 && p.connections.length === 4);
+}
+
 process.exit(report() ? 0 : 1);
