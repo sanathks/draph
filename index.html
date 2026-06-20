@@ -6064,15 +6064,37 @@
         result.nodes.push({ id: 'gsec_' + s.firstRow, type: 'text', label: s.name, fixed: true, x: 20, y: baseY + s.firstRow * rowH + (barH - 24) / 2, width: 160, height: 24 });
       });
       tasks.forEach((t, row) => {
+        t._nodeId = 'gt' + row;
         const off = Math.round((t._start - minDate) / DAY);
         const x = baseX + off * PXD;
         const y = baseY + row * rowH;
         if (t.milestone) {
-          result.nodes.push({ id: 'gt' + row, type: 'diamond', label: t.name, fixed: true, x: x - 20, y, width: 40, height: 40 });
+          result.nodes.push({ id: t._nodeId, type: 'diamond', label: t.name, fixed: true, x: x - 20, y, width: 40, height: 40 });
         } else {
-          result.nodes.push({ id: 'gt' + row, type: 'rect', label: t.name, fixed: true, x, y, width: Math.max(40, t._days * PXD), height: barH, color: '#7aa2f7', fillStyle: 'infill' });
+          result.nodes.push({ id: t._nodeId, type: 'rect', label: t.name, fixed: true, x, y, width: Math.max(40, t._days * PXD), height: barH, color: '#7aa2f7', fillStyle: 'infill' });
         }
       });
+
+      // Dependency arrows: each `after <id>` task → an edge from its predecessor.
+      tasks.forEach(t => {
+        if (!t.after) return;
+        t.after.forEach(rid => { const pred = byId[rid]; if (pred && pred._nodeId) result.connections.push({ from: pred._nodeId, to: t._nodeId, markerEnd: 'arrow' }); });
+      });
+
+      // Weekly date axis: a tick label every 7 days across the date range.
+      const maxDate = tasks.reduce((m, t) => (m == null || t._end > m ? t._end : m), null) || minDate;
+      const totalDays = Math.max(1, Math.round((maxDate - minDate) / DAY));
+      const fmt = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+      for (let w = 0, day = 0; day <= totalDays; w++, day += 7) {
+        const ax = baseX + day * PXD;
+        result.nodes.push({ id: 'gax' + w, type: 'text', label: fmt(new Date(minDate.getTime() + day * DAY)), fixed: true, x: ax - 22, y: baseY - 30, width: 44, height: 20 });
+      }
+
+      // Today marker (only when today falls within the chart range).
+      const todayOff = Math.round((new Date() - minDate) / DAY);
+      if (todayOff >= 0 && todayOff <= totalDays) {
+        result.nodes.push({ id: 'gtoday', type: 'text', label: '▼ today', fixed: true, x: baseX + todayOff * PXD - 18, y: baseY - 50, width: 56, height: 18, color: '#f7768e' });
+      }
       return result;
     }
 

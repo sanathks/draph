@@ -1126,7 +1126,7 @@ group('v2: Mermaid gantt import (time-axis bars)');
   ed.value = code; win.importMermaid(true);
   const ia = E(`nodes.find(n=>n.label==='Task A')`);
   check('gantt import preserves bar width', ia && ia.width === 200);
-  check('gantt import draws no dependency arrows', E('connections.length') === 0);
+  check('gantt import draws a dependency arrow for the "after" task (#25)', E('connections.length') >= 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -1770,6 +1770,18 @@ group('Mermaid mindmap import (#24): radial layout + ::icon');
   const has = p2.nodes.find(n => n.label === 'Has'), wild = p2.nodes.find(n => n.label === 'Wild');
   check('canonical fa fa-book resolves to a registered icon', has.icon === 'book' && reg.includes('book'));
   check('unknown ::icon falls back to a renderable glyph (no blank)', !!wild.icon && reg.includes(wild.icon) && wild.icon === 'dot');
+}
+
+group('Mermaid gantt import (#25): dependency arrows + weekly axis');
+{
+  const { E } = boot();
+  const code = 'gantt\n  dateFormat YYYY-MM-DD\n  section Build\n  Design :a1, 2026-06-01, 5d\n  Code :after a1, 7d';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const design = p.nodes.find(n => /Design/.test(n.label)), code2 = p.nodes.find(n => /Code/.test(n.label));
+  check('gantt: dependent task starts at predecessor end', Math.abs(code2.x - (design.x + design.width)) < 2);
+  check('gantt: dependency arrow connects predecessor → dependent', p.connections.some(c => c.from === design.id && c.to === code2.id && c.markerEnd === 'arrow'));
+  check('gantt: weekly axis ticks span the date range', p.nodes.filter(n => /^gax/.test(n.id)).length >= 2);
+  check('gantt: bars keep fixed geometry', design.fixed === true && code2.fixed === true);
 }
 
 process.exit(report() ? 0 : 1);
