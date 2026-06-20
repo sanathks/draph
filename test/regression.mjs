@@ -1639,4 +1639,35 @@ group('Connection routing (#34): non-locked sides re-seat on render');
   check('locked toSide is left untouched', E(`connections.find(c=>c.id==='r34').toSide`) === locked);
 }
 
+group('Shape library panel (#40): placeShape + slide-out panel');
+{
+  const { win, doc, E } = boot();
+  const c = win.placeShape('class', 200, 200);
+  check('class box created with UML flag', c.isClass === true);
+  check('class box has default members', ((c.properties || []).length + (c.methods || []).length) > 0);
+  const i = win.placeShape('interface', 400, 200);
+  check('interface variant sets stereotype', i.isClass === true && i.stereotype === 'interface');
+  const en = win.placeShape('enumeration', 600, 200);
+  check('enum variant sets stereotype + values', en.stereotype === 'enumeration' && en.properties.length >= 1);
+  const p = win.placeShape('participant', 800, 200);
+  check('participant has a lifeline', p.hasLifeline === true && p.isParticipant === true);
+  const ent = win.placeShape('entity', 1000, 200);
+  check('entity is a class box with attribute rows', ent.isClass === true && ent.properties.length >= 1);
+  const t = win.placeShape('terminal', 100, 400);
+  check('terminal is a small pseudo dot', t.isPseudo === true && t.width <= 24);
+  check('placed shape lands on the requested point (within its bounds)', c.x <= 200 && 200 <= c.x + c.width && c.y <= 200 && 200 <= c.y + c.height);
+  win.render();
+  const cEl = doc.querySelector(`#nodes .node[data-id="${c.id}"]`);
+  check('placed class renders with its members', !!cEl && cEl.textContent.length > 0);
+  check('placed participant renders', !!doc.querySelector(`#nodes .node[data-id="${p.id}"]`));
+  // panel toggles open/closed + reflects state in className
+  win.toggleShapePanel(true);
+  check('shape panel opens', /\bopen\b/.test(doc.getElementById('shapePanel').className) && doc.getElementById('shapePanel').style.display === 'flex');
+  win.toggleShapePanel(false);
+  check('shape panel closes', !/\bopen\b/.test(doc.getElementById('shapePanel').className));
+  // no regression: basic shape tool still works
+  win.setTool('rect');
+  check('basic rect tool still selects', E(`currentTool`) === 'rect');
+}
+
 process.exit(report() ? 0 : 1);

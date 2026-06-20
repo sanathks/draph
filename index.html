@@ -345,6 +345,11 @@
       padding: 1px 6px; background: var(--bg2); border: 1px solid var(--border); border-radius: 4px;
       font-size: 11px; color: var(--fg); font-family: 'JetBrains Mono', Consolas, monospace;
     }
+    .shape-item {
+      padding: 8px 6px; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+      font-size: 11px; color: var(--fg); cursor: pointer; text-align: center; transition: border-color .12s, background .12s;
+    }
+    .shape-item:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg2)); }
   </style>
 </head>
 <body class="h-screen flex flex-col">
@@ -409,6 +414,12 @@
             <path d="M4 4h16v11l-5 5H4z"/><path d="M20 14h-5v5"/>
           </svg>
           <span class="kbd-badge">N</span>
+        </button>
+        <button class="tool-btn" id="tool-shapes" onclick="toggleShapePanel()" title="Shape library — UML / sequence / state / ER (S)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="8" height="8" rx="1"/><circle cx="17" cy="7" r="4"/><path d="M7 14l4 7H3z"/><rect x="13" y="14" width="8" height="7" rx="1"/>
+          </svg>
+          <span class="kbd-badge">S</span>
         </button>
         <div class="divider"></div>
         <!-- More: everything secondary lives here to keep the bar uncluttered -->
@@ -550,6 +561,37 @@
       </div>
     </div>
     
+    <!-- Shape library panel (manual UML/diagram shapes; slides in from the right) -->
+    <div id="shapePanel" class="shape-panel" style="display:none;position:fixed;top:0;right:0;height:100%;width:260px;max-width:85vw;z-index:280;background:var(--bg);border-left:1px solid var(--border);box-shadow:-4px 0 24px rgba(0,0,0,0.35);flex-direction:column">
+      <div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:13px;font-weight:600;color:var(--fg)">Shapes</span>
+        <button onclick="toggleShapePanel(false)" title="Close (Esc)" style="width:24px;height:24px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--fg);cursor:pointer">✕</button>
+      </div>
+      <div style="flex:1;overflow:auto;padding:10px;font-size:12px">
+        <div style="color:var(--fg-dim);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:2px 0 6px">Class (UML)</div>
+        <div class="shape-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
+          <button class="shape-item" onclick="placeShape('class')">Class</button>
+          <button class="shape-item" onclick="placeShape('interface')">Interface</button>
+          <button class="shape-item" onclick="placeShape('abstract')">Abstract</button>
+          <button class="shape-item" onclick="placeShape('enumeration')">Enum</button>
+        </div>
+        <div style="color:var(--fg-dim);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:2px 0 6px">Sequence</div>
+        <div class="shape-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
+          <button class="shape-item" onclick="placeShape('participant')">Participant</button>
+          <button class="shape-item" onclick="placeShape('actor')">Actor</button>
+        </div>
+        <div style="color:var(--fg-dim);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:2px 0 6px">State</div>
+        <div class="shape-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
+          <button class="shape-item" onclick="placeShape('terminal')">Start/End</button>
+        </div>
+        <div style="color:var(--fg-dim);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;margin:2px 0 6px">ER</div>
+        <div class="shape-group" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px">
+          <button class="shape-item" onclick="placeShape('entity')">Entity</button>
+        </div>
+        <div style="color:var(--fg-dim);font-size:10px;margin-top:10px">Fork/Join/Choice land with #22. Flowchart shape zoo is a follow-up.</div>
+      </div>
+    </div>
+
     <!-- Canvas area -->
     <div id="canvasContainer" class="flex-1 relative overflow-hidden">
     <svg id="canvas" class="w-full h-full" style="background: var(--bg); touch-action: none;">
@@ -1582,6 +1624,60 @@
       
       nodes.push(node);
       return node;
+    }
+
+    // Manually place a diagram-specific shape (Class / Sequence / State / ER) that
+    // otherwise only comes from Mermaid import. Reuses the existing renderNodes
+    // branches (isClass / hasLifeline / isPseudo). Returns the created node so the
+    // shape-library panel and tests can both reach it. Defaults to viewport center.
+    function placeShape(kind, x, y) {
+      if (x == null) x = viewBox.x + viewBox.w / 2;
+      if (y == null) y = viewBox.y + viewBox.h / 2;
+      const sizeClass = (n) => {
+        const rows = [...(n.properties || []), ...(n.methods || []), n.label, n.stereotype ? '«' + n.stereotype + '»' : ''];
+        const longest = rows.reduce((m, s) => Math.max(m, (s || '').length), 0);
+        n.width = Math.max(170, longest * 7 + 24);
+        n.height = Math.max(70, (n.stereotype ? 42 : 28) + (n.properties || []).length * 16 + (n.methods || []).length * 16 + 8);
+      };
+      let node;
+      const mkClass = (label, stereotype, properties, methods) => {
+        node = createNode('rect', 0, 0, 170, 80);
+        node.label = label; node.isClass = true; node.stereotype = stereotype || '';
+        node.properties = properties || []; node.methods = methods || [];
+        sizeClass(node);
+      };
+      switch ((kind || '').toLowerCase()) {
+        case 'class': mkClass('NewClass', '', ['+ field: Type'], ['+ method() void']); break;
+        case 'interface': mkClass('NewInterface', 'interface', [], ['+ operation() void']); break;
+        case 'abstract': mkClass('AbstractBase', 'abstract', ['# state: Type'], ['+ run()* void']); break;
+        case 'enum': case 'enumeration': mkClass('NewEnum', 'enumeration', ['VALUE_A', 'VALUE_B'], []); break;
+        case 'entity': mkClass('Entity', '', ['id: int PK', 'name: string'], []); break;
+        case 'participant': case 'actor':
+          node = createNode('rect', 0, 0, 100, 40);
+          node.label = kind.toLowerCase() === 'actor' ? 'Actor' : 'Participant';
+          node.isParticipant = true; node.hasLifeline = true; node.isActor = kind.toLowerCase() === 'actor';
+          break;
+        case 'terminal':   // state start/end pseudo-dot (shared kind with #22)
+          node = createNode('circle', 0, 0, 24, 24);
+          node.label = ''; node.isPseudo = true; node.width = 24; node.height = 24;
+          node.fillStyle = 'infill'; node.color = COLORS.fg;
+          break;
+        default: mkClass('NewClass', '', ['+ field: Type'], ['+ method() void']);
+      }
+      node.x = Math.round(x - node.width / 2);
+      node.y = Math.round(y - node.height / 2);
+      selectedId = node.id; selectedIds = [node.id];
+      saveState(); render(); updateUrlHash();
+      return node;
+    }
+
+    // Toggle the right-anchored shape library panel. `force` true=open / false=close;
+    // omit to flip. Open state is reflected in the className ('shape-panel open').
+    function toggleShapePanel(force) {
+      const p = document.getElementById('shapePanel'); if (!p) return;
+      const open = force === undefined ? !/\bopen\b/.test(p.className) : !!force;
+      p.className = open ? 'shape-panel open' : 'shape-panel';
+      p.style.display = open ? 'flex' : 'none';
     }
 
     // Grow a node so its label fits inside the shape (never shrinks below the
@@ -4341,10 +4437,21 @@
       '0': () => shareDiagram(),
       a: () => arrangeDiagram(),
       m: () => toggleMermaidSidebar(),
+      s: () => toggleShapePanel(),
     };
+
+    // Close the shape panel on an outside click (not the panel, not its toolbar button).
+    document.addEventListener('pointerdown', (e) => {
+      const sp = document.getElementById('shapePanel');
+      if (!sp || !/\bopen\b/.test(sp.className)) return;
+      if (sp.contains(e.target) || (e.target.closest && e.target.closest('#tool-shapes'))) return;
+      toggleShapePanel(false);
+    }, true);
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
+        const sp = document.getElementById('shapePanel');
+        if (sp && /\bopen\b/.test(sp.className)) { toggleShapePanel(false); return; }
         if (!cheatsheetOverlay.classList.contains('hidden')) { toggleCheatsheet(false); return; }
         hideContextMenu(); deselectAll(); setTool('select'); closeDropdowns(); return;
       }
