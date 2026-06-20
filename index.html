@@ -1545,6 +1545,7 @@
           updated: now(),
           schemaVersion: doc.schemaVersion || (prev && prev.schemaVersion) || 1,
           data: doc.data !== undefined ? doc.data : (prev ? prev.data : null),
+          thumbnail: doc.thumbnail !== undefined ? doc.thumbnail : (prev ? prev.thumbnail : null),   // #79
         };
         cache.set(id, rec); _persist(rec); return clone(rec);
       }
@@ -3582,6 +3583,15 @@
       } else {
         activeDocId = docStore.save({ title: deriveTitle(), data: exportState() }).id;
       }
+      // Refresh the thumbnail on an explicit save only (#79) — rasterizing on every
+      // autosave would be wasteful; the snapshot is async so it lands a moment later.
+      if (force && nodes.length && typeof generateThumbnail === 'function') {
+        const id = activeDocId;
+        generateThumbnail((dataUrl) => {
+          docStore.save({ id, thumbnail: dataUrl });
+          if (galleryIsOpen()) renderGallery();
+        });
+      }
       if (galleryIsOpen()) renderGallery();
       return activeDocId;
     }
@@ -3607,7 +3617,7 @@
       const swatch = ['#7aa2f7', '#9ece6a', '#bb9af7', '#e0af68', '#f7768e'];
       grid.innerHTML = docs.map((d, i) => `
         <div class="gallery-card" data-id="${d.id}" style="border:1px solid ${d.id === activeDocId ? 'var(--accent)' : 'var(--border)'};border-radius:8px;overflow:hidden;background:var(--bg2)">
-          <div onclick="galleryOpen('${d.id}')" title="Open" style="height:72px;background:${swatch[i % swatch.length]};opacity:0.85;cursor:pointer"></div>
+          <div onclick="galleryOpen('${d.id}')" title="Open" style="height:72px;cursor:pointer;${d.thumbnail ? '' : `background:${swatch[i % swatch.length]};opacity:0.85`}">${d.thumbnail ? `<img src="${d.thumbnail}" alt="" style="display:block;width:100%;height:72px;object-fit:cover">` : ''}</div>
           <div style="padding:8px">
             <div class="gallery-title" style="font-size:12px;font-weight:600;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.title)}</div>
             <div style="font-size:10px;color:var(--fg-dim);margin-top:2px">${relTime(d.updated)}</div>
@@ -5126,6 +5136,25 @@
       };
       img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
       return true;
+    }
+
+    // Generate a small thumbnail (data-URL) of the current diagram for the gallery
+    // (#79). Reuses the PNG-export raster path at low scale, then clamps to a max
+    // width so big diagrams don't bloat the stored record. cb(dataUrl) on success;
+    // returns false (and no cb) when there's nothing to render.
+    function generateThumbnail(cb) {
+      return rasterizeDiagram(0.5, (c) => {
+        const MAXW = 320;
+        let out = c;
+        if (c.width > MAXW) {
+          const s = MAXW / c.width;
+          const t = document.createElement('canvas');
+          t.width = MAXW; t.height = Math.max(1, Math.round(c.height * s));
+          t.getContext('2d').drawImage(c, 0, 0, t.width, t.height);
+          out = t;
+        }
+        cb(out.toDataURL('image/png'));
+      });
     }
 
     // Download a PNG at the given scale (1/2/3×). Default 2× for retina sharpness.
