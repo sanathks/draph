@@ -2255,4 +2255,37 @@ group('Screen-reader semantics (#59): node/conn aria-labels + live region');
   check('node still renders its shape', !!doc.querySelector(`#nodes .node[data-id="${b.id}"] rect, #nodes .node[data-id="${b.id}"] path`));
 }
 
+group('Export selection only (#102): selected nodes + internal edges, cropped');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40);
+  const b = win.createNode('rect', 200, 0, 80, 40);
+  const far = win.createNode('rect', 900, 900, 80, 40);
+  E(`nodes.find(n=>n.id==='${a.id}').label='Alpha'; nodes.find(n=>n.id==='${b.id}').label='Bravo'; nodes.find(n=>n.id==='${far.id}').label='FarAway'`);
+  // an internal edge (a→b) and an edge to an unselected node (b→far)
+  E(`connections.push({id:'e_ab', from:'${a.id}', to:'${b.id}'}); connections.push({id:'e_bf', from:'${b.id}', to:'${far.id}'})`);
+  win.render();
+
+  E(`selectedIds=['${a.id}','${b.id}']; selectedId=null;`);
+  const svg = win.exportSelectionSVG();
+  check('selection export includes the selected nodes', /Alpha/.test(svg) && /Bravo/.test(svg));
+  check('selection export excludes unselected nodes', !/FarAway/.test(svg));
+  check('selection export keeps the internal edge', /e_ab/.test(svg));
+  check('selection export drops edges to unselected nodes', !/e_bf/.test(svg));
+  check('selection export is a standalone svg with a viewBox', /^<svg[\s>]/.test(svg.trim()) && /viewBox=/.test(svg));
+  check('selection export has no UI chrome (connectors/handles)', !/class="connector"|resize-handle|conn-hit/.test(svg));
+
+  // cropped to the selection: viewBox is far smaller than the full canvas span (Far is at 900,900)
+  const vb = svg.match(/viewBox="([^"]+)"/)[1].split(/\s+/).map(Number);
+  check('selection viewBox is cropped to the subset (not the far node)', vb[2] < 600 && vb[3] < 600);
+
+  // whole-canvas export is unchanged — still includes everything
+  const full = win.buildExportSVG();
+  check('whole-canvas export still includes all nodes', /Alpha/.test(full) && /FarAway/.test(full));
+
+  // guard: no selection → exportSelectionSVG returns null
+  E(`selectedIds=[]; selectedId=null;`);
+  check('exportSelectionSVG returns null with no selection', win.exportSelectionSVG() === null);
+}
+
 process.exit(report() ? 0 : 1);

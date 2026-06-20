@@ -200,6 +200,7 @@
       white-space: nowrap;
     }
     .dropdown-item:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+    .dropdown-item.disabled { opacity: 0.4; pointer-events: none; }   /* #102: no selection */
     .dropdown-item svg { width: 15px; height: 15px; flex-shrink: 0; }
     .dropdown-item kbd {
       margin-left: auto; font-size: 10px; color: var(--fg-dim); background: var(--bg);
@@ -522,6 +523,10 @@
             <div class="dropdown-item" onclick="downloadGIF();closeDropdowns()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               Export GIF <kbd>gif</kbd>
+            </div>
+            <div class="dropdown-item" id="exportSelItem" onclick="downloadSelectionSVG();closeDropdowns()" title="Export only the selected nodes (SVG)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M21 19a2 2 0 0 1-2 2"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h1"/><path d="M14 3h1"/><path d="M14 21h1"/><path d="M3 9v1"/><path d="M21 9v1"/><path d="M3 14v1"/><path d="M21 14v1"/></svg>
+              Export selection <kbd>SVG</kbd>
             </div>
             <div class="dropdown-item" onclick="shareDiagram();closeDropdowns()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
@@ -1313,6 +1318,9 @@
       const wasOpen = dropdown.classList.contains('open');
       closeDropdowns();
       if (!wasOpen) dropdown.classList.add('open');
+      // Export-selection is only meaningful with a selection (#102).
+      const exSel = document.getElementById('exportSelItem');
+      if (exSel) exSel.classList.toggle('disabled', selectedNodeIds().length < 1);
     }
     function closeDropdowns() {
       document.querySelectorAll('.dropdown').forEach(d => d.classList.remove('open'));
@@ -5293,8 +5301,21 @@
     // Build the export SVG as a string — content-cropped, UI chrome stripped,
     // background filled — WITHOUT triggering a download. Returns null if the
     // canvas is empty. Pure/testable; downloadSVG() wraps it for the file save.
-    function buildExportSVG() {
-      const bounds = getContentBounds();
+    // Build a standalone, chrome-free SVG of the diagram, cropped to its content.
+    // With `ids` (a node-id array, #102), exports ONLY those nodes + the
+    // connections wholly between them, cropped to the selection's bounds.
+    function buildExportSVG(ids) {
+      const sel = ids && ids.length ? new Set(ids) : null;
+      let bounds;
+      if (sel) {
+        const ns = nodes.filter(n => sel.has(n.id));
+        if (!ns.length) return null;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        ns.forEach(n => { minX = Math.min(minX, n.x); minY = Math.min(minY, n.y); maxX = Math.max(maxX, n.x + n.width); maxY = Math.max(maxY, n.y + n.height); });
+        bounds = { minX, minY, maxX, maxY };
+      } else {
+        bounds = getContentBounds();
+      }
       if (!bounds) return null;
 
       const padding = 40;
@@ -5304,11 +5325,19 @@
       const cropH = (bounds.maxY - bounds.minY) + padding * 2;
 
       const clone = canvas.cloneNode(true);
-      // Strip all interaction chrome: connectors, resize/line handles, marquee &
-      // draw previews, lifeline connectors, and the transparent conn-hit overlays.
-      clone.querySelectorAll('.connector, .resize-handle, #selectBox, #drawPreview, .lifeline-connector, .line-handle, .conn-hit').forEach(el => el.remove());
+      // Strip all interaction chrome: connectors, resize/line/group handles, marquee
+      // & draw previews, lifeline connectors, and the transparent conn-hit overlays.
+      clone.querySelectorAll('.connector, .resize-handle, .group-resize-handle, #selectBox, #drawPreview, .lifeline-connector, .line-handle, .conn-hit').forEach(el => el.remove());
       const gridBg = clone.querySelector('#gridBg');
       if (gridBg) gridBg.remove();
+
+      // Selection export (#102): drop unselected nodes and any connection that
+      // isn't wholly between two selected nodes.
+      if (sel) {
+        clone.querySelectorAll('#nodes .node').forEach(el => { if (!sel.has(el.dataset.id)) el.remove(); });
+        const keep = new Set(connections.filter(c => sel.has(c.from) && sel.has(c.to)).map(c => c.id));
+        clone.querySelectorAll('.connection-group').forEach(el => { if (!keep.has(el.dataset.id)) el.remove(); });
+      }
 
       // Crop the viewport to the content
       clone.setAttribute('viewBox', `${cropX} ${cropY} ${cropW} ${cropH}`);
@@ -5335,6 +5364,24 @@
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = 'diagram.svg';
+      a.click();
+    }
+
+    // Selection-only export (#102): just the selected nodes + their internal edges.
+    // Returns null when nothing is selected (callers fall back / disable).
+    function exportSelectionSVG() {
+      const ids = selectedNodeIds();
+      return ids.length ? buildExportSVG(ids) : null;
+    }
+    function downloadSelectionSVG() {
+      const ids = selectedNodeIds();
+      if (ids.length < 1) { toast('Select one or more nodes first', 'error'); return; }
+      const svg = exportSelectionSVG();
+      if (!svg) { toast('Nothing to export in the selection', 'error'); return; }
+      const blob = new Blob([svg], { type: 'image/svg+xml' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'selection.svg';
       a.click();
     }
     
@@ -5395,8 +5442,19 @@
     // Rasterize the current diagram (cropped to content) to a <canvas> at the
     // given pixel scale, then hand it to `cb`. Shared by PNG download / copy /
     // scaled-export. `scale` is the device-pixel multiplier (2 = retina-sharp).
-    function rasterizeDiagram(scale, cb) {
-      const bounds = getContentBounds();
+    function rasterizeDiagram(scale, cb, ids) {
+      const sel = ids && ids.length ? new Set(ids) : null;
+      let bounds;
+      if (sel) {
+        const ns = nodes.filter(n => sel.has(n.id));
+        if (ns.length) {
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          ns.forEach(n => { minX = Math.min(minX, n.x); minY = Math.min(minY, n.y); maxX = Math.max(maxX, n.x + n.width); maxY = Math.max(maxY, n.y + n.height); });
+          bounds = { minX, minY, maxX, maxY };
+        }
+      } else {
+        bounds = getContentBounds();
+      }
       if (!bounds) {
         toast('Nothing to export yet — add a shape first', 'error');
         return false;
@@ -5409,8 +5467,14 @@
       const cropH = (bounds.maxY - bounds.minY) + padding * 2;
 
       const clone = canvas.cloneNode(true);
-      clone.querySelectorAll('.connector, .resize-handle, #selectBox, #drawPreview, .lifeline-connector, .line-handle, .conn-hit').forEach(el => el.remove());
+      clone.querySelectorAll('.connector, .resize-handle, .group-resize-handle, #selectBox, #drawPreview, .lifeline-connector, .line-handle, .conn-hit').forEach(el => el.remove());
       clone.querySelector('#gridBg')?.remove();
+      // Selection PNG (#102): drop unselected nodes + non-internal connections.
+      if (sel) {
+        clone.querySelectorAll('#nodes .node').forEach(el => { if (!sel.has(el.dataset.id)) el.remove(); });
+        const keep = new Set(connections.filter(c => sel.has(c.from) && sel.has(c.to)).map(c => c.id));
+        clone.querySelectorAll('.connection-group').forEach(el => { if (!keep.has(el.dataset.id)) el.remove(); });
+      }
 
       // Set viewBox and dimensions to cropped area
       clone.setAttribute('viewBox', `${cropX} ${cropY} ${cropW} ${cropH}`);
@@ -5452,6 +5516,18 @@
         a.click();
         if (scale !== 2) toast(`PNG exported at ${scale}×`, 'success');
       });
+    }
+
+    // Export only the current selection as PNG (#102), reusing the raster path.
+    function downloadSelectionPNG(scale = 2) {
+      const ids = selectedNodeIds();
+      if (ids.length < 1) { toast('Select one or more nodes first', 'error'); return; }
+      rasterizeDiagram(scale, (c) => {
+        const a = document.createElement('a');
+        a.href = c.toDataURL('image/png');
+        a.download = 'selection.png';
+        a.click();
+      }, ids);
     }
 
     // Copy a 2× PNG of the diagram to the system clipboard (where supported).
