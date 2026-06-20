@@ -1082,15 +1082,15 @@ group('v2: Mermaid timeline import');
   const parsed = E(`parseMermaid(${JSON.stringify(code)})`);
   check('timeline makes period nodes (pills)', parsed.nodes.filter(n => n.type === 'pill').length === 3);
   check('timeline makes an event node per event', parsed.nodes.some(n => n.label === 'Facebook') && parsed.nodes.some(n => n.label === 'Google'));
-  check('timeline ignores the title line', !parsed.nodes.some(n => n.label === 'History'));
+  check('timeline title becomes a heading node (#29)', parsed.nodes.some(n => n.label === 'History'));
   // a period with two events -> two child edges from that period
   const p2004 = parsed.nodes.find(n => n.label === '2004').id;
   check('timeline links events to their period', parsed.connections.filter(c => c.from === p2004).length === 2);
-  // sections -> grouping containers
+  // sections -> period pills tinted per-section (#29: horizontal, not containers)
   const code2 = ['timeline', '  section Early', '    2002 : LinkedIn', '  section Later', '    2006 : Twitter'].join('\n');
   const p2 = E(`parseMermaid(${JSON.stringify(code2)})`);
-  check('timeline sections become subgraphs', Array.isArray(p2.subgraphs) && p2.subgraphs.length === 2);
-  check('section owns its period node', p2.subgraphs[0].children.length >= 1);
+  const e2002 = p2.nodes.find(n => n.label === '2002'), t2006 = p2.nodes.find(n => n.label === '2006');
+  check('timeline sections tint period pills with distinct colors', !!e2002.color && !!t2006.color && e2002.color !== t2006.color);
   // full import
   const ed = win.document.getElementById('mermaidEditor');
   ed.value = code; win.importMermaid(true);
@@ -1126,7 +1126,7 @@ group('v2: Mermaid gantt import (time-axis bars)');
   ed.value = code; win.importMermaid(true);
   const ia = E(`nodes.find(n=>n.label==='Task A')`);
   check('gantt import preserves bar width', ia && ia.width === 200);
-  check('gantt import draws no dependency arrows', E('connections.length') === 0);
+  check('gantt import draws a dependency arrow for the "after" task (#25)', E('connections.length') >= 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -1741,6 +1741,99 @@ group('Mermaid class import (#27): namespaces → grouping container');
   doc.getElementById('mermaidEditor').value = code; win.importMermaid(true);
   check('import creates the Payment container', E(`nodes.some(n=>n.type==='container'&&n.label==='Payment')`));
   check('namespaced class renders inside the container', E(`(()=>{const c=nodes.find(n=>n.type==='container'&&n.label==='Payment');const k=nodes.find(n=>n.label==='Card');return !!c&&!!k&&k.x>=c.x&&k.y>=c.y&&k.x+k.width<=c.x+c.width&&k.y+k.height<=c.y+c.height;})()`));
+}
+
+group("Mermaid ER import (#23): crow's-foot cardinality markers");
+{
+  const { win, doc, E } = boot();
+  const code = 'erDiagram\n  CUSTOMER ||--o{ ORDER : places';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const c = p.connections[0];
+  check('er cardinality parsed onto ends', c.fromCard === 'one' && c.toCard === 'zero-or-many');
+  check('er maps cardinality to crow-foot markers', c.markerStart === 'er-one' && c.markerEnd === 'er-zero-many');
+  check('er label preserved', c.label === 'places');
+  // all 4 glyph families parse; identifying vs non-identifying line preserved
+  const p2 = E(`parseMermaid(${JSON.stringify('erDiagram\n  A |o--|| B\n  C }|..o{ D')})`);
+  check('er zero-or-one + one parse', p2.connections[0].fromCard === 'zero-or-one' && p2.connections[0].toCard === 'one');
+  check('er one-or-many + zero-or-many parse', p2.connections[1].fromCard === 'one-or-many' && p2.connections[1].toCard === 'zero-or-many');
+  check('er non-identifying stays dashed, identifying solid', p2.connections[1].strokeStyle === 'dashed' && p2.connections[0].strokeStyle === undefined);
+  // render: crow-foot glyphs draw as SVG (distinct, inline — no shared marker-id collisions)
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  check('er crow-foot markers render as SVG', E(`connections[0].markerStart==='er-one' && connections[0].markerEnd==='er-zero-many'`) && doc.querySelectorAll('#connections circle').length >= 1);
+}
+
+group('Mermaid mindmap import (#24): radial layout + ::icon');
+{
+  const { win, doc, E } = boot();
+  const code = 'mindmap\n  root((Idea))\n  ::icon(fa fa-lightbulb)\n    Origins\n      Long history\n    Tools\n      Pen';
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true);
+  const ns = E(`nodes.map(n=>({l:n.label,x:n.x,y:n.y,w:n.width,h:n.height,icon:n.icon}))`);
+  const root = ns.find(n => n.l === 'Idea');
+  const dist = n => Math.hypot((n.x + n.w / 2) - (root.x + root.w / 2), (n.y + n.h / 2) - (root.y + root.h / 2));
+  check('radial: ring-1 nodes are away from root', ns.filter(n => ['Origins', 'Tools'].includes(n.l)).every(n => dist(n) > 60));
+  check('radial: depth maps to radius (ring-2 farther than ring-1)', dist(ns.find(n => n.l === 'Long history')) > dist(ns.find(n => n.l === 'Origins')));
+  let ov = false;
+  for (let i = 0; i < ns.length; i++) for (let j = i + 1; j < ns.length; j++) {
+    const a = ns[i], b = ns[j];
+    if (Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) > 1 && Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)) > 1) ov = true;
+  }
+  check('radial: no node overlap', !ov);
+  check('::icon(...) sets the node icon field', root.icon === 'lightbulb');
+  // existing parse/tree intact (layout-only change)
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('mindmap still builds the parent→child tree', p.nodes.length === 5 && p.connections.length === 4);
+  // review fix: every ::icon resolves to a RENDERABLE registry key — canonical
+  // `fa fa-book` renders, and an unknown name falls back (never a silent blank).
+  const p2 = E(`parseMermaid(${JSON.stringify('mindmap\n  root((R))\n    Has\n    ::icon(fa fa-book)\n    Wild\n    ::icon(fa fa-unicorn)')})`);
+  const reg = E(`Object.keys(ICONS)`);
+  const has = p2.nodes.find(n => n.label === 'Has'), wild = p2.nodes.find(n => n.label === 'Wild');
+  check('canonical fa fa-book resolves to a registered icon', has.icon === 'book' && reg.includes('book'));
+  check('unknown ::icon falls back to a renderable glyph (no blank)', !!wild.icon && reg.includes(wild.icon) && wild.icon === 'dot');
+}
+
+group('Mermaid gantt import (#25): dependency arrows + weekly axis');
+{
+  const { E } = boot();
+  const code = 'gantt\n  dateFormat YYYY-MM-DD\n  section Build\n  Design :a1, 2026-06-01, 5d\n  Code :after a1, 7d';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const design = p.nodes.find(n => /Design/.test(n.label)), code2 = p.nodes.find(n => /Code/.test(n.label));
+  check('gantt: dependent task starts at predecessor end', Math.abs(code2.x - (design.x + design.width)) < 2);
+  check('gantt: dependency arrow connects predecessor → dependent', p.connections.some(c => c.from === design.id && c.to === code2.id && c.markerEnd === 'arrow'));
+  check('gantt: weekly axis ticks span the date range', p.nodes.filter(n => /^gax/.test(n.id)).length >= 2);
+  check('gantt: bars keep fixed geometry', design.fixed === true && code2.fixed === true);
+}
+
+group('Mermaid timeline import (#29): horizontal lanes + title + section tint');
+{
+  const { win, doc, E } = boot();
+  const code = 'timeline\n  title History\n  2002 : LinkedIn\n  2004 : Facebook : Google';
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true);
+  const ns = E(`nodes.map(n=>({l:n.label,x:n.x,y:n.y,w:n.width,h:n.height}))`);
+  const p2002 = ns.find(n => n.l === '2002'), p2004 = ns.find(n => n.l === '2004');
+  check('timeline: periods laid left-to-right on one row', p2004.x > p2002.x && Math.abs(p2004.y - p2002.y) < 40);
+  check('timeline: title heading node present', ns.some(n => n.l === 'History'));
+  const fb = ns.find(n => n.l === 'Facebook');
+  check('timeline: events sit under their period', fb.x === p2004.x && fb.y > p2004.y);
+  // section tint: two sections → period pills get distinct colors
+  const p2 = E(`parseMermaid('timeline\\n  section A\\n  2002 : x\\n  section B\\n  2006 : y')`);
+  const a = p2.nodes.find(n => n.label === '2002'), b = p2.nodes.find(n => n.label === '2006');
+  check('timeline: per-section pill tint differs', a.color && b.color && a.color !== b.color);
+}
+
+group('Mermaid gitGraph import (#26): tags, commit types, cherry-pick');
+{
+  const { win, doc, E } = boot();
+  const code = 'gitGraph\n  commit id: "A"\n  commit tag: "v1.0"\n  branch dev\n  commit type: HIGHLIGHT\n  checkout main\n  cherry-pick id: "A"';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('gitgraph: tag captured on the commit', p.nodes.some(n => n.tag === 'v1.0'));
+  check('gitgraph: HIGHLIGHT type captured', p.nodes.some(n => n.commitType === 'HIGHLIGHT'));
+  check('gitgraph: cherry-pick adds a dashed link from the source commit', p.connections.some(c => c.strokeStyle === 'dashed' && c.label === 'cherry-pick'));
+  // existing geometry intact (commits are fixed circle dots on lanes)
+  check('gitgraph: commits still fixed circle dots', p.nodes.filter(n => /^gc/.test(n.id)).every(n => n.type === 'circle' && n.fixed === true));
+  // render: the tag label appears in the node layer
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  check('gitgraph: tag label rendered', /v1\.0/.test(doc.getElementById('nodes').textContent));
+  check('gitgraph: import carries tag + commitType onto nodes', E(`nodes.some(n=>n.tag==='v1.0')`) && E(`nodes.some(n=>n.commitType==='HIGHLIGHT')`));
 }
 
 process.exit(report() ? 0 : 1);

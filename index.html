@@ -1019,6 +1019,9 @@
     // A node opts in via node.icon = '<key>'. Add one by pasting paths here.
     const ICONS = {
       database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>',
+      book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+      lightbulb: '<path d="M9 18h6"/><path d="M10 22h4"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.6 4.6 0 0 1 8.91 14"/>',
+      dot: '<circle cx="12" cy="12" r="5"/>',
       table: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/>',
       filter: '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
       link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
@@ -1935,6 +1938,22 @@
         const a = 10, w = 5;
         return { svg: `<path d="M${(tx + dx * a + px * w).toFixed(1)},${(ty + dy * a + py * w).toFixed(1)} L${tx.toFixed(1)},${ty.toFixed(1)} L${(tx + dx * a - px * w).toFixed(1)},${(ty + dy * a - py * w).toFixed(1)}" fill="none" stroke="${color}" stroke-width="1.5" style="pointer-events:none"/>`, baseDist: a * 0.5 };
       }
+      // ER crow's-foot cardinality glyphs (tip at the entity edge; dx,dy point inward)
+      if (kind && kind.startsWith('er-')) {
+        const W = 6, F = (cx, cy) => `${cx.toFixed(1)},${cy.toFixed(1)}`;
+        const bar = (d) => {
+          const cx = tx + dx * d, cy = ty + dy * d;
+          return `<line x1="${(cx + px * W).toFixed(1)}" y1="${(cy + py * W).toFixed(1)}" x2="${(cx - px * W).toFixed(1)}" y2="${(cy - py * W).toFixed(1)}" stroke="${color}" stroke-width="1.5" style="pointer-events:none"/>`;
+        };
+        const circle = (d) => { const cx = tx + dx * d, cy = ty + dy * d; return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="4" fill="${COLORS.bg2}" stroke="${color}" stroke-width="1.5" style="pointer-events:none"/>`; };
+        const foot = (apexD) => { const ax = tx + dx * apexD, ay = ty + dy * apexD; return `<path d="M${F(ax, ay)} L${F(tx + px * W, ty + py * W)} M${F(ax, ay)} L${F(tx, ty)} M${F(ax, ay)} L${F(tx - px * W, ty - py * W)}" fill="none" stroke="${color}" stroke-width="1.5" style="pointer-events:none"/>`; };
+        let svg = '', baseDist = 0;
+        if (kind === 'er-one') { svg = bar(5) + bar(10); baseDist = 12; }
+        else if (kind === 'er-zero-one') { svg = bar(6) + circle(13); baseDist = 17; }
+        else if (kind === 'er-one-many') { svg = foot(11) + bar(14); baseDist = 16; }
+        else if (kind === 'er-zero-many') { svg = foot(11) + circle(18); baseDist = 22; }
+        return { svg, baseDist };
+      }
       return { svg: '', baseDist: 0 };
     }
 
@@ -2306,10 +2325,19 @@
           const cx = node.x + node.width / 2, cy = node.y + node.height / 2;
           const txtColor = (style === 'outline' || style === 'stripe' || style === 'grid') ? (node.outlineColor || COLORS.fg) : textColor;
           const clipId = 'clip-' + node.id;
-          shape = `${customPattern}<defs><clipPath id="${clipId}"><circle cx="${cx}" cy="${cy}" r="${node.width / 2}"/></clipPath></defs>
-            <circle cx="${cx}" cy="${cy}" r="${node.width / 2}" 
+          // gitGraph commit decorations (only set on gitgraph commit nodes):
+          // HIGHLIGHT → thick accent ring; REVERSE → an ✗ overlay; tag → label above.
+          const r = node.width / 2;
+          const ring = node.commitType === 'HIGHLIGHT'
+            ? `<circle cx="${cx}" cy="${cy}" r="${r + 3}" fill="none" stroke="${COLORS.accent}" stroke-width="3" style="pointer-events:none"/>` : '';
+          const rev = node.commitType === 'REVERSE'
+            ? `<path d="M${cx - r * 0.5},${cy - r * 0.5} L${cx + r * 0.5},${cy + r * 0.5} M${cx + r * 0.5},${cy - r * 0.5} L${cx - r * 0.5},${cy + r * 0.5}" stroke="${COLORS.bg}" stroke-width="2" style="pointer-events:none"/>` : '';
+          const tagEl = node.tag
+            ? `<text x="${cx}" y="${node.y - 6}" fill="${COLORS.fg}" font-size="11" font-weight="600" font-family="system-ui, sans-serif" text-anchor="middle" style="pointer-events:none">${esc(node.tag)}</text>` : '';
+          shape = `${customPattern}<defs><clipPath id="${clipId}"><circle cx="${cx}" cy="${cy}" r="${r}"/></clipPath></defs>
+            ${ring}<circle cx="${cx}" cy="${cy}" r="${r}"
             fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>
-            <g clip-path="url(#${clipId})">${renderWrappedText(node.label, cx, cy, node.width * 0.6, 11, txtColor, '', node.icon)}</g>`;
+            <g clip-path="url(#${clipId})">${renderWrappedText(node.label, cx, cy, node.width * 0.6, 11, txtColor, '', node.icon)}</g>${rev}${tagEl}`;
         } else if (node.type === 'text') {
           // Text node - just text, no shape border (unless selected)
           const txtColor = node.color || COLORS.fg;
@@ -5906,10 +5934,15 @@
       const result = { nodes: [], connections: [], errors: [], diagramType: 'gitgraph' };
       const lanes = { main: 0 }; let laneCount = 1, current = 'main', xi = 0, cnum = 0;
       const tip = {};
+      const byCommitId = {};   // explicit commit id ("X") → nodeId, for cherry-pick links
       const laneColor = (b) => CONFIG.palette[(lanes[b] || 0) % CONFIG.palette.length];
-      const addCommit = (id) => {
+      const addCommit = (opts = {}) => {
         const nid = 'gc' + (++cnum);
-        result.nodes.push({ id: nid, type: 'circle', label: id || '', fixed: true, x: baseX + (xi++) * PXC, y: baseY + lanes[current] * laneH, width: 38, height: 38, color: laneColor(current), fillStyle: 'infill' });
+        const node = { id: nid, type: 'circle', label: opts.id || '', fixed: true, x: baseX + (xi++) * PXC, y: baseY + lanes[current] * laneH, width: 38, height: 38, color: laneColor(current), fillStyle: 'infill' };
+        if (opts.tag) node.tag = opts.tag;
+        if (opts.commitType) node.commitType = opts.commitType;   // HIGHLIGHT | REVERSE
+        result.nodes.push(node);
+        if (opts.id) byCommitId[opts.id] = nid;
         if (tip[current]) result.connections.push({ from: tip[current], to: nid });
         tip[current] = nid;
         return nid;
@@ -5918,11 +5951,24 @@
         const line = raw.trim();
         if (!line || line.startsWith('%%') || /^gitGraph/i.test(line)) continue;
         let m;
-        if ((m = line.match(/^commit\b(.*)$/i))) { const idm = m[1].match(/id:\s*"([^"]*)"/i); addCommit(idm ? idm[1] : ''); continue; }
+        if ((m = line.match(/^commit\b(.*)$/i))) {
+          const rest = m[1];
+          const idm = rest.match(/id:\s*"([^"]*)"/i);
+          const tagm = rest.match(/tag:\s*"([^"]*)"/i);
+          const typem = rest.match(/type:\s*(HIGHLIGHT|REVERSE|NORMAL)/i);
+          addCommit({ id: idm ? idm[1] : '', tag: tagm ? tagm[1] : '', commitType: typem ? typem[1].toUpperCase() : '' });
+          continue;
+        }
         if ((m = line.match(/^branch\s+(\S+)/i))) { const n = m[1]; if (!(n in lanes)) lanes[n] = laneCount++; tip[n] = tip[current]; current = n; continue; }
         if ((m = line.match(/^(?:checkout|switch)\s+(\S+)/i))) { current = m[1]; if (!(current in lanes)) lanes[current] = laneCount++; continue; }
-        if ((m = line.match(/^merge\s+(\S+)/i))) { const from = m[1]; const nid = addCommit(''); if (tip[from]) result.connections.push({ from: tip[from], to: nid }); continue; }
-        if (/^cherry-pick\b/i.test(line)) { addCommit(''); continue; }
+        if ((m = line.match(/^merge\s+(\S+)/i))) { const from = m[1]; const nid = addCommit({}); if (tip[from]) result.connections.push({ from: tip[from], to: nid }); continue; }
+        // cherry-pick id:"X" → new commit on the current branch + a dashed link from source X
+        if ((m = line.match(/^cherry-pick\b(.*)$/i))) {
+          const srcm = m[1].match(/id:\s*"([^"]*)"/i);
+          const nid = addCommit({});
+          if (srcm && byCommitId[srcm[1]]) result.connections.push({ from: byCommitId[srcm[1]], to: nid, strokeStyle: 'dashed', label: 'cherry-pick' });
+          continue;
+        }
       }
       Object.keys(lanes).forEach(b => {
         result.nodes.push({ id: 'glane_' + b, type: 'text', label: b, fixed: true, x: 10, y: baseY + lanes[b] * laneH + 8, width: 140, height: 24 });
@@ -6045,15 +6091,37 @@
         result.nodes.push({ id: 'gsec_' + s.firstRow, type: 'text', label: s.name, fixed: true, x: 20, y: baseY + s.firstRow * rowH + (barH - 24) / 2, width: 160, height: 24 });
       });
       tasks.forEach((t, row) => {
+        t._nodeId = 'gt' + row;
         const off = Math.round((t._start - minDate) / DAY);
         const x = baseX + off * PXD;
         const y = baseY + row * rowH;
         if (t.milestone) {
-          result.nodes.push({ id: 'gt' + row, type: 'diamond', label: t.name, fixed: true, x: x - 20, y, width: 40, height: 40 });
+          result.nodes.push({ id: t._nodeId, type: 'diamond', label: t.name, fixed: true, x: x - 20, y, width: 40, height: 40 });
         } else {
-          result.nodes.push({ id: 'gt' + row, type: 'rect', label: t.name, fixed: true, x, y, width: Math.max(40, t._days * PXD), height: barH, color: '#7aa2f7', fillStyle: 'infill' });
+          result.nodes.push({ id: t._nodeId, type: 'rect', label: t.name, fixed: true, x, y, width: Math.max(40, t._days * PXD), height: barH, color: '#7aa2f7', fillStyle: 'infill' });
         }
       });
+
+      // Dependency arrows: each `after <id>` task → an edge from its predecessor.
+      tasks.forEach(t => {
+        if (!t.after) return;
+        t.after.forEach(rid => { const pred = byId[rid]; if (pred && pred._nodeId) result.connections.push({ from: pred._nodeId, to: t._nodeId, markerEnd: 'arrow' }); });
+      });
+
+      // Weekly date axis: a tick label every 7 days across the date range.
+      const maxDate = tasks.reduce((m, t) => (m == null || t._end > m ? t._end : m), null) || minDate;
+      const totalDays = Math.max(1, Math.round((maxDate - minDate) / DAY));
+      const fmt = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+      for (let w = 0, day = 0; day <= totalDays; w++, day += 7) {
+        const ax = baseX + day * PXD;
+        result.nodes.push({ id: 'gax' + w, type: 'text', label: fmt(new Date(minDate.getTime() + day * DAY)), fixed: true, x: ax - 22, y: baseY - 30, width: 44, height: 20 });
+      }
+
+      // Today marker (only when today falls within the chart range).
+      const todayOff = Math.round((new Date() - minDate) / DAY);
+      if (todayOff >= 0 && todayOff <= totalDays) {
+        result.nodes.push({ id: 'gtoday', type: 'text', label: '▼ today', fixed: true, x: baseX + todayOff * PXD - 18, y: baseY - 50, width: 56, height: 18, color: '#f7768e' });
+      }
       return result;
     }
 
@@ -6062,38 +6130,43 @@
     // period; `section Name` groups subsequent periods into a container. Laid out
     // as periods-across-the-top with events below (Mermaid draws it horizontally).
     function parseTimeline(lines) {
-      const result = { nodes: [], connections: [], errors: [], diagramType: 'flowchart', subgraphs: [] };
-      let auto = 0, lastPeriodId = null, section = null;
-      const addEvent = (label) => {
-        const id = 'ev' + (++auto);
-        result.nodes.push({ id, type: 'rect', label });
-        if (lastPeriodId) result.connections.push({ from: lastPeriodId, to: id });
-        if (section) section.children.push(id);
-      };
+      const result = { nodes: [], connections: [], errors: [], diagramType: 'timeline' };
+      // First pass: ordered list of periods, each with its events + section index
+      // (Mermaid draws timelines horizontally).
+      let title = '', sectionIdx = -1, lastPeriod = null;
+      const periods = [];
       for (const raw of lines) {
         const line = raw.trim();
-        if (!line || line.startsWith('%%') || /^timeline\b/i.test(line) || /^title\s/i.test(line)) continue;
-        let m = line.match(/^section\s+(.+)$/i);
-        if (m) { section = { id: 'sec' + (++auto), label: m[1].trim(), children: [] }; result.subgraphs.push(section); continue; }
-        if (line.startsWith(':')) {                            // continuation events for the last period
-          line.slice(1).split(':').map(s => s.trim()).filter(Boolean).forEach(addEvent);
+        if (!line || line.startsWith('%%') || /^timeline\b/i.test(line)) continue;
+        let m = line.match(/^title\s+(.+)$/i);
+        if (m) { title = m[1].trim(); continue; }
+        m = line.match(/^section\s+(.+)$/i);
+        if (m) { sectionIdx++; continue; }
+        if (line.startsWith(':')) {   // continuation events for the previous period
+          if (lastPeriod) line.slice(1).split(':').map(s => s.trim()).filter(Boolean).forEach(e => lastPeriod.events.push(e));
           continue;
         }
-        if (line.includes(':')) {                              // period : event [: event…]
-          const parts = line.split(':').map(s => s.trim());
-          const pid = 'pd' + (++auto);
-          result.nodes.push({ id: pid, type: 'pill', label: parts[0] });
-          if (section) section.children.push(pid);
-          lastPeriodId = pid;
-          parts.slice(1).filter(Boolean).forEach(addEvent);
-          continue;
-        }
-        const pid = 'pd' + (++auto);                           // bare period, no events
-        result.nodes.push({ id: pid, type: 'pill', label: line });
-        if (section) section.children.push(pid);
-        lastPeriodId = pid;
+        const parts = line.split(':').map(s => s.trim());
+        lastPeriod = { label: parts[0], events: parts.slice(1).filter(Boolean), section: Math.max(0, sectionIdx) };
+        periods.push(lastPeriod);
       }
-      if (result.subgraphs.length === 0) delete result.subgraphs;
+
+      // Second pass: fixed horizontal layout. Title heading on top; periods left→
+      // right; events stacked under each period; each section's pills tinted.
+      const baseX = 80, periodY = title ? 120 : 70, colW = 200, evH = 50, evGap = 10;
+      const tint = (s) => CONFIG.palette[s % CONFIG.palette.length];
+      let auto = 0;
+      if (title) result.nodes.push({ id: 'tltitle', type: 'text', label: title, fixed: true, x: baseX, y: 40, width: Math.max(160, title.length * 9 + 24), height: 28 });
+      periods.forEach((p, i) => {
+        const x = baseX + i * colW;
+        const pid = 'pd' + (++auto);
+        result.nodes.push({ id: pid, type: 'pill', label: p.label, fixed: true, x, y: periodY, width: Math.max(120, p.label.length * 8 + 24), height: 44, color: tint(p.section), fillStyle: 'infill' });
+        p.events.forEach((ev, j) => {
+          const eid = 'ev' + (++auto);
+          result.nodes.push({ id: eid, type: 'rect', label: ev, fixed: true, x, y: periodY + 70 + j * (evH + evGap), width: Math.max(120, ev.length * 7 + 20), height: evH });
+          result.connections.push({ from: pid, to: eid });
+        });
+      });
       return result;
     }
 
@@ -6101,16 +6174,36 @@
     // on the raw code. Each line is a node; its parent is the nearest line with
     // smaller indentation. Shapes: ((circle)), (rounded), [square], {{hex}}.
     // Rendered as a top-down tree (Mermaid draws it radially — see tracker).
+    // Map a Mermaid `::icon(...)` token to a renderable ICONS key. FontAwesome
+    // has thousands of names; the registry has ~30. So: strip fa-prefixes, apply a
+    // few common aliases, and ALWAYS fall back to a generic glyph ('dot') if the
+    // name isn't registered — an icon slot is never left silently blank.
+    const MINDMAP_ICON_ALIAS = {
+      bulb: 'lightbulb', idea: 'lightbulb', rocket: 'zap', bolt: 'zap', flash: 'zap',
+      pen: 'code', pencil: 'code', edit: 'code', gear: 'settings', cog: 'settings',
+      envelope: 'mail', 'magnifying-glass': 'search', clock: 'clock', calendar: 'clock',
+      person: 'user', group: 'users', team: 'users', tag: 'box', circle: 'dot',
+    };
+    function resolveMindmapIcon(raw) {
+      let key = (raw || '').trim().split(/\s+/).pop().replace(/^fa[srlbd]?-/, '').replace(/^fa-/, '').toLowerCase();
+      if (MINDMAP_ICON_ALIAS[key]) key = MINDMAP_ICON_ALIAS[key];
+      return ICONS[key] ? key : 'dot';   // guaranteed-renderable fallback
+    }
+
     function parseMindmap(rawCode) {
-      const result = { nodes: [], connections: [], errors: [], diagramType: 'flowchart' };
+      const result = { nodes: [], connections: [], errors: [], diagramType: 'mindmap' };
       const used = new Set();
       const stack = [];   // [{ indent, id }]
-      let auto = 0;
+      const byId = {};    // id -> { node, depth, children: [] }
+      let auto = 0, rootId = null;
       for (const raw of rawCode.split('\n')) {
         if (!raw.trim()) continue;
         if (/^\s*mindmap\s*$/i.test(raw)) continue;
         let content = raw.trim();
-        if (content.startsWith('%%') || /^::icon/i.test(content)) continue;   // skip icon decorations
+        if (content.startsWith('%%')) continue;
+        // ::icon(fa fa-book) decoration → attach the icon to the most-recent node
+        let im = content.match(/^::icon\(\s*(.+?)\s*\)\s*$/i);
+        if (im) { const last = result.nodes[result.nodes.length - 1]; if (last) last.icon = resolveMindmapIcon(im[1]); continue; }
         content = content.replace(/:::\S+\s*$/, '').trim();                   // drop ::: class suffix
         if (!content) continue;
         const indent = raw.match(/^\s*/)[0].replace(/\t/g, '  ').length;
@@ -6124,11 +6217,39 @@
         let nodeId = (id && id.length) ? id : ('mm' + (++auto));
         while (used.has(nodeId)) nodeId = 'mm' + (++auto);
         used.add(nodeId);
-        result.nodes.push({ id: nodeId, type, label });
+        const node = { id: nodeId, type, label, fixed: true };
+        result.nodes.push(node);
 
         while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
-        if (stack.length) result.connections.push({ from: stack[stack.length - 1].id, to: nodeId });
+        const depth = stack.length;
+        const parent = stack.length ? stack[stack.length - 1].id : null;
+        if (parent) result.connections.push({ from: parent, to: nodeId }); else rootId = nodeId;
+        byId[nodeId] = { node, depth, children: [] };
+        if (parent && byId[parent]) byId[parent].children.push(nodeId);
         stack.push({ indent, id: nodeId });
+      }
+
+      // pre-size each node (fixed geometry; the layout passes mindmaps through)
+      result.nodes.forEach(n => {
+        const w = Math.max(70, (n.label || '').length * 7 + 28);
+        if (n.type === 'circle') { const s = Math.max(64, (n.label || '').length * 7 + 28); n.width = s; n.height = s; }
+        else { n.width = w; n.height = 44; }
+      });
+
+      // radial layout: root centered, each depth on a ring, siblings spread by
+      // angle proportional to their subtree's leaf count (so they don't overlap).
+      if (rootId) {
+        const RING = 200, CX = 600, CY = 500;
+        const leaves = (id) => { const c = byId[id].children; return c.length ? c.reduce((s, k) => s + leaves(k), 0) : 1; };
+        const place = (id, a0, a1) => {
+          const info = byId[id], ang = (a0 + a1) / 2, r = info.depth * RING;
+          info.node.x = Math.round(CX + r * Math.cos(ang) - info.node.width / 2);
+          info.node.y = Math.round(CY + r * Math.sin(ang) - info.node.height / 2);
+          const ch = info.children; if (!ch.length) return;
+          const total = leaves(id); let a = a0;
+          for (const k of ch) { const span = (a1 - a0) * leaves(k) / total; place(k, a, a + span); a += span; }
+        };
+        place(rootId, 0, Math.PI * 2);
       }
       return result;
     }
@@ -6157,8 +6278,20 @@
         m = line.match(/^([A-Za-z0-9_-]+)\s+(\S+)\s+([A-Za-z0-9_-]+)(?:\s*:\s*(.+))?$/);
         if (m && /(--|\.\.)/.test(m[2])) {
           const a = ensure(m[1]).id, b = ensure(m[3]).id;
-          const dashed = m[2].includes('..');
-          result.connections.push({ from: a, to: b, label: (m[4] || '').replace(/"/g, '').trim(), strokeStyle: dashed ? 'dashed' : undefined });
+          const op = m[2], dashed = op.includes('..');
+          // crow's-foot cardinality: left code before the --/.. line, right code after
+          const CARD = { '||': 'one', '|o': 'zero-or-one', 'o|': 'zero-or-one', '}|': 'one-or-many', '|{': 'one-or-many', '}o': 'zero-or-many', 'o{': 'zero-or-many' };
+          const MK = { 'one': 'er-one', 'zero-or-one': 'er-zero-one', 'one-or-many': 'er-one-many', 'zero-or-many': 'er-zero-many' };
+          const lc = (op.match(/^(\|\||\|o|\}\||\}o)/) || [])[1];
+          const rc = (op.match(/(\|\||o\||\|\{|o\{)$/) || [])[1];
+          const fromCard = lc ? CARD[lc] : undefined, toCard = rc ? CARD[rc] : undefined;
+          result.connections.push({
+            from: a, to: b, label: (m[4] || '').replace(/"/g, '').trim(),
+            strokeStyle: dashed ? 'dashed' : undefined,
+            fromCard, toCard,
+            markerStart: fromCard ? MK[fromCard] : undefined,
+            markerEnd: toCard ? MK[toCard] : undefined,
+          });
           continue;
         }
         // attribute row inside a block:  type name [PK|FK|UK] ["comment"]
@@ -6684,7 +6817,7 @@
       const startY = 100;
 
       // These carry their own absolute geometry — don't re-layout.
-      if (diagramType === 'gantt' || diagramType === 'pie' || diagramType === 'journey' || diagramType === 'gitgraph' || diagramType === 'quadrant' || diagramType === 'block' || diagramType === 'xychart') return parsedNodes;
+      if (diagramType === 'gantt' || diagramType === 'pie' || diagramType === 'journey' || diagramType === 'gitgraph' || diagramType === 'quadrant' || diagramType === 'block' || diagramType === 'xychart' || diagramType === 'mindmap' || diagramType === 'timeline') return parsedNodes;
 
       // Sequence diagram: horizontal layout at top
       if (diagramType === 'sequence') {
@@ -7143,6 +7276,9 @@
           if (n.type === 'pie') { node.slices = n.slices; node.title = n.title; }
           if (n.type === 'quadrant') { node.title = n.title; node.xAxis = n.xAxis; node.yAxis = n.yAxis; node.quadrants = n.quadrants; node.points = n.points; }
           if (n.type === 'xychart') { node.title = n.title; node.xAxis = n.xAxis; node.yAxis = n.yAxis; node.series = n.series; }
+          if (n.icon) node.icon = n.icon;   // mindmap ::icon(...) → node icon
+          if (n.tag) node.tag = n.tag;                 // gitGraph commit tag
+          if (n.commitType) node.commitType = n.commitType;   // gitGraph HIGHLIGHT/REVERSE
 
           // Store class properties/methods
           if (isClass) {
