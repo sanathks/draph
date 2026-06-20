@@ -1649,6 +1649,62 @@ group('Touch & pointer input (#21): multi-touch pinch/pan + palm rejection');
   check('penActive clears when the pen lifts', E3('penActive === false'));
 }
 
+group('Document store (#38): docStore CRUD against the in-memory backend');
+{
+  const { win, E } = boot();
+  E(`docStore._useMemory()`);                                       // swap to the test backend
+  // a real diagram to persist
+  win.createNode('rect', 100, 100);
+  E(`docStore.save({ title:'Auth flow', data: exportState() })`);
+  check('doc saved + listed', E(`docStore.list().length`) === 1);
+  check('list item carries title + timestamps', E(`(d=>d.title==='Auth flow' && typeof d.created==='number' && typeof d.updated==='number')(docStore.list()[0])`));
+  check('load round-trips the title + data', E(`(d=>d.title==='Auth flow' && Array.isArray(d.data.n) && d.data.n.length===1)(docStore.load(docStore.list()[0].id))`));
+  // duplicate → new id, same content
+  E(`docStore.duplicate(docStore.list()[0].id)`);
+  check('duplicate adds a 2nd doc with a new id', E(`docStore.list().length`) === 2 && E(`docStore.list()[0].id`) !== E(`docStore.list()[1].id`));
+  check('duplicate title is derived', E(`docStore.list().some(d=>/ copy$/.test(d.title))`));
+  // save with an existing id updates in place (no new doc), bumps updated, keeps created
+  const firstId = E(`docStore.list().find(d=>d.title==='Auth flow').id`);
+  const created0 = E(`docStore.load('${firstId}').created`);
+  E(`docStore.save({ id:'${firstId}', title:'Auth flow v2' })`);
+  check('save with id updates in place (count unchanged)', E(`docStore.list().length`) === 2);
+  check('update keeps created, changes title', E(`docStore.load('${firstId}').title`) === 'Auth flow v2' && E(`docStore.load('${firstId}').created`) === created0);
+  // remove
+  E(`docStore.remove('${firstId}')`);
+  check('remove drops the doc', E(`docStore.list().length`) === 1 && E(`docStore.load('${firstId}')`) === null);
+}
+
+group('Document library (#38): gallery UI + autosave write-through');
+{
+  const { win, doc, E } = boot();
+  E(`docStore._useMemory(); activeDocId = null;`);
+  // first edit autosaves through to a new active doc
+  win.createNode('rect', 100, 100);
+  win.updateUrlHash();
+  check('first edit creates an active library doc', E(`activeDocId !== null`) && E(`docStore.list().length`) === 1);
+  const id1 = E(`activeDocId`);
+  win.galleryRename(id1, 'Auth flow');
+  check('rename updates the doc title', E(`docStore.load('${id1}').title`) === 'Auth flow');
+  // "New" banks the current diagram and starts a fresh one (newest-first → 2 docs)
+  win.galleryNew();
+  check('New starts a 2nd doc and switches active', E(`docStore.list().length`) === 2 && E(`activeDocId`) !== id1);
+  // edit B, then open A → canvas restores A exactly
+  win.createNode('diamond', 200, 200); win.updateUrlHash();
+  win.galleryOpen(id1);
+  check('opening a doc restores its data + sets it active', E(`activeDocId`) === id1 && E(`nodes.length`) === 1 && E(`nodes[0].type`) === 'rect');
+  // autosave write-through bumps the active doc's data (B kept its diamond)
+  const other = E(`docStore.list().find(d=>d.id!=='${id1}').id`);
+  check('the other doc retained its own edited data', E(`docStore.load('${other}').data.n.some(n=>n.type==='diamond')`));
+  // duplicate + gallery DOM
+  win.galleryDuplicate(id1);
+  check('duplicate adds a 3rd card', E(`docStore.list().length`) === 3);
+  win.toggleGallery();
+  check('gallery opens and renders one card per doc', E(`galleryIsOpen()`) === true && doc.querySelectorAll('#galleryGrid .gallery-card').length === 3);
+  check('active doc card is highlighted', !!doc.querySelector(`#galleryGrid .gallery-card[data-id="${id1}"]`));
+  win.toggleGallery();
+  check('gallery toggles closed', E(`galleryIsOpen()`) === false);
+}
+
 group('Connection routing (#34): non-locked sides re-seat on render');
 {
   const { win, E } = boot();
