@@ -2671,9 +2671,20 @@
           const clipId = 'clip-' + node.id;
           const pad = 8;
           shape = `${customPattern}<defs><clipPath id="${clipId}"><rect x="${node.x + pad}" y="${node.y + 2}" width="${node.width - pad*2}" height="${node.height - 4}" rx="${rx}"/></clipPath></defs>
-            <rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${rx}" 
+            <rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${rx}"
             fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>
             <g clip-path="url(#${clipId})">${renderWrappedText(node.label, rcx, rcy, node.width - pad*2, 12, txtColor, '', node.icon)}</g>`;
+          // journey actor avatars: one color-coded glyph per actor, above the pill
+          if (node.actors && node.actors.length) {
+            const gr = 7, gap = 4, gy = node.y - gr - 3;
+            let gx = node.x + gr + 2;
+            node.actors.forEach((a, i) => {
+              const col = (node.actorColors && node.actorColors[i]) || COLORS.accent;
+              shape += `<circle cx="${gx}" cy="${gy}" r="${gr}" fill="${col}" stroke="${COLORS.bg2}" stroke-width="1.5" style="pointer-events:none"/>`;
+              shape += `<text x="${gx}" y="${gy + 3}" fill="${COLORS.bg}" font-size="8" font-weight="700" font-family="system-ui, sans-serif" text-anchor="middle" style="pointer-events:none">${esc((a[0] || '?').toUpperCase())}</text>`;
+              gx += gr * 2 + gap;
+            });
+          }
         }
         
         // Add lifeline for sequence participants with clickable connection zones
@@ -6050,21 +6061,36 @@
         let m = line.match(/^section\s+(.+)$/i);
         if (m) { sections.push({ name: m[1].trim(), at: tasks.length }); continue; }
         m = line.match(/^(.+?)\s*:\s*(\d+)\s*:\s*(.+)$/);          // name : score : actors
-        if (m) { tasks.push({ name: m[1].trim(), score: +m[2], actors: m[3].trim() }); continue; }
+        if (m) { tasks.push({ name: m[1].trim(), score: +m[2], actors: m[3].split(',').map(s => s.trim()).filter(Boolean) }); continue; }
         m = line.match(/^(.+?)\s*:\s*(\d+)\s*$/);                  // name : score
-        if (m) tasks.push({ name: m[1].trim(), score: +m[2], actors: '' });
+        if (m) tasks.push({ name: m[1].trim(), score: +m[2], actors: [] });
       }
+      // stable per-actor color across the whole journey
+      const actorColor = {}; let aci = 0;
+      const colorOf = (a) => (actorColor[a] || (actorColor[a] = CONFIG.palette[aci++ % CONFIG.palette.length]));
+      tasks.forEach(t => t.actors.forEach(colorOf));
+
+      // Section bands first (drawn behind the tasks): a tinted rect spanning the
+      // section's task columns.
+      sections.forEach((s, si) => {
+        const start = s.at;
+        const end = (sections[si + 1] ? sections[si + 1].at : tasks.length) - 1;
+        if (end < start) return;
+        const bx = baseX + start * PXT - 20;
+        const bw = (end - start) * PXT + Math.max(120, 140);
+        result.nodes.push({ id: 'jband' + si, type: 'rect', label: '', fixed: true, x: bx, y: baseY - 5 * scoreUnit - 20, width: bw, height: 5 * scoreUnit + 90, color: CONFIG.palette[si % CONFIG.palette.length], fillStyle: 'outline' });
+        result.nodes.push({ id: 'jsec' + s.at, type: 'text', label: s.name, fixed: true, x: bx + 8, y: baseY + 50, width: 160, height: 24 });
+      });
+
       let prev = null;
       tasks.forEach((t, i) => {
         const id = 'jt' + i;
-        const label = t.actors ? `${t.name} (${t.actors})` : t.name;
         const score = Math.min(5, Math.max(1, t.score || 1));
-        result.nodes.push({ id, type: 'pill', label, fixed: true, x: baseX + i * PXT, y: baseY - score * scoreUnit, width: Math.max(120, label.length * 7 + 24), height: taskH });
+        const node = { id, type: 'pill', label: t.name, fixed: true, x: baseX + i * PXT, y: baseY - score * scoreUnit, width: Math.max(120, t.name.length * 7 + 24), height: taskH };
+        if (t.actors.length) { node.actors = t.actors.slice(); node.actorColors = t.actors.map(colorOf); }
+        result.nodes.push(node);
         if (prev) result.connections.push({ from: prev, to: id });
         prev = id;
-      });
-      sections.forEach(s => {
-        result.nodes.push({ id: 'jsec' + s.at, type: 'text', label: s.name, fixed: true, x: baseX + s.at * PXT, y: baseY + 40, width: 160, height: 24 });
       });
       return result;
     }
@@ -7337,6 +7363,7 @@
           if (n.type === 'quadrant') { node.title = n.title; node.xAxis = n.xAxis; node.yAxis = n.yAxis; node.quadrants = n.quadrants; node.points = n.points; }
           if (n.type === 'xychart') { node.title = n.title; node.xAxis = n.xAxis; node.yAxis = n.yAxis; node.series = n.series; }
           if (n.icon) node.icon = n.icon;   // mindmap ::icon(...) → node icon
+          if (n.actors) { node.actors = n.actors; node.actorColors = n.actorColors; }   // journey actor glyphs
           if (n.tag) node.tag = n.tag;                 // gitGraph commit tag
           if (n.commitType) node.commitType = n.commitType;   // gitGraph HIGHLIGHT/REVERSE
 

@@ -1169,7 +1169,7 @@ group('v2: Mermaid user-journey import');
   ].join('\n');
   const p = E(`parseMermaid(${JSON.stringify(code)})`);
   check('journey makes a task node per task', p.nodes.filter(n => n.type === 'pill').length === 3);
-  check('journey shows actors in the label', p.nodes.some(n => /Do work \(Me, Cat\)/.test(n.label)));
+  check('journey carries actors as a list on the task (#31)', p.nodes.some(n => Array.isArray(n.actors) && n.actors.length === 2 && n.actors[0] === 'Me' && n.actors[1] === 'Cat'));
   check('journey chains tasks sequentially', p.connections.length === 2);
   // higher score => higher up (smaller y). "Make tea" (5) above "Do work" (1)
   const tea = p.nodes.find(n => /Make tea/.test(n.label));
@@ -1867,6 +1867,23 @@ group('Mermaid gitGraph import (#26): tags, commit types, cherry-pick');
   doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
   check('gitgraph: tag label rendered', /v1\.0/.test(doc.getElementById('nodes').textContent));
   check('gitgraph: import carries tag + commitType onto nodes', E(`nodes.some(n=>n.tag==='v1.0')`) && E(`nodes.some(n=>n.commitType==='HIGHLIGHT')`));
+}
+
+group('Mermaid journey import (#31): actor avatars + section bands');
+{
+  const { win, doc, E } = boot();
+  const code = 'journey\n  title My Day\n  section Morning\n    Wake: 3: Me\n    Coffee: 5: Me, Cat';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const coffee = p.nodes.find(n => /Coffee/.test(n.label));
+  check('journey: task carries its actor list', Array.isArray(coffee.actors) && coffee.actors.length === 2);
+  check('journey: each actor gets a distinct color', coffee.actorColors && coffee.actorColors[0] !== coffee.actorColors[1]);
+  check('journey: section band node present', p.nodes.some(n => /^jband/.test(n.id)));
+  // render: section label + actor glyphs draw
+  doc.getElementById('mermaidEditor').value = code; win.importMermaid(true); win.render();
+  check('journey: section band/label rendered', /Morning/.test(doc.getElementById('nodes').textContent));
+  const cn = E(`nodes.find(n=>/Coffee/.test(n.label))`);
+  const el = doc.querySelector(`#nodes .node[data-id="${cn.id}"]`);
+  check('journey: actor glyphs render on the task', !!el && (el.innerHTML.match(/<circle/g) || []).length >= 2);
 }
 
 group('Mermaid pie import (#30): donut variant + leader lines');
