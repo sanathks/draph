@@ -3355,6 +3355,36 @@ group('Duplicate keeps internal connections (#149): remap edges to the copies');
   check('single-node duplicate adds no connection', E(`connections.length`) === cBefore);
 }
 
+group('Copy/paste keeps internal connections (#154): clipboard path, shared with #149');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40);
+  const b = win.createNode('rect', 200, 0, 80, 40);
+  const outside = win.createNode('rect', 0, 300, 80, 40);
+  win.connect(a.id, b.id, { label: 'edge' });
+  win.connect(b.id, outside.id); // edge to a NON-copied node
+  E(`selectedIds = ['${a.id}', '${b.id}']; selectedId = null;`);
+  const n0 = E(`nodes.length`), c0 = E(`connections.length`);
+
+  key(doc, 'c', { metaKey: true });
+  key(doc, 'v', { metaKey: true });
+
+  check('two node copies pasted', E(`nodes.length`) === n0 + 2);
+  check('internal edge recreated on the copies', E(`connections.length`) === c0 + 1);
+  const copyIds = E(`selectedIds`);
+  const newEdge = E(`connections[connections.length - 1]`);
+  check('pasted edge links the two copies', copyIds.includes(newEdge.from) && copyIds.includes(newEdge.to));
+  check('pasted edge keeps the label', newEdge.label === 'edge');
+  check('edge to non-copied node not pasted', !E(`connections.some(cn => (cn.from === '${copyIds[0]}' || cn.from === '${copyIds[1]}') && cn.to === '${outside.id}')`));
+
+  // single-node copy/paste adds no edge
+  E(`selectedIds = []`); win.selectNode(a.id);
+  const cBefore = E(`connections.length`);
+  key(doc, 'c', { metaKey: true });
+  key(doc, 'v', { metaKey: true });
+  check('single-node copy/paste adds no connection', E(`connections.length`) === cBefore);
+}
+
 group('Container drag carries contents (#153): members + nested move together');
 {
   const { win, doc } = boot();

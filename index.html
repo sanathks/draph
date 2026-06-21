@@ -3947,6 +3947,18 @@
     // duplicate selected node(s), offset slightly, and select the copies.
     // Copies of a group get a fresh shared groupId (so they don't merge with the
     // originals' group).
+    // Recreate the connections internal to a duplicated/pasted node set, remapped
+    // to the new node ids (#149/#154). Edges with an endpoint outside the set are
+    // skipped (no dangling). srcConns is the source list (live for duplicate, the
+    // clipboard's stored list for paste); idMap maps old node id → new node id.
+    function remapConnections(srcConns, idMap) {
+      (srcConns || []).forEach(cn => {
+        if (idMap[cn.from] && idMap[cn.to] && !cn.isSequenceMessage) {
+          connections.push({ ...JSON.parse(JSON.stringify(cn)), id: 'c' + generateId(), from: idMap[cn.from], to: idMap[cn.to] });
+        }
+      });
+    }
+
     function duplicateSelected(ids = selectedNodeIds()) {
       if (!ids.length) return;
       const gidMap = {};
@@ -3960,9 +3972,7 @@
       nodes.push(...copies);
       // Recreate connections internal to the duplicated set, remapped to the
       // copies (#149). Edges to non-duplicated nodes are skipped (no dangling).
-      connections.filter(cn => idMap[cn.from] && idMap[cn.to] && !cn.isSequenceMessage).forEach(cn => {
-        connections.push({ ...JSON.parse(JSON.stringify(cn)), id: 'c' + generateId(), from: idMap[cn.from], to: idMap[cn.to] });
-      });
+      remapConnections(connections, idMap);
       selectedId = copies.length === 1 ? copies[0].id : null;
       selectedIds = copies.length > 1 ? copies.map(c => c.id) : [];
       saveState(); render();
@@ -6142,18 +6152,34 @@
       if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected();
       if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
       if ((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'c') { 
+      if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
         e.preventDefault();
-        if (selectedIds.length > 0) clipboard = JSON.stringify(nodes.filter(n => selectedIds.includes(n.id)));
-        else if (selectedId) clipboard = JSON.stringify([nodes.find(n => n.id === selectedId)]);
+        // Capture the copied nodes AND the connections internal to them (#154),
+        // so paste can recreate the edges between the copies.
+        const ids = selectedIds.length > 0 ? selectedIds : (selectedId ? [selectedId] : []);
+        if (ids.length) {
+          const idSet = new Set(ids);
+          clipboard = JSON.stringify({
+            nodes: nodes.filter(n => idSet.has(n.id)),
+            connections: connections.filter(c => idSet.has(c.from) && idSet.has(c.to) && !c.isSequenceMessage),
+          });
+        }
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 'v' && clipboard) {
         e.preventDefault();
         // Internal node paste wins over the system clipboard for this gesture.
         suppressNextPaste = true;
-        const copied = JSON.parse(clipboard);
-        const newIds = [];
-        copied.forEach(node => { node.id = generateId(); node.x += 20; node.y += 20; nodes.push(node); newIds.push(node.id); });
+        const parsed = JSON.parse(clipboard);
+        // Back-compat: older clipboards stored a bare node array.
+        const copiedNodes = Array.isArray(parsed) ? parsed : (parsed.nodes || []);
+        const copiedConns = Array.isArray(parsed) ? [] : (parsed.connections || []);
+        const idMap = {}, newIds = [];
+        copiedNodes.forEach(node => {
+          const old = node.id;
+          node.id = generateId(); node.x += 20; node.y += 20;
+          nodes.push(node); newIds.push(node.id); idMap[old] = node.id;
+        });
+        remapConnections(copiedConns, idMap);   // recreate internal edges on the copies (#154)
         saveState();
         selectedIds = newIds;
         selectedId = null;
