@@ -3949,12 +3949,19 @@
     function duplicateSelected(ids = selectedNodeIds()) {
       if (!ids.length) return;
       const gidMap = {};
+      const idMap = {};   // old node id → new copy id (#149)
       const copies = ids.map(id => nodes.find(n => n.id === id)).filter(Boolean).map(n => {
         const c = { ...JSON.parse(JSON.stringify(n)), id: generateId(), x: n.x + 20, y: n.y + 20 };
         if (c.groupId) { gidMap[c.groupId] = gidMap[c.groupId] || ('g' + (++idCounter)); c.groupId = gidMap[c.groupId]; }
+        idMap[n.id] = c.id;
         return c;
       });
       nodes.push(...copies);
+      // Recreate connections internal to the duplicated set, remapped to the
+      // copies (#149). Edges to non-duplicated nodes are skipped (no dangling).
+      connections.filter(cn => idMap[cn.from] && idMap[cn.to] && !cn.isSequenceMessage).forEach(cn => {
+        connections.push({ ...JSON.parse(JSON.stringify(cn)), id: 'c' + generateId(), from: idMap[cn.from], to: idMap[cn.to] });
+      });
       selectedId = copies.length === 1 ? copies[0].id : null;
       selectedIds = copies.length > 1 ? copies.map(c => c.id) : [];
       saveState(); render();
