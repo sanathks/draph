@@ -2987,6 +2987,42 @@ group('Shift-to-lock aspect ratio on resize (#125): proportional vs free');
   check('free resize is not aspect-locked', Math.abs((m.width / m.height) - mr0) > 0.3);
 }
 
+group('Connection arrowhead style (#130): none / end / start / both');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40);
+  const b = win.createNode('rect', 240, 0, 80, 40);
+  win.connect(a.id, b.id);
+  const cid = E(`connections[0].id`);
+  win.saveState(); // baseline (no arrowStyle) so undo lands here
+
+  // arrow markers are <path> elements that aren't the line (.connection) or hit area (.conn-hit)
+  const markers = () => doc.querySelectorAll(`#connections [data-id="${cid}"] path:not(.connection):not(.conn-hit)`).length;
+
+  win.render();
+  check('default edge has a single end arrow', markers() === 1);
+
+  win.setConnectionArrows(cid, 'both');
+  check('arrowStyle stored', E(`connections[0].arrowStyle`) === 'both');
+  check('both → two arrow markers', markers() === 2);
+
+  win.setConnectionArrows(cid, 'none');
+  check('none → no arrow markers', markers() === 0);
+
+  win.setConnectionArrows(cid, 'start');
+  check('start → one arrow marker', markers() === 1);
+
+  // undoable as one unit
+  win.undo();
+  check('undo restores the previous arrow style', E(`connections[0].arrowStyle`) === 'none');
+
+  // UML/sequence markers are not disturbed (no regression)
+  win.connect(a.id, b.id, { markerEnd: 'arrow', markerStart: 'triangle' });
+  const umlId = E(`connections[1].id`);
+  win.render();
+  check('UML edge still renders its markers', E(`connections[1].markerStart`) === 'triangle' && E(`connections[1].markerEnd`) === 'arrow');
+}
+
 group('Reverse connection direction (#129): swap from/to + sides/markers, undoable');
 {
   const { win, E } = boot();
