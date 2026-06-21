@@ -3577,4 +3577,44 @@ group('UML class member editing (#163): add/edit/remove + reflow + persist');
   check('addClassMember is a no-op on non-class nodes', !rect.properties);
 }
 
+group('Mermaid export honors source type (#165): state generator + no mislabel');
+{
+  const { win, E } = boot();
+
+  // state diagram: type persisted, exports as stateDiagram-v2, round-trips
+  win.importMermaid(true, { code: 'stateDiagram-v2\n  [*] --> Idle\n  Idle --> Running : go\n  Running --> [*]' });
+  check('diagram type persisted as state', E(`diagramType`) === 'state');
+  const stOut = win.generateMermaid();
+  check('export emits a state diagram', /^stateDiagram/.test(stOut));
+  check('export keeps [*] start/end', /\[\*\] --> /.test(stOut) && /--> \[\*\]/.test(stOut));
+  check('export keeps a transition label', /Idle --> Running : go/.test(stOut));
+
+  // round-trips: re-importing the export is still a state diagram with both pseudo-states
+  win.importMermaid(true, { code: stOut });
+  check('state round-trips (type preserved)', E(`diagramType`) === 'state');
+  check('state round-trips ([*] pseudo-states kept)', E(`nodes.filter(n => n.isPseudo).length`) === 2);
+
+  // diagramType persists across a serialize round-trip
+  const json = E(`JSON.stringify({ n: serializeNodes(), c: connections, dt: diagramType })`);
+  win.loadDiagramJson(json);
+  check('diagramType survives serialize round-trip', E(`diagramType`) === 'state');
+
+  // ER: no longer mislabeled as classDiagram (ER makes class-shaped nodes)
+  const { win: w2, E: E2 } = boot();
+  w2.importMermaid(true, { code: 'erDiagram\n  CUSTOMER ||--o{ ORDER : places' });
+  check('ER source type stored', E2(`diagramType`) === 'er');
+  check('ER no longer exported as classDiagram', !/^classDiagram/.test(w2.generateMermaid()));
+
+  // flowchart/class/sequence exports unchanged
+  const { win: w3 } = boot();
+  w3.importMermaid(true, { code: 'flowchart TD\n  A[Start] --> B[End]' });
+  check('flowchart still exports as flowchart', /^flowchart/.test(w3.generateMermaid()));
+  const { win: w4 } = boot();
+  w4.importMermaid(true, { code: 'classDiagram\n  class Animal\n  Animal : +int age' });
+  check('class still exports as classDiagram', /^classDiagram/.test(w4.generateMermaid()));
+  const { win: w5 } = boot();
+  w5.importMermaid(true, { code: 'sequenceDiagram\n  A->>B: hi' });
+  check('sequence still exports as sequenceDiagram', /^sequenceDiagram/.test(w5.generateMermaid()));
+}
+
 process.exit(report() ? 0 : 1);
