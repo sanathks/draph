@@ -2926,6 +2926,40 @@ group('Flowchart import shape mapping (#123): brackets → real shape types');
   check('paren (...) still pill', by['Pill'] && by['Pill'].type === 'pill');
 }
 
+group('Resize from any corner/edge (#126): 8 handles, origin-moving edges');
+{
+  const { win, doc } = boot();
+  const sel = id => `#nodes .node[data-id="${id}"] .resize-handle`;
+
+  const n = win.createNode('rect', 200, 200, 160, 80);
+  win.selectNode(n.id); win.render();
+  const handles = doc.querySelectorAll(sel(n.id));
+  check('8 resize handles render', handles.length === 8);
+  check('handles carry direction classes', !!doc.querySelector(sel(n.id) + '.handle-nw') && !!doc.querySelector(sel(n.id) + '.handle-e'));
+
+  // top-left (nw) drag down-right: origin moves in, size shrinks, bottom-right pinned
+  const x0 = n.x, y0 = n.y, w0 = n.width, h0 = n.height;
+  const rightEdge0 = n.x + n.width, bottomEdge0 = n.y + n.height;
+  const tl = doc.querySelector(sel(n.id) + '.handle-nw');
+  mouse(tl, 'mousedown', n.x, n.y);
+  mouse(doc, 'mousemove', n.x + 40, n.y + 20);
+  mouse(doc, 'mouseup', 0, 0);
+  check('nw handle moves origin in', n.x > x0 && n.y > y0);
+  check('nw handle shrinks size', n.width < w0 && n.height < h0);
+  check('nw handle pins the bottom-right corner', Math.abs((n.x + n.width) - rightEdge0) < 0.5 && Math.abs((n.y + n.height) - bottomEdge0) < 0.5);
+
+  // bottom-right (se) drag still grows without moving origin (no regression)
+  const m = win.createNode('rect', 600, 200, 160, 80);
+  win.selectNode(m.id); win.render();
+  const mx0 = m.x, my0 = m.y, mw0 = m.width;
+  const se = doc.querySelector(`#nodes .node[data-id="${m.id}"] .resize-handle.handle-se`);
+  mouse(se, 'mousedown', m.x + m.width, m.y + m.height);
+  mouse(doc, 'mousemove', m.x + m.width + 60, m.y + m.height + 40);
+  mouse(doc, 'mouseup', 0, 0);
+  check('se handle grows width', m.width > mw0);
+  check('se handle leaves origin fixed', m.x === mx0 && m.y === my0);
+}
+
 group('Shift-to-lock aspect ratio on resize (#125): proportional vs free');
 {
   const { win, doc } = boot();
@@ -2935,7 +2969,7 @@ group('Shift-to-lock aspect ratio on resize (#125): proportional vs free');
   const n = win.createNode('rect', 100, 100, 160, 80);
   win.selectNode(n.id); win.render();
   const r0 = n.width / n.height;
-  let h = doc.querySelector(`#nodes .node[data-id="${n.id}"] .resize-handle`);
+  let h = doc.querySelector(`#nodes .node[data-id="${n.id}"] .resize-handle.handle-se`);
   mouse(h, 'mousedown', n.x + n.width, n.y + n.height);
   mouse(doc, 'mousemove', n.x + n.width + 120, n.y + n.height + 8, { shiftKey: true });
   mouse(doc, 'mouseup', 0, 0);
@@ -2946,7 +2980,7 @@ group('Shift-to-lock aspect ratio on resize (#125): proportional vs free');
   const m = win.createNode('rect', 400, 100, 160, 80);
   win.selectNode(m.id); win.render();
   const mr0 = m.width / m.height;
-  h = doc.querySelector(`#nodes .node[data-id="${m.id}"] .resize-handle`);
+  h = doc.querySelector(`#nodes .node[data-id="${m.id}"] .resize-handle.handle-se`);
   mouse(h, 'mousedown', m.x + m.width, m.y + m.height);
   mouse(doc, 'mousemove', m.x + m.width + 120, m.y + m.height + 4); // no shiftKey
   mouse(doc, 'mouseup', 0, 0);
