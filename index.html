@@ -944,7 +944,20 @@
             <svg viewBox="0 0 24 6" style="width:20px;height:6px"><line x1="2" y1="3" x2="22" y2="3" class="line-preview" stroke-width="2" stroke-dasharray="4,3"/></svg>
           </button>
         </div>
-        
+
+        <!-- Route style: curved / orthogonal / straight (#119) -->
+        <div class="flex items-center gap-1">
+          <button id="connCurvedBtn" onclick="setConnectionLineStyle(selectedConnId,'curved')" title="Curved" style="width:28px;height:28px;background:var(--bg);border:2px solid transparent;border-radius:4px;display:flex;align-items:center;justify-content:center">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;color:var(--fg)"><path d="M3 19 C 9 19, 15 5, 21 5"/></svg>
+          </button>
+          <button id="connOrthoBtn" onclick="setConnectionLineStyle(selectedConnId,'rounded')" title="Orthogonal" style="width:28px;height:28px;background:var(--bg);border:2px solid transparent;border-radius:4px;display:flex;align-items:center;justify-content:center">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;color:var(--fg)"><path d="M3 19 L 12 19 L 12 5 L 21 5"/></svg>
+          </button>
+          <button id="connStraightBtn" onclick="setConnectionLineStyle(selectedConnId,'straight')" title="Straight" style="width:28px;height:28px;background:var(--bg);border:2px solid transparent;border-radius:4px;display:flex;align-items:center;justify-content:center">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;color:var(--fg)"><line x1="3" y1="19" x2="21" y2="5"/></svg>
+          </button>
+        </div>
+
         <button onclick="deleteSelectedConn()" title="Delete" style="width:28px;height:28px;background:color-mix(in srgb, var(--danger) 20%, transparent);border:none;border-radius:4px;color:var(--danger);display:flex;align-items:center;justify-content:center">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px">
             <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -4124,7 +4137,8 @@
       // For sequence messages, detect default from arrow syntax
       const defaultStroke = conn.isSequenceMessage && conn.arrow?.includes('--') ? 'dashed' : 'solid';
       updateConnLineStyleBtns(conn.strokeStyle || defaultStroke);
-      
+      updateConnRouteStyleBtns(conn.lineStyle || globalLineStyle);
+
       // Position relative to canvas container
       connToolbar.style.left = `${Math.max(100, Math.min(screenX, containerRect.width - 150))}px`;
       connToolbar.style.top = `${Math.max(10, screenY)}px`;
@@ -4186,6 +4200,26 @@
       const dottedBtn = document.getElementById('connDottedBtn');
       solidBtn.style.borderColor = style === 'dashed' ? 'transparent' : COLORS.accent;
       dottedBtn.style.borderColor = style === 'dashed' ? COLORS.accent : 'transparent';
+    }
+
+    // Per-connection route style override (#119): sets a single connection's
+    // lineStyle (curved/rounded/straight) independent of globalLineStyle. The
+    // existing pointsToPath path renders it; persisted via the serialized conn.
+    function setConnectionLineStyle(cid, style) {
+      const conn = connections.find(c => c.id === (cid || selectedConnId));
+      if (!conn) return;
+      conn.lineStyle = style;
+      updateConnRouteStyleBtns(style);
+      saveState();
+      render();
+    }
+
+    function updateConnRouteStyleBtns(style) {
+      const map = { curved: 'connCurvedBtn', rounded: 'connOrthoBtn', straight: 'connStraightBtn' };
+      Object.entries(map).forEach(([s, id]) => {
+        const btn = document.getElementById(id);
+        if (btn) btn.style.borderColor = (s === style) ? COLORS.accent : 'transparent';
+      });
     }
     
     // Update connection label on input
