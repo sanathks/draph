@@ -3487,4 +3487,46 @@ group('Sequence note import (#157): note over/left of/right of → note nodes');
   check('consecutive notes do not vertically overlap', (ns[1].y - ns[0].y) >= ns[0].height);
 }
 
+group('UML class member editing (#163): add/edit/remove + reflow + persist');
+{
+  const { win, E } = boot();
+  const n = win.placeShape('class', 100, 100);
+  const h0 = n.height;
+
+  // add
+  win.addClassMember(n.id, 'property', '+ count: int');
+  check('property added to the class', (n.properties || []).some(p => /count: int/.test(p)));
+  win.addClassMember(n.id, 'method', '+ reset() void');
+  check('method added', (n.methods || []).some(m => /reset\(\)/.test(m)));
+  check('box grew to fit the new rows', n.height > h0);
+
+  // edit
+  const pi = n.properties.findIndex(p => /count: int/.test(p));
+  win.editClassMember(n.id, 'property', pi, '+ count: long');
+  check('property edited in place', n.properties[pi] === '+ count: long' && !n.properties.some(p => /count: int/.test(p)));
+
+  // remove
+  const before = n.properties.length;
+  win.removeClassMember(n.id, 'property', pi);
+  check('property removed', n.properties.length === before - 1 && !n.properties.some(p => /count/.test(p)));
+
+  // setClassMembers (the textarea UI commit): lines with () → methods, else properties
+  win.setClassMembers(n.id, '+ a: int\n- b: string\n+ doThing() void');
+  check('setClassMembers splits properties vs methods', n.properties.length === 2 && n.methods.length === 1 && /doThing\(\)/.test(n.methods[0]));
+
+  // persists across a serialize round-trip
+  const json = E(`JSON.stringify({ n: serializeNodes(), c: connections })`);
+  win.loadDiagramJson(json);
+  const reloaded = E(`nodes.find(x => x.id === '${n.id}')`);
+  check('class members persist across reload', reloaded.properties.length === 2 && reloaded.methods.length === 1);
+
+  // works for other isClass kinds (interface) and is a no-op on non-class nodes
+  const iface = win.placeShape('interface', 400, 100);
+  win.addClassMember(iface.id, 'method', '+ ping() void');
+  check('interface accepts members too', iface.methods.some(m => /ping\(\)/.test(m)));
+  const rect = win.createNode('rect', 0, 400, 120, 50);
+  win.addClassMember(rect.id, 'property', '+ nope');
+  check('addClassMember is a no-op on non-class nodes', !rect.properties);
+}
+
 process.exit(report() ? 0 : 1);
