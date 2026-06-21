@@ -2842,6 +2842,41 @@ group('Auto-arrange direction (#113): TB / LR');
   check('default arrange (no imported dir) is TB', a.y < b.y && b.y < c.y);
 }
 
+group('Node text alignment (#120): textAlign drives text-anchor (left/center/right)');
+{
+  const { win, doc, E } = boot();
+  const textAnchor = id => {
+    const t = doc.querySelector(`#nodes .node[data-id="${id}"] text`);
+    return t && t.getAttribute('text-anchor');
+  };
+
+  // note: left-align → start
+  const n = win.createNode('note', 0, 0, 200, 120);
+  n.label = 'hello world that wraps a bit'; n.textAlign = 'left';
+  win.render();
+  check('note left align → text-anchor=start', textAnchor(n.id) === 'start');
+
+  // rect: default (no textAlign) stays centered
+  const c = win.createNode('rect', 0, 300, 120, 50);
+  c.label = 'x';
+  win.render();
+  check('rect default stays centered (middle)', textAnchor(c.id) === 'middle');
+
+  // rect: right-align → end
+  c.textAlign = 'right'; win.render();
+  check('rect right align → text-anchor=end', textAnchor(c.id) === 'end');
+
+  // container header honors alignment
+  const ct = win.createNode('container', 400, 0, 220, 150);
+  ct.label = 'Group'; ct.textAlign = 'center'; win.render();
+  check('container header center → middle', textAnchor(ct.id) === 'middle');
+
+  // persists across a serialize round-trip
+  const json = E(`JSON.stringify({ n: serializeNodes(), c: connections })`);
+  win.loadDiagramJson(json);
+  check('textAlign persists across serialize', E(`nodes.find(n => n.id === '${c.id}').textAlign`) === 'right');
+}
+
 group('Per-connection line style override (#119): setConnectionLineStyle is per-edge');
 {
   const { win, E } = boot();
