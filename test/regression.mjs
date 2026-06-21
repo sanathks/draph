@@ -3695,4 +3695,31 @@ group('Sequence frame export (#171): loop/alt/opt/par emitted around messages');
   check('frameless export has no frame keywords', !/\b(loop|alt|opt|par|end)\b/.test(plain) && /A->>B: hi/.test(plain));
 }
 
+group('Class relationship multiplicities (#174): render + export + round-trip');
+{
+  const { win, doc, E } = boot();
+  const p = E(`parseMermaid('classDiagram\\n  Customer "1" --> "0..*" Order')`);
+  const c = p.connections[0];
+  check('multiplicities parsed', c.fromMult === '1' && c.toMult === '0..*');
+
+  win.importMermaid(true, { code: 'classDiagram\n  Customer "1" --> "0..*" Order' });
+  win.render();
+  check('multiplicities carried onto the live connection', E(`connections[0].fromMult`) === '1' && E(`connections[0].toMult`) === '0..*');
+  const cx = doc.getElementById('connections').textContent;
+  check('multiplicity labels rendered', /0\.\.\*/.test(cx) && cx.includes('1'));
+
+  const out = win.generateMermaid();
+  check('export emits both multiplicities', /"1"\s+-->\s+"0\.\.\*"/.test(out));
+
+  // round-trips
+  const re = E(`parseMermaid(generateMermaid())`);
+  check('multiplicities survive export→import', re.connections[0].fromMult === '1' && re.connections[0].toMult === '0..*');
+
+  // an edge without multiplicities is unchanged (no stray quotes, no labels)
+  const { win: w3, doc: d3 } = boot();
+  w3.importMermaid(true, { code: 'classDiagram\n  A --> B' });
+  w3.render();
+  check('plain class edge has no multiplicity quotes on export', !/"/.test(w3.generateMermaid().split('\n').find(l => /A --> B/.test(l)) || ''));
+}
+
 process.exit(report() ? 0 : 1);
