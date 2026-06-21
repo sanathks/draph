@@ -1214,6 +1214,7 @@
     let nodes = [];              // node[]        — all shapes on the canvas
     let connections = [];        // connection[]  — all edges
     let sequenceFrames = [];     // loop/alt/opt frames for sequence diagrams
+    let sequenceActivations = []; // activation bars: { participant, startIndex, endIndex } (#158)
     let selectedId = null;       // id of the single selected node (or null)
     let selectedIds = [];        // ids in a multi-selection (marquee / shift-click)
     let lastCanvasPointer = null;// last in-canvas pointer pos (canvas coords) for paste-at-cursor (#150)
@@ -2121,15 +2122,60 @@
     // otherwise only comes from Mermaid import. Reuses the existing renderNodes
     // branches (isClass / hasLifeline / isPseudo). Returns the created node so the
     // shape-library panel and tests can both reach it. Defaults to viewport center.
+    // Size a UML class box to fit its label + property/method rows (#163). Shared
+    // by placeShape and the in-place member editor so both reflow identically.
+    function sizeClassNode(n) {
+      const rows = [...(n.properties || []), ...(n.methods || []), n.label, n.stereotype ? '«' + n.stereotype + '»' : ''];
+      const longest = rows.reduce((m, s) => Math.max(m, (s || '').length), 0);
+      n.width = Math.max(170, longest * 7 + 24);
+      n.height = Math.max(70, (n.stereotype ? 42 : 28) + (n.properties || []).length * 16 + (n.methods || []).length * 16 + 8);
+    }
+
+    // Member editing for UML class-like nodes (#163): add / edit / remove a
+    // property or method row, then reflow + persist. `kind` is 'property' or
+    // 'method'. Works for any isClass node (class/interface/abstract/enum/entity).
+    function classArr(node, kind) {
+      const key = kind === 'method' ? 'methods' : 'properties';
+      if (!Array.isArray(node[key])) node[key] = [];
+      return node[key];
+    }
+    function addClassMember(id, kind, text) {
+      const node = nodes.find(n => n.id === id);
+      if (!node || !node.isClass) return;
+      classArr(node, kind).push(String(text).trim());
+      sizeClassNode(node); saveState(); render();
+    }
+    function editClassMember(id, kind, index, text) {
+      const node = nodes.find(n => n.id === id);
+      if (!node || !node.isClass) return;
+      const arr = classArr(node, kind);
+      if (index < 0 || index >= arr.length) return;
+      arr[index] = String(text).trim();
+      sizeClassNode(node); saveState(); render();
+    }
+    function removeClassMember(id, kind, index) {
+      const node = nodes.find(n => n.id === id);
+      if (!node || !node.isClass) return;
+      const arr = classArr(node, kind);
+      if (index < 0 || index >= arr.length) return;
+      arr.splice(index, 1);
+      sizeClassNode(node); saveState(); render();
+    }
+    // Replace ALL members at once from a newline-delimited text block (#163 UI):
+    // lines containing "()" are methods, the rest are properties. Empty → cleared.
+    function setClassMembers(id, text) {
+      const node = nodes.find(n => n.id === id);
+      if (!node || !node.isClass) return;
+      const lines = String(text).split('\n').map(s => s.trim()).filter(Boolean);
+      node.properties = lines.filter(l => !/\(.*\)/.test(l));
+      node.methods = lines.filter(l => /\(.*\)/.test(l));
+      sizeClassNode(node); saveState(); render();
+    }
+
     function placeShape(kind, x, y) {
       if (x == null) x = viewBox.x + viewBox.w / 2;
       if (y == null) y = viewBox.y + viewBox.h / 2;
-      const sizeClass = (n) => {
-        const rows = [...(n.properties || []), ...(n.methods || []), n.label, n.stereotype ? '«' + n.stereotype + '»' : ''];
-        const longest = rows.reduce((m, s) => Math.max(m, (s || '').length), 0);
-        n.width = Math.max(170, longest * 7 + 24);
-        n.height = Math.max(70, (n.stereotype ? 42 : 28) + (n.properties || []).length * 16 + (n.methods || []).length * 16 + 8);
-      };
+      const sizeClass = sizeClassNode;
       let node;
       const mkClass = (label, stereotype, properties, methods) => {
         node = createNode('rect', 0, 0, 170, 80);
@@ -2819,12 +2865,28 @@
         
         return frameSvg;
       }).join('');
-      
+
+      // Activation bars (#158): narrow rectangles on a participant's lifeline
+      // spanning from the activating message Y to the deactivating one.
+      const msgYAt = idx => {
+        const m = connections.find(c => c.isSequenceMessage && c.index === idx);
+        return m && m.messageY != null ? m.messageY : startY + idx * messageSpacing;
+      };
+      const activationsSvg = sequenceActivations.map(act => {
+        const p = nodeById.get(act.participant);
+        if (!p || act.startIndex == null || act.endIndex == null) return '';
+        const cx = p.x + p.width / 2;
+        const y1 = msgYAt(act.startIndex) - 6;
+        const y2 = msgYAt(Math.max(act.startIndex, act.endIndex)) + 6;
+        const w = 10;
+        return `<rect x="${cx - w / 2}" y="${y1}" width="${w}" height="${Math.max(10, y2 - y1)}" fill="${COLORS.bg2}" stroke="${COLORS.fg}" stroke-width="1" rx="1" style="pointer-events:none"/>`;
+      }).join('');
+
       // Connections
       const connGeom = computeConnectionGeometry(nodeById);
       let selHandles = null;  // endpoint coords for the selected connection (drawn on top)
       const cullActive = nodes.length > CONFIG.cullThreshold;
-      connectionsGroup.innerHTML = framesSvg + connections.map(conn => {
+      connectionsGroup.innerHTML = framesSvg + activationsSvg + connections.map(conn => {
         const from = nodeById.get(conn.from);
         const to = nodeById.get(conn.to);
         if (!from || !to) return '';
@@ -3879,6 +3941,51 @@
         if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); commit(true); }
         else if (ev.key === 'Escape') { ev.preventDefault(); commit(false); }
         // plain Enter falls through → inserts a newline
+      });
+      labelEditor = { commit, nodeId: node.id };
+    }
+
+    // In-place member editor for UML class-like nodes (#163): a textarea over the
+    // body, one member per line (lines with "()" become methods, the rest
+    // properties). Add a line to add a member, clear a line to remove it.
+    function editClassMembers(node) {
+      if (readOnly || !node.isClass) return;
+      if (labelEditor) labelEditor.commit(true);
+      const canvasContainer = document.getElementById('canvasContainer');
+      const canvasRect = canvas.getBoundingClientRect();
+      const scaleX = canvasRect.width / viewBox.w;
+      const titleH = (node.stereotype ? 42 : 28);
+      const left = (node.x - viewBox.x) * scaleX;
+      const top = (node.y + titleH - viewBox.y) * scaleX;
+      const w = node.width * scaleX;
+      const h = Math.max(40, (node.height - titleH)) * scaleX;
+
+      const inp = document.createElement('textarea');
+      inp.className = 'node-label-editor';
+      inp.style.textAlign = 'left';
+      inp.value = [...(node.properties || []), ...(node.methods || [])].join('\n');
+      inp.placeholder = '+ field: Type\n+ method() void';
+      inp.style.left = left + 'px';
+      inp.style.top = top + 'px';
+      inp.style.width = w + 'px';
+      inp.style.height = h + 'px';
+      canvasContainer.appendChild(inp);
+      inp.focus();
+      inp.select();
+
+      let done = false;
+      const commit = (save) => {
+        if (done) return;
+        done = true;
+        if (save) setClassMembers(node.id, inp.value);
+        inp.remove();
+        labelEditor = null;
+      };
+      inp.addEventListener('blur', () => commit(true));
+      inp.addEventListener('keydown', (ev) => {
+        ev.stopPropagation();
+        if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); commit(true); }
+        else if (ev.key === 'Escape') { ev.preventDefault(); commit(false); }
       });
       labelEditor = { commit, nodeId: node.id };
     }
@@ -5278,6 +5385,14 @@
       if (!node) return;
       // A link card opens its URL on double-click; images have no label to edit.
       if (node.type === 'link') { if (node.url) window.open(node.url, '_blank', 'noopener'); return; }
+      // UML class (#163): double-click the title band edits the name; the body
+      // (property/method area) opens the in-place member editor.
+      if (node.isClass) {
+        const pos = screenToCanvas(e.clientX, e.clientY);
+        if (pos.y > node.y + (node.stereotype ? 42 : 28)) { editClassMembers(node); return; }
+        editNodeLabel(node);
+        return;
+      }
       if (node.type !== 'line' && node.type !== 'pencil' && node.type !== 'image') editNodeLabel(node);
     }
     
@@ -8351,12 +8466,21 @@
     }
     
     function parseSequenceDiagram(lines) {
-      const result = { nodes: [], connections: [], errors: [], diagramType: 'sequence', frames: [] };
+      const result = { nodes: [], connections: [], errors: [], diagramType: 'sequence', frames: [], activations: [] };
       const participantMap = {};
       const participantOrder = [];
       let messageIndex = 0;
       const noteSubAt = {};  // messageIndex → count of notes already placed at that step (#157)
       const frameStack = []; // Track nested frames
+      // Activation bars (#158): a per-participant stack of open start indices;
+      // closing one emits a span. `activate X`/inline `+` open; `deactivate X`/
+      // inline `-` close.
+      const actStack = {};
+      const openAct = (p, idx) => { (actStack[p] = actStack[p] || []).push(idx); };
+      const closeAct = (p, idx) => {
+        const st = actStack[p];
+        if (st && st.length) result.activations.push({ participant: p, startIndex: st.pop(), endIndex: idx });
+      };
       
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -8437,16 +8561,15 @@
             participantOrder.push(to);
           }
           
-          result.connections.push({
-            from,
-            to,
-            label: message,
-            arrow,
-            index: messageIndex++
-          });
+          const idx = messageIndex++;
+          result.connections.push({ from, to, label: message, arrow, index: idx });
+          // Inline activation markers (#158): `->>+B` activates the target;
+          // `-->>-A` deactivates the source (Mermaid semantics).
+          if (activation === '+') openAct(to, idx);
+          else if (activation === '-') closeAct(from, idx);
           continue;
         }
-        
+
         // Note: `note over A[,B]: text`, `note left of A: text`, `note right of A: text`
         // → a sticky-note node anchored to the named participant(s) at this step (#157).
         m = line.match(/^note\s+(over|left of|right of)\s+([^:]+):\s*(.*)$/i);
@@ -8468,9 +8591,17 @@
           continue;
         }
 
-        // Activation: activate/deactivate - skip for now
-        if (line.startsWith('activate ') || line.startsWith('deactivate ')) continue;
+        // Explicit activation lines (#158): open/close a span on the named
+        // participant at the current message cursor.
+        m = line.match(/^activate\s+(\w+)$/i);
+        if (m) { openAct(m[1], messageIndex); continue; }
+        m = line.match(/^deactivate\s+(\w+)$/i);
+        if (m) { closeAct(m[1], Math.max(0, messageIndex - 1)); continue; }
       }
+
+      // Close any activations left open at end-of-diagram at the last message.
+      const lastIdx = Math.max(0, messageIndex - 1);
+      Object.keys(actStack).forEach(p => { while (actStack[p].length) result.activations.push({ participant: p, startIndex: actStack[p].pop(), endIndex: lastIdx }); });
       
       // Order participants by appearance, then keep any note nodes (#157)
       // collected during the scan (result.nodes already holds the notes).
@@ -9240,6 +9371,7 @@
           nodes = [];
           connections = [];
           sequenceFrames = [];
+          sequenceActivations = [];
         }
         const _appendStart = nodes.length;
 
@@ -9271,6 +9403,9 @@
         // Store sequence frames for rendering
         if (isSequence && parsed.frames) {
           sequenceFrames = parsed.frames;
+        }
+        if (isSequence && parsed.activations) {
+          sequenceActivations = parsed.activations;   // #158
         }
         
         layouted.forEach(n => {
@@ -9334,7 +9469,11 @@
 
           idMap[n.id] = node.id;
         });
-        
+
+        // Activation bars reference the participant by its parsed (Mermaid) id;
+        // remap to the live node id so render's nodeById lookup resolves (#158).
+        sequenceActivations.forEach(a => { if (idMap[a.participant]) a.participant = idMap[a.participant]; });
+
         // Create container nodes for subgraphs by computing bounding box of actual placed children
         if (parsed.subgraphs && parsed.subgraphs.length > 0) {
           const padding = 25;
