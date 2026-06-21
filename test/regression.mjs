@@ -3180,4 +3180,33 @@ group('Mermaid export of #49 shapes (#137): emit real brackets, not [rect]');
   check('hexagon round-trips', byLabel['Gate'] === 'hexagon');
 }
 
+group('Mermaid export of containers as subgraphs (#141): grouping survives round-trip');
+{
+  const { win, E } = boot();
+  const c = win.createNode('container', 0, 0, 320, 200); c.label = 'Auth';
+  const a = win.createNode('rect', 40, 60, 80, 40); a.label = 'Login';   // inside c
+  const b = win.createNode('rect', 40, 120, 80, 40); b.label = 'Verify'; // inside c
+  const out = win.createNode('rect', 600, 0, 80, 40); out.label = 'Outside'; // not in c
+  win.render();
+  const code = win.generateMermaid();
+
+  check('container exported as subgraph block', /subgraph/.test(code) && /\bend\b/.test(code));
+  check('member Login nested in the block', /subgraph[\s\S]*Login[\s\S]*end/.test(code));
+  check('member Verify nested in the block', /subgraph[\s\S]*Verify[\s\S]*end/.test(code));
+  check('container not also emitted as a flat [["Auth"]] node', !/\[\["Auth"\]\]/.test(code));
+  check('outside node is not inside the subgraph block', !/subgraph[\s\S]*Outside[\s\S]*end/.test(code));
+
+  // round-trips: re-parsing recovers a subgraph with both members
+  const parsed = E(`parseMermaid(generateMermaid())`);
+  check('re-import yields a subgraph', !!parsed.subgraphs && parsed.subgraphs.length >= 1);
+  check('subgraph keeps both members', !!parsed.subgraphs && parsed.subgraphs.some(s => (s.children || []).length >= 2));
+
+  // a diagram with no containers is unchanged (no stray subgraph keyword)
+  const { win: win2 } = boot();
+  const x = win2.createNode('rect', 0, 0, 80, 40); x.label = 'X';
+  const y = win2.createNode('rect', 200, 0, 80, 40); y.label = 'Y';
+  win2.connect(x.id, y.id);
+  check('no-container diagram has no subgraph', !/subgraph/.test(win2.generateMermaid()));
+}
+
 process.exit(report() ? 0 : 1);
