@@ -3384,15 +3384,23 @@
         const hasLifelineActive = node.isParticipant || node.hasLifeline;
         const noConnectors = node.type === 'line' || node.type === 'pencil' || hasLifelineActive;
         const connectors = noConnectors ? '' : renderConnectors(node);
-        // Don't render resize handle for line/pencil shapes
-        const resizeHandle = (isSelected && node.type !== 'line' && node.type !== 'pencil') ?
+        // Don't render resize handle for line/pencil shapes, or for a locked node (#96)
+        const resizeHandle = (isSelected && !node.locked && node.type !== 'line' && node.type !== 'pencil') ?
           `<rect class="resize-handle" x="${node.x + node.width - 8}" y="${node.y + node.height - 8}" width="8" height="8" fill="${COLORS.accent}" rx="2"/>` : '';
-        
-        return `<g class="node ${isSelected ? 'selected' : ''}" data-id="${node.id}" role="img" aria-label="${esc(nodeAriaLabel(node))}">
+        // Lock badge (#96): a small padlock at the node's top-right corner.
+        const lockBadge = node.locked ? `<g class="lock-badge" transform="translate(${node.x + node.width - 16},${node.y + 2})" style="pointer-events:none">
+            <rect x="-1" y="-1" width="16" height="16" rx="3" fill="${COLORS.bg2}" stroke="${COLORS.border}" stroke-width="1"/>
+            <rect x="3" y="6" width="8" height="6" rx="1" fill="none" stroke="${COLORS.fg}" stroke-width="1.3"/>
+            <path d="M5,6 V4.5 a2,2 0 0 1 4,0 V6" fill="none" stroke="${COLORS.fg}" stroke-width="1.3"/>
+          </g>` : '';
+
+        return `<g class="node ${isSelected ? 'selected' : ''}${node.locked ? ' locked' : ''}" data-id="${node.id}" role="img" aria-label="${esc(nodeAriaLabel(node))}">
+
           ${lifeline}
           ${shape}
           ${connectors}
           ${resizeHandle}
+          ${lockBadge}
         </g>`;
       }).join('');
       // Group-resize handle (#101): a single handle at the bottom-right of a 2+
@@ -3787,9 +3795,19 @@
       group: () => groupSelected(),
       ungroup: () => ungroupSelected(),
       copyMermaid: () => copyAsMermaid(),
+      lock: () => { selectedNodeIds().forEach(id => toggleNodeLock(id, true)); saveState(); render(); },
       copyStyle: () => copyStyle(selectedId || selectedNodeIds()[0]),
       pasteStyle: () => pasteStyle(),
     };
+    // Toggle a node's lock (#96). Locked nodes ignore drag-move, resize and nudge.
+    // With `bulk`, the caller batches saveState()/render() across a multi-selection.
+    function toggleNodeLock(id, bulk) {
+      const n = nodes.find(x => x.id === id);
+      if (!n) return;
+      n.locked = !n.locked;
+      if (!bulk) { saveState(); render(); }
+      return n.locked;
+    }
     function showContextMenu(clientX, clientY, items) {
       contextMenu.innerHTML = items.map(it => it.sep
         ? '<div class="ctx-sep"></div>'
@@ -3831,6 +3849,7 @@
           { sep: true },
           { act: 'front', label: 'Bring to front' },
           { act: 'back', label: 'Send to back' },
+          { act: 'lock', label: n && n.locked ? 'Unlock' : 'Lock' },   // #96
           { sep: true },
           { act: 'delete', label: 'Delete', danger: true, kbd: '⌫' },
         );
@@ -4816,16 +4835,18 @@
       
       // If this node is part of a multi-selection, drag them all
       if (selectedIds.includes(node.id) && selectedIds.length > 1) {
-        const dragNodes = nodes.filter(n => selectedIds.includes(n.id));
-        dragging = { 
-          node, 
-          offsetX: pos.x - node.x, 
+        const dragNodes = nodes.filter(n => selectedIds.includes(n.id) && !n.locked);   // locked stay put (#96)
+        if (!dragNodes.length) return;
+        dragging = {
+          node,
+          offsetX: pos.x - node.x,
           offsetY: pos.y - node.y,
           multiDrag: dragNodes.map(n => ({ node: n, startX: n.x, startY: n.y })),
           startX: node.x,
           startY: node.y
         };
       } else {
+        if (node.locked) return;   // #96: a locked node ignores drag-move
         dragging = { node, offsetX: pos.x - node.x, offsetY: pos.y - node.y, startX: node.x, startY: node.y };
       }
       e.preventDefault();
@@ -4930,7 +4951,7 @@
     let resizing = null;
     function onResizeMouseDown(e) {
       const node = nodes.find(n => n.id === selectedId);
-      if (node) {
+      if (node && !node.locked) {   // #96: a locked node ignores resize
         resizing = { node, startW: node.width, startH: node.height, startX: e.clientX, startY: e.clientY };
       }
       e.preventDefault();
