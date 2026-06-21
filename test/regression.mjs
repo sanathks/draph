@@ -3437,7 +3437,18 @@ group('Sequence activation bars (#158): inline +/- and activate/deactivate → s
   const { win, doc, E: E3 } = boot();
   win.importMermaid(false, { code: 'sequenceDiagram\n  participant A\n  participant B\n  A->>+B: req\n  B-->>-A: res' });
   check('importMermaid stores the activation', E3(`sequenceActivations.length`) === 1);
-  check('an activation rect renders in the connections group', doc.querySelectorAll('#connections rect').length >= 1);
+  // the activation participant is remapped to the LIVE node id (review fix)
+  check('activation participant remapped to a live node id', E3(`!!nodes.find(n => n.id === sequenceActivations[0].participant)`));
+  // a NARROW activation bar (w≈10) renders on B's lifeline center-x, spanning a message range
+  const bNode = E3(`nodes.find(n => n.label === 'B')`);
+  const bcx = bNode.x + bNode.width / 2;
+  const bars = [...doc.querySelectorAll('#connections rect')].filter(r => {
+    const w = parseFloat(r.getAttribute('width'));
+    const x = parseFloat(r.getAttribute('x'));
+    return Math.abs(w - 10) < 2 && Math.abs((x + w / 2) - bcx) < 3;
+  });
+  check('a narrow activation bar renders on B’s lifeline center-x', bars.length === 1);
+  check('the activation bar spans a message range (tall, not a glyph)', parseFloat(bars[0].getAttribute('height')) >= 30);
 
   // a plain sequence diagram has no activations (no regression / no stray bars)
   const p3 = E(`parseMermaid('sequenceDiagram\\n  A->>B: hi')`);

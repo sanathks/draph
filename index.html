@@ -9309,7 +9309,11 @@
 
           idMap[n.id] = node.id;
         });
-        
+
+        // Activation bars reference the participant by its parsed (Mermaid) id;
+        // remap to the live node id so render's nodeById lookup resolves (#158).
+        sequenceActivations.forEach(a => { if (idMap[a.participant]) a.participant = idMap[a.participant]; });
+
         // Create container nodes for subgraphs by computing bounding box of actual placed children
         if (parsed.subgraphs && parsed.subgraphs.length > 0) {
           const padding = 25;
