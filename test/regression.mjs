@@ -3418,4 +3418,28 @@ group('Container drag carries contents (#153): members + nested move together');
   check('non-container drag moves only itself', q.x === qx0);
 }
 
+group('Sequence note import (#157): note over/left of/right of → note nodes');
+{
+  const { E } = boot();
+  const code = 'sequenceDiagram\n  participant A\n  participant B\n  A->>B: hi\n  note over A: validate token\n  note right of B: ack\n  note over A,B: shared';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+
+  check('note over imported as a node', p.nodes.some(n => n.type === 'note' && (n.label || '').includes('validate token')));
+  check('note right of imported as a node', p.nodes.some(n => n.type === 'note' && n.label === 'ack'));
+  check('multi-participant note imported', p.nodes.some(n => n.type === 'note' && n.label === 'shared' && (n.noteOver || []).length === 2));
+  check('note carries its placement', p.nodes.find(n => n.label === 'ack').notePlacement === 'right');
+
+  // messages + participants still parse correctly (no regression)
+  check('the message still parses', p.connections.some(c => c.label === 'hi'));
+  check('both participants present', p.nodes.filter(n => n.type === 'participant').length === 2);
+  check('no spurious participant from the note text', !p.nodes.some(n => n.type === 'participant' && /validate|token|ack|shared/.test(n.label || '')));
+
+  // full import path creates + positions the note as a live note node
+  const { win, doc, E: E2 } = boot();
+  win.importMermaid(false, { code });
+  check('importMermaid creates a live note node', E2(`nodes.some(n => n.type === 'note' && n.label === 'validate token')`));
+  check('imported note is positioned in the message area (below participants)', E2(`nodes.find(n => n.type === 'note' && n.label === 'validate token').y`) > 100);
+  check('imported note renders a node element', [...doc.querySelectorAll('#nodes .node')].some(g => (g.textContent || '').replace(/\s+/g, '').includes('validatetoken')));
+}
+
 process.exit(report() ? 0 : 1);

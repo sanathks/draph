@@ -8414,19 +8414,34 @@
           continue;
         }
         
-        // Note: Note over Alice,Bob: text or Note right of Alice: text
-        // Skip for now - could add later
-        if (line.startsWith('Note ')) continue;
-        
+        // Note: `note over A[,B]: text`, `note left of A: text`, `note right of A: text`
+        // → a sticky-note node anchored to the named participant(s) at this step (#157).
+        m = line.match(/^note\s+(over|left of|right of)\s+([^:]+):\s*(.*)$/i);
+        if (m) {
+          const placement = m[1].toLowerCase().startsWith('left') ? 'left'
+            : m[1].toLowerCase().startsWith('right') ? 'right' : 'over';
+          const overs = m[2].split(',').map(s => s.trim()).filter(Boolean);
+          overs.forEach(id => {
+            if (!participantMap[id]) { participantMap[id] = { id, type: 'participant', label: id }; participantOrder.push(id); }
+          });
+          result.nodes.push({
+            id: 'note_' + i, type: 'note', label: m[3].trim(),
+            noteOver: overs, notePlacement: placement, noteIndex: messageIndex,
+          });
+          continue;
+        }
+
         // Activation: activate/deactivate - skip for now
         if (line.startsWith('activate ') || line.startsWith('deactivate ')) continue;
       }
       
-      // Order nodes by their order of appearance
-      result.nodes = participantOrder.map(id => participantMap[id]);
+      // Order participants by appearance, then keep any note nodes (#157)
+      // collected during the scan (result.nodes already holds the notes).
+      const noteNodes = result.nodes.filter(n => n.type === 'note');
+      result.nodes = [...participantOrder.map(id => participantMap[id]), ...noteNodes];
       return result;
     }
-    
+
     function parseClassDiagram(lines) {
       const result = { nodes: [], connections: [], errors: [], diagramType: 'class' };
       const classMap = {};
@@ -8774,11 +8789,20 @@
       // Sequence diagram: horizontal layout at top
       if (diagramType === 'sequence') {
         const spacingX = 150;
-        return parsedNodes.map((n, i) => ({
-          ...n,
-          x: startX + i * spacingX,
-          y: startY
-        }));
+        // Participants run along the top row; notes (#157) anchor to their named
+        // participant(s) and drop into the message area by their step index.
+        const participants = parsedNodes.filter(n => n.type !== 'note');
+        const px = {};
+        participants.forEach((n, i) => { px[n.id] = startX + i * spacingX; });
+        return parsedNodes.map(n => {
+          if (n.type === 'note') {
+            const xs = (n.noteOver || []).map(id => px[id]).filter(x => x != null);
+            const base = xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : startX;
+            const x = n.notePlacement === 'left' ? base - 140 : n.notePlacement === 'right' ? base + 140 : base;
+            return { ...n, x, y: startY + 90 + (n.noteIndex || 0) * 50 };
+          }
+          return { ...n, x: px[n.id], y: startY };
+        });
       }
       
       // Class diagram: wider spacing
