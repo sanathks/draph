@@ -8528,6 +8528,15 @@
       // Parse a chain of connections from a single line
       // e.g. "A --> B --> C" or "A & B -->|label| C & D"
       function parseConnectionLine(line) {
+        // Mid-arrow edge labels (#146): rewrite `A -- text --> B` (and the `==`/`-.`
+        // variants) into the equivalent `A -->|text| B` pipe form the tokenizer
+        // already handles — otherwise the opening `--`/`==`/`-.` makes the label
+        // look like a separate node. Done before tokenizing.
+        line = line
+          .replace(/--\s+([^->|]+?)\s+(--+>)/g, '$2|$1|')
+          .replace(/==\s+([^=>|]+?)\s+(==+>)/g, '$2|$1|')
+          .replace(/-\.\s+([^.>|]+?)\s+(-?\.->)/g, '-.->|$1|');
+
         // Tokenize: split by arrows, keeping arrows as separators
         // We need to handle |label| that comes right after an arrow
         const tokens = [];
@@ -8549,7 +8558,7 @@
           
           let arrow = arrowMatch[1];
           remaining = remaining.substring(arrowMatch.index + arrowMatch[0].length);
-          
+
           // Check for |label| right after arrow
           let label = '';
           const labelMatch = remaining.match(/^\|([^|]*)\|\s*/);
@@ -8557,7 +8566,7 @@
             label = labelMatch[1];
             remaining = remaining.substring(labelMatch[0].length);
           }
-          
+
           tokens.push({ type: 'arrow', arrow, label });
         }
         
