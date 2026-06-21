@@ -3180,6 +3180,28 @@ group('Mermaid export of #49 shapes (#137): emit real brackets, not [rect]');
   check('hexagon round-trips', byLabel['Gate'] === 'hexagon');
 }
 
+group('Mermaid export label escaping (#142): special chars quoted, round-trips');
+{
+  const { win, E } = boot();
+  const n = win.createNode('rect', 0, 0, 140, 50); n.label = 'Step [1]: go';
+  const plain = win.createNode('rect', 0, 200, 140, 50); plain.label = 'Plain';
+  win.render();
+  const code = win.generateMermaid();
+
+  check('special-char label is quoted on export', /"Step \[1\]: go"/.test(code));
+  check('plain label is NOT quoted', /[A-Za-z0-9]\[Plain\]/.test(code) && !/"Plain"/.test(code));
+
+  // round-trips: re-import recovers the same label text
+  const parsed = E(`parseMermaid(generateMermaid())`);
+  const labels = parsed.nodes.map(x => x.label);
+  check('special-char label round-trips intact', labels.includes('Step [1]: go'));
+
+  // newline collapses to <br/> and the label is quoted
+  const m = win.createNode('rect', 0, 400, 140, 50); m.label = 'line1\nline2';
+  win.render();
+  check('newline label becomes quoted <br/>', /"line1<br\/>line2"/.test(win.generateMermaid()));
+}
+
 group('Mermaid export of containers as subgraphs (#141): grouping survives round-trip');
 {
   const { win, E } = boot();

@@ -7244,7 +7244,18 @@
     function generateFlowchartMermaid() {
       let code = 'flowchart TD\n';
       const nodeIds = {};
-      
+
+      // Make a label safe inside Mermaid shape brackets (#142): collapse newlines
+      // to <br/>, turn inner double-quotes into single (can't nest in a quoted
+      // label), and wrap in quotes when it contains bracket/brace/paren/angle/
+      // pipe/<br/> chars that would otherwise unbalance the shape syntax.
+      const mmLabel = raw => {
+        let s = String(raw == null || raw === '' ? 'Node' : raw).replace(/\r?\n/g, '<br/>').replace(/"/g, "'");
+        return /[\[\]{}()<>|]|<br\/>/.test(s) ? `"${s}"` : s;
+      };
+      // Container label is ALWAYS quoted ([["…"]]); only sanitize the inner text.
+      const mmQuoted = raw => String(raw == null || raw === '' ? 'Node' : raw).replace(/\r?\n/g, '<br/>').replace(/"/g, "'");
+
       // Filter out line/arrow and freehand pencil shapes (not flowchart nodes)
       const flowNodes = nodes.filter(n => n.type !== 'line' && n.type !== 'pencil' && n.type !== 'note');
       
@@ -7253,7 +7264,9 @@
         nodeIds[n.id] = String.fromCharCode(65 + (i % 26)) + (i >= 26 ? Math.floor(i / 26) : '');
       });
       
-      // Node syntax for a single node (label already escaped by caller).
+      // Node syntax for a single node. `label` is the FINAL bracket content,
+      // already escaped/quoted by the caller (#142): container labels are always
+      // quoted, other shapes are quoted only when they contain special chars.
       const shapeFor = (type, label) => {
         switch (type) {
           case 'pill': return `(${label})`;
@@ -7271,7 +7284,9 @@
         }
       };
       const nodeDef = (n, indent) => {
-        const label = (n.label || 'Node').replace(/"/g, "'");
+        // container wraps in quotes itself → pass the sanitized inner text;
+        // every other shape gets a conditionally-quoted label (#142 + #141).
+        const label = n.type === 'container' ? mmQuoted(n.label) : mmLabel(n.label);
         return `${indent}${nodeIds[n.id]}${shapeFor(n.type, label)}\n`;
       };
 
@@ -7301,7 +7316,7 @@
       containerNodes.forEach(c => {
         const members = membersByContainer.get(c.id) || [];
         if (!members.length) { code += nodeDef(c, '    '); return; } // empty container → flat node
-        const clabel = (c.label || 'Group').replace(/"/g, "'");
+        const clabel = mmQuoted(c.label || 'Group');
         code += `    subgraph ${nodeIds[c.id]}["${clabel}"]\n`;
         members.forEach(nid => { code += nodeDef(nodes.find(n => n.id === nid), '        '); });
         code += `    end\n`;
@@ -7319,9 +7334,9 @@
           const fromId = nodeIds[c.from];
           const toId = nodeIds[c.to];
           if (fromId && toId) {
-            const label = c.label ? `|${c.label}|` : '';
-            // Map the edge's stroke style to the Mermaid operator (#138): dashed/
-            // dotted → -.->, thick → ==>, else solid -->. Round-trips with the parser.
+            // Edge label escaped for special chars (#142); operator from the
+            // edge's stroke style (#138): dashed/dotted → -.->, thick → ==>, else -->.
+            const label = c.label ? `|${mmLabel(c.label)}|` : '';
             const ss = c.strokeStyle;
             const op = (ss === 'dashed' || ss === 'dotted') ? '-.->' : (ss === 'thick' ? '==>' : '-->');
             code += `    ${fromId} ${op}${label} ${toId}\n`;
@@ -8461,46 +8476,49 @@
       // Helper to parse a node token like "A", "A[Label]", "A{Label}", "A((Label))", "A(Label)", "A[(DB)]"
       function parseNodeToken(token) {
         token = token.trim();
-        
+        // Strip a surrounding pair of double-quotes from a bracketed label so a
+        // quoted/escaped export (#142) round-trips to the original text.
+        const unq = s => s.replace(/^"([\s\S]*)"$/, '$1');
+
         // A((circle))
         let m = token.match(/^(\w+)\(\((.+)\)\)$/);
-        if (m) return { id: m[1], type: 'circle', label: m[2] };
+        if (m) return { id: m[1], type: 'circle', label: unq(m[2]) };
         
         // A[["container"]]
         m = token.match(/^(\w+)\[\["?(.+?)"?\]\]$/);
-        if (m) return { id: m[1], type: 'container', label: m[2] };
+        if (m) return { id: m[1], type: 'container', label: unq(m[2]) };
         
         // A[(database)] — cylinder (#123)
         m = token.match(/^(\w+)\[\((.+)\)\]$/);
-        if (m) return { id: m[1], type: 'cylinder', label: m[2] };
+        if (m) return { id: m[1], type: 'cylinder', label: unq(m[2]) };
 
         // A{{hexagon}} — hexagon (#123)
         m = token.match(/^(\w+)\{\{(.+)\}\}$/);
-        if (m) return { id: m[1], type: 'hexagon', label: m[2] };
+        if (m) return { id: m[1], type: 'hexagon', label: unq(m[2]) };
 
         // A[/parallelogram/] (#123)
         m = token.match(/^(\w+)\[\/(.+)\/\]$/);
-        if (m) return { id: m[1], type: 'parallelogram', label: m[2] };
+        if (m) return { id: m[1], type: 'parallelogram', label: unq(m[2]) };
 
         // A[\trapezoid\] (#123)
         m = token.match(/^(\w+)\[\\(.+)\\\]$/);
-        if (m) return { id: m[1], type: 'trapezoid', label: m[2] };
+        if (m) return { id: m[1], type: 'trapezoid', label: unq(m[2]) };
         
         // A[rect] 
         m = token.match(/^(\w+)\[(.+)\]$/);
-        if (m) return { id: m[1], type: 'rect', label: m[2] };
+        if (m) return { id: m[1], type: 'rect', label: unq(m[2]) };
         
         // A{diamond}
         m = token.match(/^(\w+)\{(.+)\}$/);
-        if (m) return { id: m[1], type: 'diamond', label: m[2] };
+        if (m) return { id: m[1], type: 'diamond', label: unq(m[2]) };
         
         // A(pill)
         m = token.match(/^(\w+)\((.+)\)$/);
-        if (m) return { id: m[1], type: 'pill', label: m[2] };
+        if (m) return { id: m[1], type: 'pill', label: unq(m[2]) };
         
         // A>asymmetric]
         m = token.match(/^(\w+)>(.+)\]$/);
-        if (m) return { id: m[1], type: 'rect', label: m[2] };
+        if (m) return { id: m[1], type: 'rect', label: unq(m[2]) };
         
         // Just ID
         m = token.match(/^(\w+)$/);
