@@ -859,6 +859,19 @@
           </div>
         </div>
 
+        <!-- Text alignment (#120): left / center / right -->
+        <div id="textAlignGroup" class="flex items-center gap-1" style="display:inline-flex">
+          <button id="alignLeftBtn" onclick="setNodeTextAlign('left')" title="Align left" style="width:28px;height:28px;background:var(--bg);border:2px solid transparent;border-radius:4px;color:var(--fg);display:flex;align-items:center;justify-content:center">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
+          </button>
+          <button id="alignCenterBtn" onclick="setNodeTextAlign('center')" title="Align center" style="width:28px;height:28px;background:var(--bg);border:2px solid transparent;border-radius:4px;color:var(--fg);display:flex;align-items:center;justify-content:center">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="5" y1="18" x2="19" y2="18"/></svg>
+          </button>
+          <button id="alignRightBtn" onclick="setNodeTextAlign('right')" title="Align right" style="width:28px;height:28px;background:var(--bg);border:2px solid transparent;border-radius:4px;color:var(--fg);display:flex;align-items:center;justify-content:center">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>
+          </button>
+        </div>
+
         <!-- Fill style dropdown (hidden for line nodes) -->
         <div id="fillStyleGroup" class="relative" style="display:inline-block">
           <button id="fillStyleBtn" onclick="toggleFillDropdown()" class="flex items-center justify-center" style="width:28px;height:28px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:16px;color:var(--fg)" title="Fill Style">●</button>
@@ -3013,12 +3026,16 @@
           const cHeadColor = node.outlineColor || COLORS.fg;
           const cHasIcon = node.icon && ICONS[node.icon];
           const cIconEl = cHasIcon ? iconSvg(node.icon, node.x + 12, node.y + 8, 15, cHeadColor) : '';
-          const cTextX = node.x + 12 + (cHasIcon ? 21 : 0);
+          // Header label honors node.textAlign (#120); left default keeps the icon+label cluster.
+          const cAnchor = textAnchorFor(node.textAlign);
+          const cTextX = node.textAlign === 'center' ? node.x + node.width / 2
+            : node.textAlign === 'right' ? node.x + node.width - 12
+            : node.x + 12 + (cHasIcon ? 21 : 0);
           shape = `${customPattern}<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="8"
             fill="${fill}" stroke="none" class="container-fill"/>
             <rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="8"
             fill="none" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>
-            ${cIconEl}<text x="${cTextX}" y="${node.y + 22}" fill="${cHeadColor}" font-size="13" font-weight="600" font-family="system-ui, sans-serif" style="pointer-events:none">${esc(node.label)}</text>`;
+            ${cIconEl}<text x="${cTextX}" y="${node.y + 22}" fill="${cHeadColor}" font-size="13" font-weight="600" font-family="system-ui, sans-serif" text-anchor="${cAnchor}" style="pointer-events:none">${esc(node.label)}</text>`;
         } else if (node.type === 'bar') {
           // state fork/join: a solid thin bar (filled rectangle, minimal rounding)
           const fill = node.color || COLORS.fg;
@@ -3288,8 +3305,13 @@
           const fx = node.x + node.width, fy = node.y + node.height;
           const pad = 12, fontSize = 13, lineH = 17;
           const lines = wrapLabel(node.label || '', node.width - pad * 2, fontSize);
+          // Text alignment (#120): start/middle/end anchored to the note's text box.
+          const nAnchor = textAnchorFor(node.textAlign);
+          const nTextX = node.textAlign === 'center' ? node.x + node.width / 2
+            : node.textAlign === 'right' ? node.x + node.width - pad
+            : node.x + pad;
           const tspans = lines.map((l, i) =>
-            `<text x="${node.x + pad}" y="${node.y + pad + 12 + i * lineH}" fill="#1a1b26" font-size="${fontSize}" font-family="system-ui, sans-serif">${esc(l)}</text>`
+            `<text x="${nTextX}" y="${node.y + pad + 12 + i * lineH}" fill="#1a1b26" font-size="${fontSize}" font-family="system-ui, sans-serif" text-anchor="${nAnchor}">${esc(l)}</text>`
           ).join('');
           shape = `
             <rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="3"
@@ -3391,7 +3413,7 @@
           shape = `${customPattern}<defs><clipPath id="${clipId}"><rect x="${node.x + pad}" y="${node.y + 2}" width="${node.width - pad*2}" height="${node.height - 4}" rx="${rx}"/></clipPath></defs>
             <rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${rx}"
             fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>
-            <g clip-path="url(#${clipId})">${renderWrappedText(node.label, rcx, rcy, node.width - pad*2, 12, txtColor, '', node.icon)}</g>`;
+            <g clip-path="url(#${clipId})">${renderWrappedText(node.label, rcx, rcy, node.width - pad*2, 12, txtColor, '', node.icon, node.textAlign)}</g>`;
           // journey actor avatars: one color-coded glyph per actor, above the pill
           if (node.actors && node.actors.length) {
             const gr = 7, gap = 4, gy = node.y - gr - 3;
@@ -3584,7 +3606,13 @@
     // Render wrapped text as SVG tspan elements centered at (cx, cy). If
     // iconName is given, an icon is drawn just left of the label and the whole
     // icon+label cluster stays centered at cx.
-    function renderWrappedText(label, cx, cy, maxWidth, fontSize, fill, attrs, iconName) {
+    // Map a node.textAlign ('left'|'center'|'right', default center) to an SVG
+    // text-anchor (#120). Centralised so every renderer agrees.
+    function textAnchorFor(align) {
+      return align === 'left' ? 'start' : align === 'right' ? 'end' : 'middle';
+    }
+
+    function renderWrappedText(label, cx, cy, maxWidth, fontSize, fill, attrs, iconName, align = 'center') {
       const hasIcon = iconName && ICONS[iconName];
       const iconSize = Math.round(fontSize * 1.3);
       const gap = 6;
@@ -3596,11 +3624,16 @@
       const charW = fontSize * 0.6;
       const textW = Math.max(0, ...lines.map(l => l.length)) * charW;
       const clusterLeft = cx - (reserve + textW) / 2;
-      const textCx = hasIcon ? clusterLeft + reserve + textW / 2 : cx;
-      const iconEl = hasIcon ? iconSvg(iconName, clusterLeft, cy - iconSize / 2, iconSize, fill) : '';
-      const textEl = `<text x="${textCx}" fill="${fill}" font-size="${fontSize}" font-family="system-ui, sans-serif" text-anchor="middle" ${extra}>${
+      // Center keeps the icon+label cluster centering; left/right anchor the text
+      // to the content-box edges (cx ± maxWidth/2).
+      const anchor = textAnchorFor(align);
+      const anchorX = align === 'left' ? cx - maxWidth / 2
+        : align === 'right' ? cx + maxWidth / 2
+        : (hasIcon ? clusterLeft + reserve + textW / 2 : cx);
+      const iconEl = hasIcon ? iconSvg(iconName, align === 'left' ? anchorX : clusterLeft, cy - iconSize / 2, iconSize, fill) : '';
+      const textEl = `<text x="${anchorX}" fill="${fill}" font-size="${fontSize}" font-family="system-ui, sans-serif" text-anchor="${anchor}" ${extra}>${
         lines.map((line, i) =>
-          `<tspan x="${textCx}" dy="${i === 0 ? 0 : lineH}" y="${i === 0 ? startY + 4 : ''}">${esc(line)}</tspan>`
+          `<tspan x="${anchorX}" dy="${i === 0 ? 0 : lineH}" y="${i === 0 ? startY + 4 : ''}">${esc(line)}</tspan>`
         ).join('')
       }</text>`;
       return iconEl + textEl;
@@ -3635,7 +3668,11 @@
         document.getElementById('fillColorGroup').style.display = isStroke ? 'none' : 'inline-block';
         document.getElementById('lineStyleGroup').style.display = isLine ? 'inline-block' : 'none';
         document.getElementById('lifelineToggle').style.display = isStroke ? 'none' : 'flex';
-        
+        // Text-align control (#120): meaningful for label-bearing shapes only.
+        const supportsAlign = !isStroke && !['image', 'text', 'link'].includes(node.type);
+        document.getElementById('textAlignGroup').style.display = supportsAlign ? 'inline-flex' : 'none';
+        if (supportsAlign) updateTextAlignBtns(node.textAlign);
+
         // Update line style button
         if (isLine) {
           updateLineStyleButton(node);
@@ -4191,6 +4228,25 @@
     function setFillStyle(style) {
       const node = nodes.find(n => n.id === selectedId);
       if (node) { node.fillStyle = style; saveState(); render(); }
+    }
+
+    // Set the selected node's text alignment (#120): left | center | right.
+    function setNodeTextAlign(align) {
+      const node = nodes.find(n => n.id === selectedId);
+      if (!node) return;
+      node.textAlign = align;
+      updateTextAlignBtns(align);
+      saveState();
+      render();
+    }
+
+    function updateTextAlignBtns(align) {
+      const map = { left: 'alignLeftBtn', center: 'alignCenterBtn', right: 'alignRightBtn' };
+      const active = align || 'center';
+      Object.entries(map).forEach(([a, id]) => {
+        const btn = document.getElementById(id);
+        if (btn) btn.style.borderColor = (a === active) ? COLORS.accent : 'transparent';
+      });
     }
 
     // Set (or clear, with '') the selected node's icon.
