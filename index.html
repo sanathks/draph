@@ -2839,7 +2839,7 @@
           const y = conn.messageY || 150;
           const isConnSelected = selectedConnId === conn.id;
           const strokeColor = conn.color || (isConnSelected ? COLORS.accent : COLORS.fg);
-          const strokeWidth = isConnSelected ? 3 : 2;
+          const strokeWidth = conn.thick ? (isConnSelected ? 5 : 4) : (isConnSelected ? 3 : 2);
           
           // Arrow type - strokeStyle overrides arrow syntax if explicitly set
           const arrowIsDashed = conn.arrow?.includes('--');
@@ -2993,7 +2993,7 @@
         
         // Label with background (no border, multi-line support)
         const label = conn.label || '';
-        const strokeWidth = isConnSelected ? 3 : 2;
+        const strokeWidth = conn.thick ? (isConnSelected ? 5 : 4) : (isConnSelected ? 3 : 2);
         
         let labelEl = '';
         if (label) {
@@ -8536,7 +8536,8 @@
       }
       
       // Arrow pattern: matches -->, --->, ----, -.-, -..-, -.->,-.->, ==>, ===>, -- text -->, -. text .->  etc
-      const arrowRe = /\s*(={2,}>|--+>|--+|-%2D+>|-\.+->{0,1}|-\.->{0,1}|~~+>|~~+)\s*/;
+      // Optional leading `<` captures bidirectional edges (`<-->`, `<==>`) (#145).
+      const arrowRe = /\s*(<?(?:={2,}>|--+>|--+|-%2D+>|-\.+->{0,1}|-\.->{0,1}|~~+>|~~+))\s*/;
       
       // Split "A & B & C" into individual node tokens
       function splitAmpersand(str) {
@@ -8604,14 +8605,16 @@
                 if (toNode) registerNode(toNode);
                 
                 if (fromNode && toNode) {
-                  // A dotted arrow (-.->) round-trips as a dashed edge (#138).
+                  // Map the arrow operator to edge style (#145, import mirror of #138):
+                  //  -.  → dashed · ==  → thick · no '>' (---) → no arrowhead ·
+                  //  leading '<' (<-->) → arrowhead at the start too.
                   const op = tokens[t].arrow || '';
-                  result.connections.push({
-                    from: fromNode.id,
-                    to: toNode.id,
-                    label,
-                    ...(op.includes('.') ? { strokeStyle: 'dashed' } : {})
-                  });
+                  const conn = { from: fromNode.id, to: toNode.id, label };
+                  if (op.includes('.')) conn.strokeStyle = 'dashed';
+                  else if (op.includes('=')) conn.thick = true;
+                  if (op.startsWith('<')) conn.markerStart = 'arrow';
+                  if (!op.includes('>')) conn.markerEnd = 'none';
+                  result.connections.push(conn);
                 }
               }
             }
@@ -9296,6 +9299,7 @@
                   label: c.label || '',
                   relType: c.relType,
                   strokeStyle: c.strokeStyle,
+                  thick: c.thick,
                   markerStart: c.markerStart,
                   markerEnd: c.markerEnd
                 });
