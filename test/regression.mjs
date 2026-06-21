@@ -3637,6 +3637,22 @@ group('Mermaid export honors source type (#165): state generator + no mislabel')
   check('sequence still exports as sequenceDiagram', /^sequenceDiagram/.test(w5.generateMermaid()));
 }
 
+group('Flowchart subgraph title import (#173): multi-word bare titles kept whole');
+{
+  const { E } = boot();
+  const p = E(`parseMermaid('flowchart TD\\n  subgraph Login Flow\\n    X --> Y\\n  end')`);
+  check('multi-word bare subgraph keeps the full title', (p.subgraphs || []).some(s => s.label === 'Login Flow'));
+  check('subgraph members still nest', (p.subgraphs || []).some(s => (s.children || []).length === 2));
+
+  // unchanged: bracketed and quoted forms
+  const p2 = E(`parseMermaid('flowchart TD\\n  subgraph S1[My Group]\\n    A --> B\\n  end')`);
+  check('bracketed subgraph title still works', (p2.subgraphs || []).some(s => s.label === 'My Group'));
+  const p3 = E(`parseMermaid('flowchart TD\\n  subgraph "Quoted Title"\\n    A --> B\\n  end')`);
+  check('quoted subgraph title still works', (p3.subgraphs || []).some(s => s.label === 'Quoted Title'));
+  const p4 = E(`parseMermaid('flowchart TD\\n  subgraph Solo\\n    A --> B\\n  end')`);
+  check('single-word bare title still works', (p4.subgraphs || []).some(s => s.label === 'Solo'));
+}
+
 group('Flowchart stadium shape import (#172): ([text]) → pill, no literal brackets');
 {
   const { E } = boot();
