@@ -3209,4 +3209,29 @@ group('Mermaid export of containers as subgraphs (#141): grouping survives round
   check('no-container diagram has no subgraph', !/subgraph/.test(win2.generateMermaid()));
 }
 
+group('Flowchart import edge style (#145): dotted/thick/no-arrow/bidirectional');
+{
+  const { E } = boot();
+  const code = 'flowchart TD\n  A -.-> B\n  C ==> D\n  E --- F\n  G <--> H\n  I --> J';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const idOf = label => p.nodes.find(n => n.label === label).id;
+  const edge = (from, to) => p.connections.find(c => c.from === idOf(from) && c.to === idOf(to));
+
+  check('dotted -.-> imports dashed', edge('A', 'B').strokeStyle === 'dashed');
+  check('thick ==> imports thick', edge('C', 'D').thick === true);
+  check('--- imports with no arrowhead', edge('E', 'F').markerEnd === 'none');
+  check('<--> imports with a start arrowhead', edge('G', 'H').markerStart === 'arrow');
+  const solid = edge('I', 'J');
+  check('solid --> unchanged (no style fields)',
+    !solid.strokeStyle && !solid.thick && solid.markerStart === undefined && solid.markerEnd === undefined);
+
+  // round-trips with #138 export: a dashed edge loaded into state exports as -.->
+  const { win, E: E2 } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40); a.label = 'A';
+  const b = win.createNode('rect', 240, 0, 80, 40); b.label = 'B';
+  win.connect(a.id, b.id, { strokeStyle: 'dashed' });
+  const reparsed = E2(`parseMermaid(generateMermaid())`);
+  check('dashed survives export→import round-trip', reparsed.connections[0].strokeStyle === 'dashed');
+}
+
 process.exit(report() ? 0 : 1);
