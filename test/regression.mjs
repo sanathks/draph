@@ -3355,4 +3355,37 @@ group('Duplicate keeps internal connections (#149): remap edges to the copies');
   check('single-node duplicate adds no connection', E(`connections.length`) === cBefore);
 }
 
+group('Container drag carries contents (#153): members + nested move together');
+{
+  const { win, doc } = boot();
+  const c = win.createNode('container', 0, 0, 360, 240); c.label = 'Box';
+  const a = win.createNode('rect', 40, 50, 80, 40); a.label = 'A';     // inside c
+  const nested = win.createNode('container', 30, 110, 200, 100); nested.label = 'Inner'; // inside c
+  const deep = win.createNode('rect', 50, 130, 60, 30); deep.label = 'Deep'; // inside nested (∴ inside c)
+  const outside = win.createNode('rect', 700, 0, 80, 40); outside.label = 'Out';
+  win.render(); win.selectNode(c.id);
+  const ax0 = a.x, ay0 = a.y, dx0 = deep.x, ox0 = outside.x;
+
+  const cEl = doc.querySelector(`#nodes .node[data-id="${c.id}"]`);
+  mouse(cEl, 'mousedown', c.x + 10, c.y + 10);
+  mouse(doc, 'mousemove', c.x + 110, c.y + 60);
+  mouse(doc, 'mouseup', 0, 0);
+
+  check('contained A moved ~100 right with the container', Math.abs((a.x - ax0) - 100) < 30);
+  check('contained A moved ~50 down', Math.abs((a.y - ay0) - 50) < 30);
+  check('nested-container descendant moved too', Math.abs((deep.x - dx0) - 100) < 30);
+  check('outside node did not move', outside.x === ox0);
+
+  // dragging a non-container node moves only itself
+  const p = win.createNode('rect', 0, 600, 80, 40); p.label = 'P';
+  const q = win.createNode('rect', 30, 610, 80, 40); q.label = 'Q'; // geometrically near, but P is not a container
+  win.render(); win.selectNode(p.id);
+  const qx0 = q.x;
+  const pEl = doc.querySelector(`#nodes .node[data-id="${p.id}"]`);
+  mouse(pEl, 'mousedown', p.x + 5, p.y + 5);
+  mouse(doc, 'mousemove', p.x + 105, p.y + 5);
+  mouse(doc, 'mouseup', 0, 0);
+  check('non-container drag moves only itself', q.x === qx0);
+}
+
 process.exit(report() ? 0 : 1);

@@ -5197,12 +5197,23 @@
       
       const pos = screenToCanvas(e.clientX, e.clientY);
       
-      // If this node is part of a multi-selection, drag them all
+      // Build the drag set: a multi-selection drags together; a container drags
+      // every node geometrically inside it (#153). Bounds-containment is
+      // transitive, so a single test also catches nested containers + their
+      // contents. Falls back to a plain single-node drag otherwise.
+      let dragNodes = null;
       if (selectedIds.includes(node.id) && selectedIds.length > 1) {
-        const dragNodes = nodes.filter(n => selectedIds.includes(n.id));
-        dragging = { 
-          node, 
-          offsetX: pos.x - node.x, 
+        dragNodes = nodes.filter(n => selectedIds.includes(n.id));
+      } else if (node.type === 'container') {
+        const inside = nodes.filter(n => n.id !== node.id &&
+          n.x >= node.x && n.y >= node.y &&
+          n.x + n.width <= node.x + node.width && n.y + n.height <= node.y + node.height);
+        if (inside.length) dragNodes = [node, ...inside];
+      }
+      if (dragNodes && dragNodes.length > 1) {
+        dragging = {
+          node,
+          offsetX: pos.x - node.x,
           offsetY: pos.y - node.y,
           multiDrag: dragNodes.map(n => ({ node: n, startX: n.x, startY: n.y })),
           startX: node.x,
