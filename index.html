@@ -984,6 +984,22 @@
           </button>
         </div>
 
+        <!-- Arrowhead style: none / end / start / both (#130) -->
+        <div class="flex items-center gap-1">
+          <button id="connArrowNone" onclick="setConnectionArrows(selectedConnId,'none')" title="No arrows" style="width:28px;height:28px;background:var(--bg);border:2px solid transparent;border-radius:4px;display:flex;align-items:center;justify-content:center">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;color:var(--fg)"><line x1="3" y1="12" x2="21" y2="12"/></svg>
+          </button>
+          <button id="connArrowEnd" onclick="setConnectionArrows(selectedConnId,'end')" title="Arrow at end" style="width:28px;height:28px;background:var(--bg);border:2px solid transparent;border-radius:4px;display:flex;align-items:center;justify-content:center">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;color:var(--fg)"><line x1="3" y1="12" x2="20" y2="12"/><polyline points="15 7 21 12 15 17"/></svg>
+          </button>
+          <button id="connArrowStart" onclick="setConnectionArrows(selectedConnId,'start')" title="Arrow at start" style="width:28px;height:28px;background:var(--bg);border:2px solid transparent;border-radius:4px;display:flex;align-items:center;justify-content:center">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;color:var(--fg)"><line x1="4" y1="12" x2="21" y2="12"/><polyline points="9 7 3 12 9 17"/></svg>
+          </button>
+          <button id="connArrowBoth" onclick="setConnectionArrows(selectedConnId,'both')" title="Arrows at both ends" style="width:28px;height:28px;background:var(--bg);border:2px solid transparent;border-radius:4px;display:flex;align-items:center;justify-content:center">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;color:var(--fg)"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="9 7 4 12 9 17"/><polyline points="15 7 20 12 15 17"/></svg>
+          </button>
+        </div>
+
         <button onclick="deleteSelectedConn()" title="Delete" style="width:28px;height:28px;background:color-mix(in srgb, var(--danger) 20%, transparent);border:none;border-radius:4px;color:var(--danger);display:flex;align-items:center;justify-content:center">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px">
             <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -2915,10 +2931,26 @@
             points[0] = { x: points[0].x + ux * mk.baseDist, y: points[0].y + uy * mk.baseDist };
           }
         } else {
-          const baseX = tipX - ca * aLen, baseY = tipY - sa * aLen;
-          points[points.length - 1] = { x: baseX, y: baseY };   // line ends at arrow base
-          const apx = Math.cos(angle + Math.PI / 2) * aWidth, apy = Math.sin(angle + Math.PI / 2) * aWidth;
-          endMarkerSvg = `<path d="M${tipX},${tipY} L${baseX + apx},${baseY + apy} L${baseX - apx},${baseY - apy} Z" fill="${strokeColor}" style="pointer-events:none"/>`;
+          // Default arrowheads (#130): conn.arrowStyle ∈ none|end|start|both
+          // (default 'end' — a single arrow at the target, as before).
+          const style = conn.arrowStyle || 'end';
+          const wantEnd = style === 'end' || style === 'both';
+          const wantStart = style === 'start' || style === 'both';
+          if (wantEnd) {
+            const baseX = tipX - ca * aLen, baseY = tipY - sa * aLen;
+            points[points.length - 1] = { x: baseX, y: baseY };   // line ends at arrow base
+            const apx = Math.cos(angle + Math.PI / 2) * aWidth, apy = Math.sin(angle + Math.PI / 2) * aWidth;
+            endMarkerSvg = `<path d="M${tipX},${tipY} L${baseX + apx},${baseY + apy} L${baseX - apx},${baseY - apy} Z" fill="${strokeColor}" style="pointer-events:none"/>`;
+          }
+          if (wantStart && points.length >= 2) {
+            const sx = points[0].x, sy = points[0].y;
+            const ox = points[1].x - sx, oy = points[1].y - sy, ol = Math.hypot(ox, oy) || 1;
+            const ux = ox / ol, uy = oy / ol;                     // start → edge direction
+            const sBaseX = sx + ux * aLen, sBaseY = sy + uy * aLen;
+            points[0] = { x: sBaseX, y: sBaseY };                 // line starts at arrow base
+            const spx = -uy * aWidth, spy = ux * aWidth;          // perpendicular
+            startMarkerSvg = `<path d="M${sx},${sy} L${sBaseX + spx},${sBaseY + spy} L${sBaseX - spx},${sBaseY - spy} Z" fill="${strokeColor}" style="pointer-events:none"/>`;
+          }
         }
 
         // Build the SVG path (shared with the draw-preview via pointsToPath)
@@ -4207,6 +4239,7 @@
       const defaultStroke = conn.isSequenceMessage && conn.arrow?.includes('--') ? 'dashed' : 'solid';
       updateConnLineStyleBtns(conn.strokeStyle || defaultStroke);
       updateConnRouteStyleBtns(conn.lineStyle || globalLineStyle);
+      updateConnArrowBtns(conn.arrowStyle || 'end');
 
       // Position relative to canvas container
       connToolbar.style.left = `${Math.max(100, Math.min(screenX, containerRect.width - 150))}px`;
@@ -4290,7 +4323,26 @@
         if (btn) btn.style.borderColor = (s === style) ? COLORS.accent : 'transparent';
       });
     }
-    
+
+    // Arrowhead style (#130): none | end | start | both on the selected connection.
+    function setConnectionArrows(cid, style) {
+      const conn = connections.find(c => c.id === (cid || selectedConnId));
+      if (!conn) return;
+      conn.arrowStyle = style;
+      updateConnArrowBtns(style);
+      saveState();
+      render();
+    }
+
+    function updateConnArrowBtns(style) {
+      const map = { none: 'connArrowNone', end: 'connArrowEnd', start: 'connArrowStart', both: 'connArrowBoth' };
+      const active = style || 'end';
+      Object.entries(map).forEach(([s, id]) => {
+        const btn = document.getElementById(id);
+        if (btn) btn.style.borderColor = (s === active) ? COLORS.accent : 'transparent';
+      });
+    }
+
     // Update connection label on input
     connLabelInput.addEventListener('input', () => {
       const conn = connections.find(c => c.id === selectedConnId);
