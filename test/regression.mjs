@@ -3254,6 +3254,20 @@ group('Flowchart import edge style (#145): dotted/thick/no-arrow/bidirectional')
   win.connect(a.id, b.id, { strokeStyle: 'dashed' });
   const reparsed = E2(`parseMermaid(generateMermaid())`);
   check('dashed survives export→import round-trip', reparsed.connections[0].strokeStyle === 'dashed');
+
+  // FULL import path (importMermaid → live connection reconstruction): the bug
+  // the reviewer caught — `thick` was dropped when rebuilding live connections,
+  // so an imported ==> rendered at the normal stroke width. (#145 follow-up)
+  const { win: w3, doc: d3, E: E3 } = boot();
+  w3.importMermaid(false, { code: 'flowchart TD\n  C ==> D\n  E -.-> F' });
+  const conns = E3(`connections`);
+  const thickConn = conns.find(c => c.thick);
+  check('importMermaid keeps thick on the live connection', !!thickConn);
+  check('importMermaid keeps strokeStyle dashed on the live connection', conns.some(c => c.strokeStyle === 'dashed'));
+  // and it actually renders thicker: the thick edge's .connection path stroke-width > 2
+  w3.render();
+  const widths = [...d3.querySelectorAll('#connections .connection')].map(p => parseFloat(p.getAttribute('stroke-width')));
+  check('imported thick edge renders at a wider stroke', widths.some(w => w >= 4));
 }
 
 process.exit(report() ? 0 : 1);
