@@ -425,6 +425,23 @@
       font-size: 11px; color: var(--fg); cursor: pointer; text-align: center; transition: border-color .12s, background .12s;
     }
     .shape-item:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg2)); }
+    /* Align / distribute bar (#95): top-center contextual bar for 2+ selection. */
+    #alignToolbar {
+      position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 30;
+      display: flex; align-items: center; gap: 2px;
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+      padding: 4px 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    }
+    #alignToolbar.hidden { display: none; }
+    #alignToolbar .al-btn {
+      width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--fg); cursor: pointer;
+    }
+    #alignToolbar .al-btn:hover { border-color: var(--accent); }
+    #alignToolbar .al-btn[disabled] { opacity: 0.35; cursor: default; }
+    #alignToolbar .al-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+    #alignToolbar .al-btn svg rect { fill: currentColor; stroke: none; }
+    #alignToolbar .al-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
     /* Visually-hidden, screen-reader-only (#59) */
     .sr-only {
       position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -926,6 +943,20 @@
         </button>
         <button onclick="deselectConn()" title="Close" style="width:28px;height:28px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:14px;color:var(--fg);cursor:pointer">✕</button>
       </div>
+    </div>
+
+    <!-- Align / distribute bar (#95): shown for a 2+ node selection -->
+    <div id="alignToolbar" class="hidden">
+      <button class="al-btn" title="Align left" onclick="alignSelection('left')"><svg viewBox="0 0 24 24"><line x1="4" y1="3" x2="4" y2="21"/><rect x="7" y="6" width="11" height="4"/><rect x="7" y="14" width="7" height="4"/></svg></button>
+      <button class="al-btn" title="Align center (X)" onclick="alignSelection('centerx')"><svg viewBox="0 0 24 24"><line x1="12" y1="3" x2="12" y2="21"/><rect x="6" y="6" width="12" height="4"/><rect x="8" y="14" width="8" height="4"/></svg></button>
+      <button class="al-btn" title="Align right" onclick="alignSelection('right')"><svg viewBox="0 0 24 24"><line x1="20" y1="3" x2="20" y2="21"/><rect x="6" y="6" width="11" height="4"/><rect x="10" y="14" width="7" height="4"/></svg></button>
+      <span class="al-sep"></span>
+      <button class="al-btn" title="Align top" onclick="alignSelection('top')"><svg viewBox="0 0 24 24"><line x1="3" y1="4" x2="21" y2="4"/><rect x="6" y="7" width="4" height="11"/><rect x="14" y="7" width="4" height="7"/></svg></button>
+      <button class="al-btn" title="Align middle (Y)" onclick="alignSelection('middley')"><svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><rect x="6" y="6" width="4" height="12"/><rect x="14" y="8" width="4" height="8"/></svg></button>
+      <button class="al-btn" title="Align bottom" onclick="alignSelection('bottom')"><svg viewBox="0 0 24 24"><line x1="3" y1="20" x2="21" y2="20"/><rect x="6" y="6" width="4" height="11"/><rect x="14" y="10" width="4" height="7"/></svg></button>
+      <span class="al-sep"></span>
+      <button class="al-btn al-dist" title="Distribute horizontally" onclick="distributeSelection('h')"><svg viewBox="0 0 24 24"><rect x="3" y="8" width="4" height="8"/><rect x="10" y="8" width="4" height="8"/><rect x="17" y="8" width="4" height="8"/></svg></button>
+      <button class="al-btn al-dist" title="Distribute vertically" onclick="distributeSelection('v')"><svg viewBox="0 0 24 24"><rect x="8" y="3" width="8" height="4"/><rect x="8" y="10" width="8" height="4"/><rect x="8" y="17" width="8" height="4"/></svg></button>
     </div>
     </div><!-- end canvasContainer -->
     
@@ -2391,7 +2422,56 @@
       renderConnections();
       renderNodes();
       updateEmptyState();
-      renderMinimap();
+      updateAlignToolbar();   // #95
+      renderMinimap();        // #82
+    }
+
+    // === Align / distribute (#95) ===
+    // Show the contextual align bar only for a 2+ node selection; distribute needs 3+.
+    function updateAlignToolbar() {
+      const bar = document.getElementById('alignToolbar');
+      if (!bar) return;
+      const n = selectedNodeIds().length;
+      bar.classList.toggle('hidden', n < 2);
+      bar.querySelectorAll('.al-dist').forEach(b => { b.disabled = n < 3; });
+    }
+    // Selected node objects (in selection order), or [] when fewer than `min`.
+    function _alignNodes(min) {
+      const ids = selectedNodeIds();
+      if (ids.length < min) return [];
+      return ids.map(id => nodes.find(x => x.id === id)).filter(Boolean);
+    }
+    // Align the selection's chosen edge/center. One undo unit.
+    function alignSelection(mode) {
+      const ns = _alignNodes(2);
+      if (ns.length < 2) return;
+      saveState();
+      const L = Math.min(...ns.map(n => n.x)),           R = Math.max(...ns.map(n => n.x + n.width));
+      const T = Math.min(...ns.map(n => n.y)),           B = Math.max(...ns.map(n => n.y + n.height));
+      const cx = (L + R) / 2, my = (T + B) / 2;
+      ns.forEach(n => {
+        switch (mode) {
+          case 'left':    n.x = L; break;
+          case 'right':   n.x = R - n.width; break;
+          case 'centerx': n.x = cx - n.width / 2; break;
+          case 'top':     n.y = T; break;
+          case 'bottom':  n.y = B - n.height; break;
+          case 'middley': n.y = my - n.height / 2; break;
+        }
+      });
+      render();
+    }
+    // Distribute the selection so positions are equally spaced along the axis (3+).
+    function distributeSelection(axis) {
+      const ns = _alignNodes(3);
+      if (ns.length < 3) return;
+      saveState();
+      const key = axis === 'v' ? 'y' : 'x';
+      ns.sort((a, b) => a[key] - b[key]);
+      const min = ns[0][key], max = ns[ns.length - 1][key];
+      const gap = (max - min) / (ns.length - 1);
+      ns.forEach((n, i) => { n[key] = min + gap * i; });
+      render();
     }
 
     // === Minimap / overview (#82) ===
