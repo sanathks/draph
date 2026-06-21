@@ -3293,4 +3293,38 @@ group('Flowchart import mid-arrow labels (#146): A -- text --> B, no spurious no
   check('plain arrow unchanged', p4.connections.length === 1 && (p4.connections[0].label || '') === '' && p4.nodes.length === 2);
 }
 
+group('Duplicate keeps internal connections (#149): remap edges to the copies');
+{
+  const { win, E } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40);
+  const b = win.createNode('rect', 200, 0, 80, 40);
+  const outside = win.createNode('rect', 0, 300, 80, 40);
+  win.connect(a.id, b.id, { label: 'edge' });
+  win.connect(b.id, outside.id); // edge to a NON-duplicated node
+
+  E(`selectedIds = ['${a.id}', '${b.id}']; selectedId = null;`);
+  win.saveState(); // baseline with originals so undo lands here
+  const c0 = E(`connections.length`), n0 = E(`nodes.length`);
+  win.duplicateSelected();
+
+  check('two node copies added', E(`nodes.length`) === n0 + 2);
+  check('internal A→B edge duplicated', E(`connections.length`) === c0 + 1);
+  // the new edge connects the two COPIES (not the originals), label copied
+  const copyIds = E(`selectedIds`);
+  const newEdge = E(`connections[connections.length - 1]`);
+  check('duplicated edge links the two copies', copyIds.includes(newEdge.from) && copyIds.includes(newEdge.to));
+  check('duplicated edge keeps the label', newEdge.label === 'edge');
+  check('edge to outside node not duplicated', !E(`connections.some(cn => (cn.from === '${copyIds[0]}' || cn.from === '${copyIds[1]}') && cn.to === '${outside.id}')`));
+
+  // one undo removes both copies and the duplicated edge
+  win.undo();
+  check('one undo reverts the whole duplicate', E(`nodes.length`) === n0 && E(`connections.length`) === c0);
+
+  // single-node duplicate adds no edge
+  win.selectNode(a.id);
+  const cBefore = E(`connections.length`);
+  win.duplicateSelected();
+  check('single-node duplicate adds no connection', E(`connections.length`) === cBefore);
+}
+
 process.exit(report() ? 0 : 1);
