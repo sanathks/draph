@@ -989,6 +989,10 @@
           </button>
         </div>
 
+        <!-- Reverse direction (#129) -->
+        <button onclick="reverseConnection()" title="Reverse direction" style="width:28px;height:28px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);display:flex;align-items:center;justify-content:center">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+        </button>
         <button onclick="deleteSelectedConn()" title="Delete" style="width:28px;height:28px;background:color-mix(in srgb, var(--danger) 20%, transparent);border:none;border-radius:4px;color:var(--danger);display:flex;align-items:center;justify-content:center">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px">
             <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -4260,6 +4264,24 @@
         saveState();
         render();
       }
+    }
+
+    // Reverse a connection's direction (#129): swap from/to (and the matching
+    // sides, indices, lock flags, end-markers) so the arrowhead points the
+    // other way; reverse waypoints to keep the path shape. One undo unit.
+    function reverseConnection(id = selectedConnId) {
+      const conn = connections.find(c => c.id === id);
+      if (!conn) return;
+      [conn.from, conn.to] = [conn.to, conn.from];
+      [conn.fromSide, conn.toSide] = [conn.toSide, conn.fromSide];
+      [conn.fromIdx, conn.toIdx] = [conn.toIdx, conn.fromIdx];
+      [conn.fromSideLocked, conn.toSideLocked] = [conn.toSideLocked, conn.fromSideLocked];
+      if (conn.markerStart !== undefined || conn.markerEnd !== undefined) {
+        [conn.markerStart, conn.markerEnd] = [conn.markerEnd, conn.markerStart];
+      }
+      if (Array.isArray(conn.waypoints)) conn.waypoints.reverse();
+      saveState();
+      render();
     }
     
     function toggleConnColorPalette() {
