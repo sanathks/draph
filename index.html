@@ -7244,7 +7244,18 @@
     function generateFlowchartMermaid() {
       let code = 'flowchart TD\n';
       const nodeIds = {};
-      
+
+      // Make a label safe inside Mermaid shape brackets (#142): collapse newlines
+      // to <br/>, turn inner double-quotes into single (can't nest in a quoted
+      // label), and wrap in quotes when it contains bracket/brace/paren/angle/
+      // pipe/<br/> chars that would otherwise unbalance the shape syntax.
+      const mmLabel = raw => {
+        let s = String(raw == null || raw === '' ? 'Node' : raw).replace(/\r?\n/g, '<br/>').replace(/"/g, "'");
+        return /[\[\]{}()<>|]|<br\/>/.test(s) ? `"${s}"` : s;
+      };
+      // Container label is ALWAYS quoted ([["…"]]); only sanitize the inner text.
+      const mmQuoted = raw => String(raw == null || raw === '' ? 'Node' : raw).replace(/\r?\n/g, '<br/>').replace(/"/g, "'");
+
       // Filter out line/arrow and freehand pencil shapes (not flowchart nodes)
       const flowNodes = nodes.filter(n => n.type !== 'line' && n.type !== 'pencil' && n.type !== 'note');
       
@@ -7256,13 +7267,13 @@
       // Generate node definitions
       flowNodes.forEach(n => {
         const id = nodeIds[n.id];
-        const label = (n.label || 'Node').replace(/"/g, "'");
+        const label = mmLabel(n.label);   // possibly-quoted, special-char safe (#142)
         let shape;
         switch (n.type) {
           case 'pill': shape = `(${label})`; break;
           case 'diamond': shape = `{${label}}`; break;
           case 'circle': shape = `((${label}))`; break;
-          case 'container': shape = `[["${label}"]]`; break;
+          case 'container': shape = `[["${mmQuoted(n.label)}"]]`; break;
           case 'text': shape = `>${label}]`; break;
           // #49 shape types — mirror of the #123 import mapping (round-trips).
           case 'cylinder': shape = `[(${label})]`; break;
@@ -7283,7 +7294,8 @@
           const fromId = nodeIds[c.from];
           const toId = nodeIds[c.to];
           if (fromId && toId) {
-            const label = c.label ? `|${c.label}|` : '';
+            // Edge label: quote/escape special chars too (#142) so `|label|` stays valid.
+            const label = c.label ? `|${mmLabel(c.label)}|` : '';
             code += `    ${fromId} -->${label} ${toId}\n`;
           }
         });
@@ -8421,46 +8433,49 @@
       // Helper to parse a node token like "A", "A[Label]", "A{Label}", "A((Label))", "A(Label)", "A[(DB)]"
       function parseNodeToken(token) {
         token = token.trim();
-        
+        // Strip a surrounding pair of double-quotes from a bracketed label so a
+        // quoted/escaped export (#142) round-trips to the original text.
+        const unq = s => s.replace(/^"([\s\S]*)"$/, '$1');
+
         // A((circle))
         let m = token.match(/^(\w+)\(\((.+)\)\)$/);
-        if (m) return { id: m[1], type: 'circle', label: m[2] };
+        if (m) return { id: m[1], type: 'circle', label: unq(m[2]) };
         
         // A[["container"]]
         m = token.match(/^(\w+)\[\["?(.+?)"?\]\]$/);
-        if (m) return { id: m[1], type: 'container', label: m[2] };
+        if (m) return { id: m[1], type: 'container', label: unq(m[2]) };
         
         // A[(database)] — cylinder (#123)
         m = token.match(/^(\w+)\[\((.+)\)\]$/);
-        if (m) return { id: m[1], type: 'cylinder', label: m[2] };
+        if (m) return { id: m[1], type: 'cylinder', label: unq(m[2]) };
 
         // A{{hexagon}} — hexagon (#123)
         m = token.match(/^(\w+)\{\{(.+)\}\}$/);
-        if (m) return { id: m[1], type: 'hexagon', label: m[2] };
+        if (m) return { id: m[1], type: 'hexagon', label: unq(m[2]) };
 
         // A[/parallelogram/] (#123)
         m = token.match(/^(\w+)\[\/(.+)\/\]$/);
-        if (m) return { id: m[1], type: 'parallelogram', label: m[2] };
+        if (m) return { id: m[1], type: 'parallelogram', label: unq(m[2]) };
 
         // A[\trapezoid\] (#123)
         m = token.match(/^(\w+)\[\\(.+)\\\]$/);
-        if (m) return { id: m[1], type: 'trapezoid', label: m[2] };
+        if (m) return { id: m[1], type: 'trapezoid', label: unq(m[2]) };
         
         // A[rect] 
         m = token.match(/^(\w+)\[(.+)\]$/);
-        if (m) return { id: m[1], type: 'rect', label: m[2] };
+        if (m) return { id: m[1], type: 'rect', label: unq(m[2]) };
         
         // A{diamond}
         m = token.match(/^(\w+)\{(.+)\}$/);
-        if (m) return { id: m[1], type: 'diamond', label: m[2] };
+        if (m) return { id: m[1], type: 'diamond', label: unq(m[2]) };
         
         // A(pill)
         m = token.match(/^(\w+)\((.+)\)$/);
-        if (m) return { id: m[1], type: 'pill', label: m[2] };
+        if (m) return { id: m[1], type: 'pill', label: unq(m[2]) };
         
         // A>asymmetric]
         m = token.match(/^(\w+)>(.+)\]$/);
-        if (m) return { id: m[1], type: 'rect', label: m[2] };
+        if (m) return { id: m[1], type: 'rect', label: unq(m[2]) };
         
         // Just ID
         m = token.match(/^(\w+)$/);
