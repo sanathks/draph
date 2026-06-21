@@ -3450,6 +3450,43 @@ group('Pencil stroke simplification (#160): RDP thinning on commit, shape kept')
   check('simplified pencil renders a path', !!pathEl && (pathEl.getAttribute('d') || '').length > 5);
 }
 
+group('Sequence activation bars (#158): inline +/- and activate/deactivate → spans');
+{
+  const { E } = boot();
+
+  // inline markers: ->>+B activates B; -->>-A deactivates the source B
+  const p = E(`parseMermaid('sequenceDiagram\\n  participant A\\n  participant B\\n  A->>+B: req\\n  B-->>-A: res')`);
+  check('inline +/- produces one activation span', (p.activations || []).length === 1);
+  check('activation is on the target participant B', p.activations[0].participant === 'B');
+  check('span covers the req→res message range', p.activations[0].startIndex === 0 && p.activations[0].endIndex === 1);
+  check('messages still parse', p.connections.filter(c => c.label === 'req' || c.label === 'res').length === 2);
+
+  // explicit activate/deactivate
+  const p2 = E(`parseMermaid('sequenceDiagram\\n  participant A\\n  participant B\\n  activate B\\n  A->>B: req\\n  B-->>A: res\\n  deactivate B')`);
+  check('explicit activate/deactivate produces a span', (p2.activations || []).length === 1 && p2.activations[0].participant === 'B');
+
+  // full import path: stored on sequenceActivations and rendered as a bar
+  const { win, doc, E: E3 } = boot();
+  win.importMermaid(false, { code: 'sequenceDiagram\n  participant A\n  participant B\n  A->>+B: req\n  B-->>-A: res' });
+  check('importMermaid stores the activation', E3(`sequenceActivations.length`) === 1);
+  // the activation participant is remapped to the LIVE node id (review fix)
+  check('activation participant remapped to a live node id', E3(`!!nodes.find(n => n.id === sequenceActivations[0].participant)`));
+  // a NARROW activation bar (w≈10) renders on B's lifeline center-x, spanning a message range
+  const bNode = E3(`nodes.find(n => n.label === 'B')`);
+  const bcx = bNode.x + bNode.width / 2;
+  const bars = [...doc.querySelectorAll('#connections rect')].filter(r => {
+    const w = parseFloat(r.getAttribute('width'));
+    const x = parseFloat(r.getAttribute('x'));
+    return Math.abs(w - 10) < 2 && Math.abs((x + w / 2) - bcx) < 3;
+  });
+  check('a narrow activation bar renders on B’s lifeline center-x', bars.length === 1);
+  check('the activation bar spans a message range (tall, not a glyph)', parseFloat(bars[0].getAttribute('height')) >= 30);
+
+  // a plain sequence diagram has no activations (no regression / no stray bars)
+  const p3 = E(`parseMermaid('sequenceDiagram\\n  A->>B: hi')`);
+  check('plain sequence has no activations', (p3.activations || []).length === 0);
+}
+
 group('Sequence note import (#157): note over/left of/right of → note nodes');
 {
   const { E } = boot();
@@ -3480,6 +3517,48 @@ group('Sequence note import (#157): note over/left of/right of → note nodes');
   check('two consecutive notes imported', ns.length === 2);
   check('consecutive same-step notes have distinct y', ns[0].y !== ns[1].y);
   check('consecutive notes do not vertically overlap', (ns[1].y - ns[0].y) >= ns[0].height);
+}
+
+group('UML class member editing (#163): add/edit/remove + reflow + persist');
+{
+  const { win, E } = boot();
+  const n = win.placeShape('class', 100, 100);
+  const h0 = n.height;
+
+  // add
+  win.addClassMember(n.id, 'property', '+ count: int');
+  check('property added to the class', (n.properties || []).some(p => /count: int/.test(p)));
+  win.addClassMember(n.id, 'method', '+ reset() void');
+  check('method added', (n.methods || []).some(m => /reset\(\)/.test(m)));
+  check('box grew to fit the new rows', n.height > h0);
+
+  // edit
+  const pi = n.properties.findIndex(p => /count: int/.test(p));
+  win.editClassMember(n.id, 'property', pi, '+ count: long');
+  check('property edited in place', n.properties[pi] === '+ count: long' && !n.properties.some(p => /count: int/.test(p)));
+
+  // remove
+  const before = n.properties.length;
+  win.removeClassMember(n.id, 'property', pi);
+  check('property removed', n.properties.length === before - 1 && !n.properties.some(p => /count/.test(p)));
+
+  // setClassMembers (the textarea UI commit): lines with () → methods, else properties
+  win.setClassMembers(n.id, '+ a: int\n- b: string\n+ doThing() void');
+  check('setClassMembers splits properties vs methods', n.properties.length === 2 && n.methods.length === 1 && /doThing\(\)/.test(n.methods[0]));
+
+  // persists across a serialize round-trip
+  const json = E(`JSON.stringify({ n: serializeNodes(), c: connections })`);
+  win.loadDiagramJson(json);
+  const reloaded = E(`nodes.find(x => x.id === '${n.id}')`);
+  check('class members persist across reload', reloaded.properties.length === 2 && reloaded.methods.length === 1);
+
+  // works for other isClass kinds (interface) and is a no-op on non-class nodes
+  const iface = win.placeShape('interface', 400, 100);
+  win.addClassMember(iface.id, 'method', '+ ping() void');
+  check('interface accepts members too', iface.methods.some(m => /ping\(\)/.test(m)));
+  const rect = win.createNode('rect', 0, 400, 120, 50);
+  win.addClassMember(rect.id, 'property', '+ nope');
+  check('addClassMember is a no-op on non-class nodes', !rect.properties);
 }
 
 process.exit(report() ? 0 : 1);
