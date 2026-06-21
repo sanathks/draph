@@ -3293,6 +3293,34 @@ group('Flowchart import mid-arrow labels (#146): A -- text --> B, no spurious no
   check('plain arrow unchanged', p4.connections.length === 1 && (p4.connections[0].label || '') === '' && p4.nodes.length === 2);
 }
 
+group('Paste/create at cursor (#150): anchor to last pointer, center fallback');
+{
+  const { win, E } = boot();
+  const cx = E(`viewBox.x + viewBox.w / 2`);
+  const ax = E(`viewBox.x + viewBox.w * 0.8`);   // pointer toward lower-right
+  const ay = E(`viewBox.y + viewBox.h * 0.8`);
+
+  // text paste anchors at the pointer, not center
+  E(`lastCanvasPointer = { x: ${ax}, y: ${ay} }`);
+  const t = win.createTextNodeFromPaste('hi there');
+  check('text paste is offset toward the pointer, not centered', Math.abs(t.x - cx) > 50);
+  check('text paste centers on the pointer x', Math.abs((t.x + t.width / 2) - ax) < 120);
+
+  // image paste anchors too
+  const img = win.createImageNode('data:image/png;base64,AAAA', 100, 80);
+  check('image paste is offset toward the pointer', Math.abs(img.x - cx) > 50);
+
+  // no pointer → viewport-center fallback
+  E(`lastCanvasPointer = null`);
+  const t2 = win.createTextNodeFromPaste('center me');
+  check('falls back to viewport center when no pointer', Math.abs((t2.x + 80) - cx) < 60);
+
+  // pointer outside the current viewport → center fallback
+  E(`lastCanvasPointer = { x: viewBox.x - 5000, y: viewBox.y - 5000 }`);
+  const t3 = win.createTextNodeFromPaste('off-screen');
+  check('off-viewport pointer falls back to center', Math.abs((t3.x + 80) - cx) < 60);
+}
+
 group('Duplicate keeps internal connections (#149): remap edges to the copies');
 {
   const { win, E } = boot();
@@ -3355,6 +3383,39 @@ group('Copy/paste keeps internal connections (#154): clipboard path, shared with
   key(doc, 'c', { metaKey: true });
   key(doc, 'v', { metaKey: true });
   check('single-node copy/paste adds no connection', E(`connections.length`) === cBefore);
+}
+
+group('Container drag carries contents (#153): members + nested move together');
+{
+  const { win, doc } = boot();
+  const c = win.createNode('container', 0, 0, 360, 240); c.label = 'Box';
+  const a = win.createNode('rect', 40, 50, 80, 40); a.label = 'A';     // inside c
+  const nested = win.createNode('container', 30, 110, 200, 100); nested.label = 'Inner'; // inside c
+  const deep = win.createNode('rect', 50, 130, 60, 30); deep.label = 'Deep'; // inside nested (∴ inside c)
+  const outside = win.createNode('rect', 700, 0, 80, 40); outside.label = 'Out';
+  win.render(); win.selectNode(c.id);
+  const ax0 = a.x, ay0 = a.y, dx0 = deep.x, ox0 = outside.x;
+
+  const cEl = doc.querySelector(`#nodes .node[data-id="${c.id}"]`);
+  mouse(cEl, 'mousedown', c.x + 10, c.y + 10);
+  mouse(doc, 'mousemove', c.x + 110, c.y + 60);
+  mouse(doc, 'mouseup', 0, 0);
+
+  check('contained A moved ~100 right with the container', Math.abs((a.x - ax0) - 100) < 30);
+  check('contained A moved ~50 down', Math.abs((a.y - ay0) - 50) < 30);
+  check('nested-container descendant moved too', Math.abs((deep.x - dx0) - 100) < 30);
+  check('outside node did not move', outside.x === ox0);
+
+  // dragging a non-container node moves only itself
+  const p = win.createNode('rect', 0, 600, 80, 40); p.label = 'P';
+  const q = win.createNode('rect', 30, 610, 80, 40); q.label = 'Q'; // geometrically near, but P is not a container
+  win.render(); win.selectNode(p.id);
+  const qx0 = q.x;
+  const pEl = doc.querySelector(`#nodes .node[data-id="${p.id}"]`);
+  mouse(pEl, 'mousedown', p.x + 5, p.y + 5);
+  mouse(doc, 'mousemove', p.x + 105, p.y + 5);
+  mouse(doc, 'mouseup', 0, 0);
+  check('non-container drag moves only itself', q.x === qx0);
 }
 
 process.exit(report() ? 0 : 1);
