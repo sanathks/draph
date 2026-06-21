@@ -1386,6 +1386,7 @@
       palette: ['#7aa2f7', '#9ece6a', '#f7768e', '#e0af68', '#bb9af7', '#7dcfff', '#ff9e64'],
       arrow: { length: 11, width: 5.5 },  // arrowhead size (px)
       node: { minWidth: 40, minHeight: 20 },
+      pencilSimplifyTol: 1.5,  // RDP tolerance (px) for freehand stroke thinning (#160)
       // Viewport culling (#71): for large diagrams, skip building DOM for nodes
       // whose bbox is outside the visible viewBox. Off until a diagram exceeds
       // cullThreshold nodes, so small diagrams render exactly as before.
@@ -2325,6 +2326,35 @@
     // Remove duplicate points and any point that sits *between* its neighbours on
     // a straight run. Deliberate U-turn/overshoot points (which reverse direction)
     // are kept, so wrap-around routes stay intact.
+    // Ramer–Douglas–Peucker line simplification (#160): drop points whose
+    // perpendicular distance to the kept polyline is within `tol` px. Endpoints
+    // are always kept; original point objects are returned (pressure preserved).
+    function rdpSimplify(pts, tol) {
+      if (pts.length <= 2) return pts.slice();
+      const sqTol = tol * tol;
+      const keep = new Array(pts.length).fill(false);
+      keep[0] = keep[pts.length - 1] = true;
+      const sqSegDist = (p, a, b) => {
+        let x = a.x, y = a.y, dx = b.x - x, dy = b.y - y;
+        if (dx || dy) {
+          const t = ((p.x - x) * dx + (p.y - y) * dy) / (dx * dx + dy * dy);
+          if (t > 1) { x = b.x; y = b.y; } else if (t > 0) { x += dx * t; y += dy * t; }
+        }
+        dx = p.x - x; dy = p.y - y; return dx * dx + dy * dy;
+      };
+      const stack = [[0, pts.length - 1]];
+      while (stack.length) {
+        const [lo, hi] = stack.pop();
+        let maxD = 0, idx = -1;
+        for (let i = lo + 1; i < hi; i++) {
+          const d = sqSegDist(pts[i], pts[lo], pts[hi]);
+          if (d > maxD) { maxD = d; idx = i; }
+        }
+        if (maxD > sqTol && idx !== -1) { keep[idx] = true; stack.push([lo, idx], [idx, hi]); }
+      }
+      return pts.filter((_, i) => keep[i]);
+    }
+
     function simplifyPath(pts) {
       const out = [];
       for (const p of pts) {
@@ -2451,7 +2481,11 @@
     // coords; we store them RELATIVE to the stroke's bounding-box origin so the
     // node behaves like any other (drag moves x/y, the points ride along).
     function createPencilNode(rawPoints) {
-      const xs = rawPoints.map(p => p.x), ys = rawPoints.map(p => p.y);
+      // Thin the captured points on commit so dense strokes don't bloat the
+      // serialized diagram (URL hash / localStorage / .draph) (#160). Short
+      // strokes (≤2 points) are left intact.
+      const pts = rawPoints.length > 2 ? rdpSimplify(rawPoints, CONFIG.pencilSimplifyTol) : rawPoints;
+      const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
       const minX = Math.min(...xs), minY = Math.min(...ys);
       const maxX = Math.max(...xs), maxY = Math.max(...ys);
       const node = {
@@ -2461,7 +2495,7 @@
         width: Math.max(1, maxX - minX),
         height: Math.max(1, maxY - minY),
         label: '',
-        points: rawPoints.map(p => ({ x: p.x - minX, y: p.y - minY, pressure: typeof p.pressure === 'number' ? p.pressure : 0 })),
+        points: pts.map(p => ({ x: p.x - minX, y: p.y - minY, pressure: typeof p.pressure === 'number' ? p.pressure : 0 })),
       };
       nodes.push(node);
       return node;

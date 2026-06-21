@@ -3418,4 +3418,36 @@ group('Container drag carries contents (#153): members + nested move together');
   check('non-container drag moves only itself', q.x === qx0);
 }
 
+group('Pencil stroke simplification (#160): RDP thinning on commit, shape kept');
+{
+  const { win, E } = boot();
+
+  // a dense, nearly-straight run collapses to a handful; endpoints preserved
+  const raw = Array.from({ length: 200 }, (_, i) => ({ x: i, y: 0 }));
+  const n = win.createPencilNode(raw);
+  check('dense straight stroke is simplified', n.points.length < 40);
+  check('first endpoint preserved', n.points[0].x === 0 && n.points[0].y === 0);
+  check('last endpoint preserved', n.points[n.points.length - 1].x === 199);
+
+  // a curved squiggle reduces a lot but keeps enough points to hold its shape
+  const sq = Array.from({ length: 400 }, (_, i) => ({ x: i * 0.5, y: Math.sin(i / 6) * 20 }));
+  const ns = win.createPencilNode(sq);
+  check('dense squiggle is materially reduced', ns.points.length < 120);
+  check('squiggle keeps enough points for its shape', ns.points.length > 8);
+
+  // very short strokes are left intact
+  const short = win.createPencilNode([{ x: 0, y: 0 }, { x: 5, y: 5 }]);
+  check('short stroke left intact', short.points.length === 2);
+
+  // tolerance is a tunable CONFIG value
+  check('simplify tolerance lives in CONFIG', typeof E(`CONFIG.pencilSimplifyTol`) === 'number');
+
+  // the simplified stroke still renders a pencil node with a path (no regression)
+  const { win: w2, doc: d2 } = boot();
+  const drawn = w2.createPencilNode(Array.from({ length: 120 }, (_, i) => ({ x: i, y: Math.sin(i / 5) * 10 })));
+  w2.render();
+  const pathEl = d2.querySelector(`#nodes .node[data-id="${drawn.id}"] path`);
+  check('simplified pencil renders a path', !!pathEl && (pathEl.getAttribute('d') || '').length > 5);
+}
+
 process.exit(report() ? 0 : 1);
