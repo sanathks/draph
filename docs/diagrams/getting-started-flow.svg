@@ -1,0 +1,72 @@
+<svg id="canvas" class="w-full h-full" style="background: var(--bg); touch-action: none;" viewBox="60 60 496 617" width="496" height="617" xmlns="http://www.w3.org/2000/svg"><rect x="60" y="60" width="496" height="617" fill="#0f0f15"></rect>
+      <defs>
+        <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+          <circle cx="10" cy="10" r="1.1" fill="#414868" opacity="0.55"></circle>
+        </pattern>
+        <pattern id="stripe" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(-45)">
+          <line x1="0" y1="0" x2="0" y2="8" stroke="#a9b1d6" stroke-width="2" opacity="0.15"></line>
+        </pattern>
+        <pattern id="grid-fill" width="10" height="10" patternUnits="userSpaceOnUse">
+          <circle cx="5" cy="5" r="0.5" fill="#a9b1d6" opacity="0.5"></circle>
+        </pattern>
+      </defs>
+      
+      
+      
+      <g id="viewport">
+        <g id="connections"><g class="connection-group " data-id="n75" data-conn="n75" role="img" aria-label="arrow from Open Draph to Draw or import?" style="cursor:pointer"><path class="connection" d="M288,133 C288,164.05 288,170.95 288,202" fill="none" stroke="#a9b1d6" stroke-width="2" stroke-dasharray="none" style="pointer-events:none"></path><path d="M288,213 L282.5,202 L293.5,202 Z" fill="#a9b1d6" style="pointer-events:none"></path></g><g class="connection-group " data-id="n76" data-conn="n76" role="img" aria-label="Draw: arrow from Draw or import? to Drag shapes onto canvas" style="cursor:pointer"><path class="connection" d="M288,253 C288,310.29332421844623 181,264.70667578155377 181,322" fill="none" stroke="#a9b1d6" stroke-width="2" stroke-dasharray="none" style="pointer-events:none"></path><path d="M181,333 L175.5,322 L186.5,322 Z" fill="#a9b1d6" style="pointer-events:none"></path>
+            <rect x="212.5" y="281" width="44" height="24" rx="4" fill="#0f0f15" stroke="none" data-conn="n76" style="cursor:pointer;pointer-events:fill"></rect>
+            <text x="234.5" y="299" fill="#a9b1d6" font-size="12" font-family="system-ui, sans-serif" text-anchor="middle" data-conn="n76" style="cursor:pointer;pointer-events:painted"><tspan x="234.5" dy="0">Draw</tspan></text>
+          </g><g class="connection-group " data-id="n77" data-conn="n77" role="img" aria-label="Import: arrow from Draw or import? to Paste Mermaid code" style="cursor:pointer"><path class="connection" d="M288,253 C288,322.4167847137852 438,219.5832152862148 438,289" fill="none" stroke="#a9b1d6" stroke-width="2" stroke-dasharray="none" style="pointer-events:none"></path><path d="M438,300 L432.5,289 L443.5,289 Z" fill="#a9b1d6" style="pointer-events:none"></path>
+            <rect x="334" y="264.5" width="58" height="24" rx="4" fill="#0f0f15" stroke="none" data-conn="n77" style="cursor:pointer;pointer-events:fill"></rect>
+            <text x="363" y="282.5" fill="#a9b1d6" font-size="12" font-family="system-ui, sans-serif" text-anchor="middle" data-conn="n77" style="cursor:pointer;pointer-events:painted"><tspan x="363" dy="0">Import</tspan></text>
+          </g><g class="connection-group " data-id="n78" data-conn="n78" role="img" aria-label="arrow from Drag shapes onto canvas to Style nodes and edges" style="cursor:pointer"><path class="connection" d="M181,381 C181,412.05 181,418.95 181,450" fill="none" stroke="#a9b1d6" stroke-width="2" stroke-dasharray="none" style="pointer-events:none"></path><path d="M181,461 L175.5,450 L186.5,450 Z" fill="#a9b1d6" style="pointer-events:none"></path></g><g class="connection-group " data-id="n79" data-conn="n79" role="img" aria-label="arrow from Paste Mermaid code to Style nodes and edges" style="cursor:pointer"><path class="connection" d="M438,333 C438,460.07062996617276 181,322.92937003382724 181,450" fill="none" stroke="#a9b1d6" stroke-width="2" stroke-dasharray="none" style="pointer-events:none"></path><path d="M181,461 L175.5,450 L186.5,450 Z" fill="#a9b1d6" style="pointer-events:none"></path></g><g class="connection-group " data-id="n80" data-conn="n80" role="img" aria-label="arrow from Style nodes and edges to Share link or export PNG/SVG" style="cursor:pointer"><path class="connection" d="M181,509 C181,540.05 181,546.95 181,578" fill="none" stroke="#a9b1d6" stroke-width="2" stroke-dasharray="none" style="pointer-events:none"></path><path d="M181,589 L175.5,578 L186.5,578 Z" fill="#a9b1d6" style="pointer-events:none"></path></g></g>
+        <g id="nodes"><g class="node " data-id="n69" role="img" aria-label="Rectangle: Open Draph">
+          
+          <defs><clipPath id="clip-n69"><rect x="247.5" y="102" width="81" height="29" rx="8"></rect></clipPath></defs>
+            <rect x="239.5" y="100" width="97" height="33" rx="8" fill="#1c1d2b" stroke="#a9b1d6" stroke-width="1.5" class="node-border"></rect>
+            <g clip-path="url(#clip-n69)"><text x="288" fill="#a9b1d6" font-size="12" font-family="system-ui, sans-serif" text-anchor="middle"><tspan x="288" dy="0" y="120.5">Open Draph</tspan></text></g>
+          
+          
+        </g><g class="node " data-id="n70" role="img" aria-label="Diamond: Draw or import?">
+          
+          <defs><clipPath id="clip-n70"><polygon points="288,213 381.5,233 288,253 194.5,233"></polygon></clipPath></defs>
+            <polygon points="288,213 381.5,233 288,253 194.5,233" fill="#1c1d2b" stroke="#a9b1d6" stroke-width="1.5" class="node-border"></polygon>
+            <g clip-path="url(#clip-n70)"><text x="288" fill="#a9b1d6" font-size="11" font-family="system-ui, sans-serif" text-anchor="middle"><tspan x="288" dy="0" y="237">Draw or import?</tspan></text></g>
+          
+          
+        </g><g class="node " data-id="n71" role="img" aria-label="Rectangle: Drag shapes onto canvas">
+          
+          <defs><clipPath id="clip-n71"><rect x="108" y="335" width="146" height="44" rx="8"></rect></clipPath></defs>
+            <rect x="100" y="333" width="162" height="48" rx="8" fill="#1c1d2b" stroke="#a9b1d6" stroke-width="1.5" class="node-border"></rect>
+            <g clip-path="url(#clip-n71)"><text x="181" fill="#a9b1d6" font-size="12" font-family="system-ui, sans-serif" text-anchor="middle"><tspan x="181" dy="0" y="353">Drag shapes onto</tspan><tspan x="181" dy="16" y="">canvas</tspan></text></g>
+          
+          
+        </g><g class="node " data-id="n72" role="img" aria-label="Rectangle: Paste Mermaid code">
+          
+          <defs><clipPath id="clip-n72"><rect x="368" y="302" width="140" height="29" rx="8"></rect></clipPath></defs>
+            <rect x="360" y="300" width="156" height="33" rx="8" fill="#1c1d2b" stroke="#a9b1d6" stroke-width="1.5" class="node-border"></rect>
+            <g clip-path="url(#clip-n72)"><text x="438" fill="#a9b1d6" font-size="12" font-family="system-ui, sans-serif" text-anchor="middle"><tspan x="438" dy="0" y="320.5">Paste Mermaid code</tspan></text></g>
+          
+          
+        </g><g class="node " data-id="n73" role="img" aria-label="Rectangle: Style nodes and edges">
+          
+          <defs><clipPath id="clip-n73"><rect x="108" y="463" width="146" height="44" rx="8"></rect></clipPath></defs>
+            <rect x="100" y="461" width="162" height="48" rx="8" fill="#1c1d2b" stroke="#a9b1d6" stroke-width="1.5" class="node-border"></rect>
+            <g clip-path="url(#clip-n73)"><text x="181" fill="#a9b1d6" font-size="12" font-family="system-ui, sans-serif" text-anchor="middle"><tspan x="181" dy="0" y="481">Style nodes and</tspan><tspan x="181" dy="16" y="">edges</tspan></text></g>
+          
+          
+        </g><g class="node " data-id="n74" role="img" aria-label="Rectangle: Share link or export PNG/SVG">
+          
+          <defs><clipPath id="clip-n74"><rect x="108" y="591" width="146" height="44" rx="8"></rect></clipPath></defs>
+            <rect x="100" y="589" width="162" height="48" rx="8" fill="#1c1d2b" stroke="#a9b1d6" stroke-width="1.5" class="node-border"></rect>
+            <g clip-path="url(#clip-n74)"><text x="181" fill="#a9b1d6" font-size="12" font-family="system-ui, sans-serif" text-anchor="middle"><tspan x="181" dy="0" y="609">Share link or export</tspan><tspan x="181" dy="16" y="">PNG/SVG</tspan></text></g>
+          
+          
+        </g></g>
+        <!-- Connection endpoint drag-handles, kept above nodes so they're grabbable -->
+        <g id="connHandles"></g>
+        <!-- Transient alignment guides shown while dragging -->
+        <g id="alignGuides" style="pointer-events:none"></g>
+      </g>
+    </svg>
