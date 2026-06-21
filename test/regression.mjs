@@ -3656,4 +3656,27 @@ group('Flowchart stadium shape import (#172): ([text]) → pill, no literal brac
   check('hex still hexagon', by['Hex'] === 'hexagon');
 }
 
+group('Sequence frame export (#171): loop/alt/opt/par emitted around messages');
+{
+  const { win, E } = boot();
+  win.importMermaid(true, { code: 'sequenceDiagram\n  participant A\n  participant B\n  A->>B: req\n  loop retry\n    B->>A: nack\n  end\n  alt ok\n    A->>B: done\n  else fail\n    A->>B: abort\n  end' });
+  const code = win.generateMermaid();
+
+  check('export emits the loop frame', /\bloop retry\b/.test(code) && /\bend\b/.test(code));
+  check('export emits alt + else with labels', /\balt ok\b/.test(code) && /\belse fail\b/.test(code));
+  check('frame wraps its message (loop before the inner nack)', /loop retry\n\s+B->>A: nack\n\s+end/.test(code));
+
+  // round-trips: re-importing recovers the same frame types
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const ftypes = (p.frames || []).map(f => f.type || f.kind);
+  check('loop frame round-trips', ftypes.includes('loop'));
+  check('alt frame round-trips', ftypes.includes('alt'));
+
+  // a frameless sequence export is unchanged (no stray loop/alt/end)
+  const { win: w2 } = boot();
+  w2.importMermaid(true, { code: 'sequenceDiagram\n  A->>B: hi\n  B-->>A: ok' });
+  const plain = w2.generateMermaid();
+  check('frameless export has no frame keywords', !/\b(loop|alt|opt|par|end)\b/.test(plain) && /A->>B: hi/.test(plain));
+}
+
 process.exit(report() ? 0 : 1);
