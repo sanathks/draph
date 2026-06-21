@@ -3046,6 +3046,45 @@ group('Reverse connection direction (#129): swap from/to + sides/markers, undoab
   check('double reverse is identity', E(`connections[0].from`) === a.id && E(`connections[0].to`) === b.id);
 }
 
+group('Per-node opacity (#134): group opacity attr, multi-select, persistence');
+{
+  const { win, doc, E } = boot();
+  const op = id => {
+    const g = doc.querySelector(`#nodes .node[data-id="${id}"]`);
+    return g && g.getAttribute('opacity');
+  };
+
+  // explicit field renders as group opacity
+  const n = win.createNode('rect', 0, 0, 100, 50);
+  n.opacity = 0.5; win.render();
+  check('node opacity applied to group', op(n.id) === '0.5');
+
+  // default node has no reduced opacity attr
+  const d = win.createNode('rect', 0, 200, 100, 50);
+  win.render();
+  check('default node has no opacity attr', !op(d.id) || op(d.id) === '1');
+
+  // setNodeOpacity applies to a multi-selection, and is undoable
+  const p = win.createNode('rect', 0, 400, 100, 50);
+  const q = win.createNode('rect', 0, 600, 100, 50);
+  win.saveState();
+  E(`selectedIds = ['${p.id}', '${q.id}']`); E(`selectedId = null`);
+  win.setNodeOpacity(0.25);
+  check('multi-select opacity set on both', op(p.id) === '0.25' && op(q.id) === '0.25');
+  win.undo();
+  win.render();
+  check('one undo clears the opacity', (!op(p.id) || op(p.id) === '1') && (!op(q.id) || op(q.id) === '1'));
+
+  // 100% clears the field (no lingering attr); persists across serialize round-trip
+  E(`selectedIds = []`); win.selectNode(n.id);
+  win.setNodeOpacity(0.75);
+  const json = E(`JSON.stringify({ n: serializeNodes(), c: connections })`);
+  win.loadDiagramJson(json);
+  check('opacity persists across serialize', E(`nodes.find(x => x.id === '${n.id}').opacity`) === 0.75);
+  win.selectNode(n.id); win.setNodeOpacity(1);
+  check('setting 100% removes the opacity field', E(`nodes.find(x => x.id === '${n.id}').opacity`) === undefined);
+}
+
 group('Select connected component (#133): grow selection across edges');
 {
   const { win, E } = boot();
@@ -3107,6 +3146,38 @@ group('Mermaid export of edge style (#138): dashed → -.->, solid stays -->');
   // solid back to solid
   E(`connections[0].strokeStyle = 'solid'`);
   check('solid edge still --> after reset', /-->/.test(win.generateMermaid()) && !/-\.->/.test(win.generateMermaid()));
+}
+
+group('Mermaid export of #49 shapes (#137): emit real brackets, not [rect]');
+{
+  const { win, E } = boot();
+  const mk = (type, label) => { const n = win.createNode(type, 0, 0, 140, 70); n.label = label; return n; };
+  mk('cylinder', 'Users');
+  mk('hexagon', 'Gate');
+  mk('parallelogram', 'Input');
+  mk('trapezoid', 'Funnel');
+  mk('subroutine', 'Sub');
+  mk('rect', 'Plain');
+  mk('diamond', 'Decide');
+  win.render();
+  const code = win.generateMermaid();
+
+  check('cylinder → [(...)] not [rect]', /\[\(Users\)\]/.test(code) && !/[A-Za-z0-9]\[Users\]/.test(code));
+  check('hexagon → {{...}}', /\{\{Gate\}\}/.test(code));
+  check('parallelogram → [/.../]', /\[\/Input\/\]/.test(code));
+  check('trapezoid → [\\...\\]', /\[\\Funnel\\\]/.test(code));
+  check('subroutine → [[...]]', /\[\[Sub\]\]/.test(code));
+
+  // existing shapes unchanged
+  check('rect still [label]', /[A-Za-z0-9]\[Plain\]/.test(code));
+  check('diamond still {label}', /\{Decide\}/.test(code));
+
+  // round-trips with the #123 import side: re-parsing recovers the shape types
+  const parsed = E(`parseMermaid(generateMermaid())`);
+  const byLabel = {};
+  parsed.nodes.forEach(n => { byLabel[n.label] = n.type; });
+  check('cylinder round-trips', byLabel['Users'] === 'cylinder');
+  check('hexagon round-trips', byLabel['Gate'] === 'hexagon');
 }
 
 process.exit(report() ? 0 : 1);
