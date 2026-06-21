@@ -2697,4 +2697,34 @@ group('Group resize of a multi-selection (#101): scale + reposition, undoable');
   check('single-node geometry untouched by failed group ops', before === wA);
 }
 
+group('Width-aware label sizing (#105): CJK / emoji widen, Latin unchanged');
+{
+  const { win, E } = boot();
+  // CJK label sizes wide enough for full-width glyphs (not the 0.62em Latin estimate)
+  const cjk = win.createNode('rect', 0, 0); E(`nodes.find(n=>n.id==='${cjk.id}').label='日本語表示テスト'`);  // 8 full-width chars
+  win.fitNodeToLabel(E(`nodes.find(n=>n.id==='${cjk.id}')`));
+  check('CJK label box accounts for full-width chars', cjk.width >= 8 * 12 * 0.9);
+
+  // an emoji label is wider than the same count of Latin chars
+  const emo = win.createNode('rect', 0, 200); E(`nodes.find(n=>n.id==='${emo.id}').label='😀😀😀😀'`);
+  win.fitNodeToLabel(E(`nodes.find(n=>n.id==='${emo.id}')`));
+  const lat = win.createNode('rect', 0, 400); E(`nodes.find(n=>n.id==='${lat.id}').label='oooo'`);
+  win.fitNodeToLabel(E(`nodes.find(n=>n.id==='${lat.id}')`));
+  check('emoji label is wider than the same count of Latin chars', emo.width > lat.width);
+
+  // the helper itself: wide glyphs measure wider than Latin, emoji widest
+  check('labelWidthPx: CJK wider than Latin', E(`labelWidthPx('日本', 12)`) > E(`labelWidthPx('ab', 12)`));
+  check('labelWidthPx: emoji wider than CJK', E(`labelWidthPx('😀😀', 12)`) > E(`labelWidthPx('日本', 12)`));
+  check('labelWidthPx: Latin matches the prior 0.62em estimate', Math.abs(E(`labelWidthPx('Hello', 12)`) - 5 * 12 * 0.62) < 0.01);
+  check('labelWidthPx: emoji surrogate pair counts as one glyph', E(`labelWidthPx('😀', 12)`) < E(`labelWidthPx('😀😀', 12)`));
+
+  // Latin node sizing unchanged vs the old flat 0.62em width path
+  const asc = win.createNode('rect', 0, 600); E(`nodes.find(n=>n.id==='${asc.id}').label='Hello World'`);
+  win.fitNodeToLabel(E(`nodes.find(n=>n.id==='${asc.id}')`));
+  // reproduce the old computation: longest word 'World'(5) and seg(11) at 0.62em, capped at prefMax 140
+  const oldCharW = 12 * 0.62;
+  const oldTextW = Math.min(Math.max(5 * oldCharW, Math.min(11 * oldCharW, 140)), E('CONFIG.wrap.maxWidth'));
+  check('Latin node width matches the prior estimate', asc.width === Math.ceil(oldTextW) + 22);
+}
+
 process.exit(report() ? 0 : 1);
