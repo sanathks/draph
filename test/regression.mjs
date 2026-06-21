@@ -3116,6 +3116,38 @@ group('Select connected component (#133): grow selection across edges');
   check('lone node selectConnected is a no-op', E(`selectedNodeIds().length`) === 1 && E(`selectedNodeIds()[0]`) === d.id);
 }
 
+group('Mermaid export of edge style (#138): dashed → -.->, solid stays -->');
+{
+  const { win, E } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40); a.label = 'A';
+  const b = win.createNode('rect', 240, 0, 80, 40); b.label = 'B';
+  win.connect(a.id, b.id, { label: 'go' });
+
+  // solid default
+  let code = win.generateMermaid();
+  check('solid edge exports as -->', /-->/.test(code) && !/-\.->/.test(code));
+  check('label still emitted on solid', /\|go\|/.test(code));
+
+  // dashed
+  E(`connections[0].strokeStyle = 'dashed'`);
+  code = win.generateMermaid();
+  check('dashed edge exports as -.->', /-\.->/.test(code));
+  check('label still emitted on dashed', /-\.->\|go\|/.test(code));
+
+  // thick (forward-compat; draph has no thick UI but the operator is correct)
+  E(`connections[0].strokeStyle = 'thick'`);
+  check('thick edge exports as ==>', /==>/.test(win.generateMermaid()));
+
+  // round-trips: dashed re-imports as a dashed edge
+  E(`connections[0].strokeStyle = 'dashed'`);
+  const parsed = E(`parseMermaid(generateMermaid())`);
+  check('dashed round-trips to strokeStyle dashed', parsed.connections[0].strokeStyle === 'dashed');
+
+  // solid back to solid
+  E(`connections[0].strokeStyle = 'solid'`);
+  check('solid edge still --> after reset', /-->/.test(win.generateMermaid()) && !/-\.->/.test(win.generateMermaid()));
+}
+
 group('Mermaid export of #49 shapes (#137): emit real brackets, not [rect]');
 {
   const { win, E } = boot();
@@ -3168,6 +3200,35 @@ group('Mermaid export label escaping (#142): special chars quoted, round-trips')
   const m = win.createNode('rect', 0, 400, 140, 50); m.label = 'line1\nline2';
   win.render();
   check('newline label becomes quoted <br/>', /"line1<br\/>line2"/.test(win.generateMermaid()));
+}
+
+group('Mermaid export of containers as subgraphs (#141): grouping survives round-trip');
+{
+  const { win, E } = boot();
+  const c = win.createNode('container', 0, 0, 320, 200); c.label = 'Auth';
+  const a = win.createNode('rect', 40, 60, 80, 40); a.label = 'Login';   // inside c
+  const b = win.createNode('rect', 40, 120, 80, 40); b.label = 'Verify'; // inside c
+  const out = win.createNode('rect', 600, 0, 80, 40); out.label = 'Outside'; // not in c
+  win.render();
+  const code = win.generateMermaid();
+
+  check('container exported as subgraph block', /subgraph/.test(code) && /\bend\b/.test(code));
+  check('member Login nested in the block', /subgraph[\s\S]*Login[\s\S]*end/.test(code));
+  check('member Verify nested in the block', /subgraph[\s\S]*Verify[\s\S]*end/.test(code));
+  check('container not also emitted as a flat [["Auth"]] node', !/\[\["Auth"\]\]/.test(code));
+  check('outside node is not inside the subgraph block', !/subgraph[\s\S]*Outside[\s\S]*end/.test(code));
+
+  // round-trips: re-parsing recovers a subgraph with both members
+  const parsed = E(`parseMermaid(generateMermaid())`);
+  check('re-import yields a subgraph', !!parsed.subgraphs && parsed.subgraphs.length >= 1);
+  check('subgraph keeps both members', !!parsed.subgraphs && parsed.subgraphs.some(s => (s.children || []).length >= 2));
+
+  // a diagram with no containers is unchanged (no stray subgraph keyword)
+  const { win: win2 } = boot();
+  const x = win2.createNode('rect', 0, 0, 80, 40); x.label = 'X';
+  const y = win2.createNode('rect', 200, 0, 80, 40); y.label = 'Y';
+  win2.connect(x.id, y.id);
+  check('no-container diagram has no subgraph', !/subgraph/.test(win2.generateMermaid()));
 }
 
 process.exit(report() ? 0 : 1);

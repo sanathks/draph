@@ -7264,26 +7264,66 @@
         nodeIds[n.id] = String.fromCharCode(65 + (i % 26)) + (i >= 26 ? Math.floor(i / 26) : '');
       });
       
-      // Generate node definitions
-      flowNodes.forEach(n => {
-        const id = nodeIds[n.id];
-        const label = mmLabel(n.label);   // possibly-quoted, special-char safe (#142)
-        let shape;
-        switch (n.type) {
-          case 'pill': shape = `(${label})`; break;
-          case 'diamond': shape = `{${label}}`; break;
-          case 'circle': shape = `((${label}))`; break;
-          case 'container': shape = `[["${mmQuoted(n.label)}"]]`; break;
-          case 'text': shape = `>${label}]`; break;
+      // Node syntax for a single node. `label` is the FINAL bracket content,
+      // already escaped/quoted by the caller (#142): container labels are always
+      // quoted, other shapes are quoted only when they contain special chars.
+      const shapeFor = (type, label) => {
+        switch (type) {
+          case 'pill': return `(${label})`;
+          case 'diamond': return `{${label}}`;
+          case 'circle': return `((${label}))`;
+          case 'container': return `[["${label}"]]`;
+          case 'text': return `>${label}]`;
           // #49 shape types — mirror of the #123 import mapping (round-trips).
-          case 'cylinder': shape = `[(${label})]`; break;
-          case 'hexagon': shape = `{{${label}}}`; break;
-          case 'parallelogram': shape = `[/${label}/]`; break;
-          case 'trapezoid': shape = `[\\${label}\\]`; break;
-          case 'subroutine': shape = `[[${label}]]`; break;
-          default: shape = `[${label}]`;
+          case 'cylinder': return `[(${label})]`;
+          case 'hexagon': return `{{${label}}}`;
+          case 'parallelogram': return `[/${label}/]`;
+          case 'trapezoid': return `[\\${label}\\]`;
+          case 'subroutine': return `[[${label}]]`;
+          default: return `[${label}]`;
         }
-        code += `    ${id}${shape}\n`;
+      };
+      const nodeDef = (n, indent) => {
+        // container wraps in quotes itself → pass the sanitized inner text;
+        // every other shape gets a conditionally-quoted label (#142 + #141).
+        const label = n.type === 'container' ? mmQuoted(n.label) : mmLabel(n.label);
+        return `${indent}${nodeIds[n.id]}${shapeFor(n.type, label)}\n`;
+      };
+
+      // Containers export as `subgraph … end` blocks (#141). A non-container node
+      // is a member of the smallest container that geometrically contains it
+      // (same containment test as import). Containers with no members fall back
+      // to a flat node so they aren't lost.
+      const containerNodes = flowNodes.filter(n => n.type === 'container');
+      const memberOf = new Map();
+      flowNodes.forEach(n => {
+        if (n.type === 'container') return;
+        let best = null, bestArea = Infinity;
+        containerNodes.forEach(c => {
+          const inside = n.x >= c.x && n.y >= c.y &&
+                         n.x + n.width <= c.x + c.width && n.y + n.height <= c.y + c.height;
+          if (inside) { const area = c.width * c.height; if (area < bestArea) { bestArea = area; best = c; } }
+        });
+        if (best) memberOf.set(n.id, best.id);
+      });
+      const membersByContainer = new Map();
+      memberOf.forEach((cid, nid) => {
+        if (!membersByContainer.has(cid)) membersByContainer.set(cid, []);
+        membersByContainer.get(cid).push(nid);
+      });
+
+      // Generate node definitions: subgraph blocks first, then top-level nodes.
+      containerNodes.forEach(c => {
+        const members = membersByContainer.get(c.id) || [];
+        if (!members.length) { code += nodeDef(c, '    '); return; } // empty container → flat node
+        const clabel = mmQuoted(c.label || 'Group');
+        code += `    subgraph ${nodeIds[c.id]}["${clabel}"]\n`;
+        members.forEach(nid => { code += nodeDef(nodes.find(n => n.id === nid), '        '); });
+        code += `    end\n`;
+      });
+      flowNodes.forEach(n => {
+        if (n.type === 'container' || memberOf.has(n.id)) return;
+        code += nodeDef(n, '    ');
       });
       
       // Generate connections (excluding sequence messages)
@@ -7294,9 +7334,12 @@
           const fromId = nodeIds[c.from];
           const toId = nodeIds[c.to];
           if (fromId && toId) {
-            // Edge label: quote/escape special chars too (#142) so `|label|` stays valid.
+            // Edge label escaped for special chars (#142); operator from the
+            // edge's stroke style (#138): dashed/dotted → -.->, thick → ==>, else -->.
             const label = c.label ? `|${mmLabel(c.label)}|` : '';
-            code += `    ${fromId} -->${label} ${toId}\n`;
+            const ss = c.strokeStyle;
+            const op = (ss === 'dashed' || ss === 'dotted') ? '-.->' : (ss === 'thick' ? '==>' : '-->');
+            code += `    ${fromId} ${op}${label} ${toId}\n`;
           }
         });
       }
@@ -8552,10 +8595,13 @@
                 if (toNode) registerNode(toNode);
                 
                 if (fromNode && toNode) {
+                  // A dotted arrow (-.->) round-trips as a dashed edge (#138).
+                  const op = tokens[t].arrow || '';
                   result.connections.push({
                     from: fromNode.id,
                     to: toNode.id,
-                    label
+                    label,
+                    ...(op.includes('.') ? { strokeStyle: 'dashed' } : {})
                   });
                 }
               }
