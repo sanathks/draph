@@ -3455,4 +3455,36 @@ group('Sequence activation bars (#158): inline +/- and activate/deactivate → s
   check('plain sequence has no activations', (p3.activations || []).length === 0);
 }
 
+group('Sequence note import (#157): note over/left of/right of → note nodes');
+{
+  const { E } = boot();
+  const code = 'sequenceDiagram\n  participant A\n  participant B\n  A->>B: hi\n  note over A: validate token\n  note right of B: ack\n  note over A,B: shared';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+
+  check('note over imported as a node', p.nodes.some(n => n.type === 'note' && (n.label || '').includes('validate token')));
+  check('note right of imported as a node', p.nodes.some(n => n.type === 'note' && n.label === 'ack'));
+  check('multi-participant note imported', p.nodes.some(n => n.type === 'note' && n.label === 'shared' && (n.noteOver || []).length === 2));
+  check('note carries its placement', p.nodes.find(n => n.label === 'ack').notePlacement === 'right');
+
+  // messages + participants still parse correctly (no regression)
+  check('the message still parses', p.connections.some(c => c.label === 'hi'));
+  check('both participants present', p.nodes.filter(n => n.type === 'participant').length === 2);
+  check('no spurious participant from the note text', !p.nodes.some(n => n.type === 'participant' && /validate|token|ack|shared/.test(n.label || '')));
+
+  // full import path creates + positions the note as a live note node
+  const { win, doc, E: E2 } = boot();
+  win.importMermaid(false, { code });
+  check('importMermaid creates a live note node', E2(`nodes.some(n => n.type === 'note' && n.label === 'validate token')`));
+  check('imported note is positioned in the message area (below participants)', E2(`nodes.find(n => n.type === 'note' && n.label === 'validate token').y`) > 100);
+  check('imported note renders a node element', [...doc.querySelectorAll('#nodes .node')].some(g => (g.textContent || '').replace(/\s+/g, '').includes('validatetoken')));
+
+  // review fix: two consecutive notes at the SAME step get distinct, non-overlapping y
+  const { win: w2, E: E4 } = boot();
+  w2.importMermaid(false, { code: 'sequenceDiagram\n  participant A\n  participant B\n  A->>B: hi\n  note over A: first\n  note over A,B: second' });
+  const ns = E4(`nodes.filter(n => n.type === 'note').sort((a,b)=>a.y-b.y)`);
+  check('two consecutive notes imported', ns.length === 2);
+  check('consecutive same-step notes have distinct y', ns[0].y !== ns[1].y);
+  check('consecutive notes do not vertically overlap', (ns[1].y - ns[0].y) >= ns[0].height);
+}
+
 process.exit(report() ? 0 : 1);
