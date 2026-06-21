@@ -203,6 +203,7 @@
       white-space: nowrap;
     }
     .dropdown-item:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+    .dropdown-item.disabled { opacity: 0.4; pointer-events: none; }   /* #102: no selection */
     .dropdown-item svg { width: 15px; height: 15px; flex-shrink: 0; }
     .dropdown-item kbd {
       margin-left: auto; font-size: 10px; color: var(--fg-dim); background: var(--bg);
@@ -425,6 +426,23 @@
       font-size: 11px; color: var(--fg); cursor: pointer; text-align: center; transition: border-color .12s, background .12s;
     }
     .shape-item:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg2)); }
+    /* Align / distribute bar (#95): top-center contextual bar for 2+ selection. */
+    #alignToolbar {
+      position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 30;
+      display: flex; align-items: center; gap: 2px;
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+      padding: 4px 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    }
+    #alignToolbar.hidden { display: none; }
+    #alignToolbar .al-btn {
+      width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--fg); cursor: pointer;
+    }
+    #alignToolbar .al-btn:hover { border-color: var(--accent); }
+    #alignToolbar .al-btn[disabled] { opacity: 0.35; cursor: default; }
+    #alignToolbar .al-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+    #alignToolbar .al-btn svg rect { fill: currentColor; stroke: none; }
+    #alignToolbar .al-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
     /* Visually-hidden, screen-reader-only (#59) */
     .sr-only {
       position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -570,6 +588,10 @@
             <div class="dropdown-item" onclick="downloadGIF();closeDropdowns()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               Export GIF <kbd>gif</kbd>
+            </div>
+            <div class="dropdown-item" id="exportSelItem" onclick="downloadSelectionSVG();closeDropdowns()" title="Export only the selected nodes (SVG)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M21 19a2 2 0 0 1-2 2"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h1"/><path d="M14 3h1"/><path d="M14 21h1"/><path d="M3 9v1"/><path d="M21 9v1"/><path d="M3 14v1"/><path d="M21 14v1"/></svg>
+              Export selection <kbd>SVG</kbd>
             </div>
             <div class="dropdown-item" onclick="shareDiagram();closeDropdowns()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
@@ -926,6 +948,20 @@
         </button>
         <button onclick="deselectConn()" title="Close" style="width:28px;height:28px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:14px;color:var(--fg);cursor:pointer">✕</button>
       </div>
+    </div>
+
+    <!-- Align / distribute bar (#95): shown for a 2+ node selection -->
+    <div id="alignToolbar" class="hidden">
+      <button class="al-btn" title="Align left" onclick="alignSelection('left')"><svg viewBox="0 0 24 24"><line x1="4" y1="3" x2="4" y2="21"/><rect x="7" y="6" width="11" height="4"/><rect x="7" y="14" width="7" height="4"/></svg></button>
+      <button class="al-btn" title="Align center (X)" onclick="alignSelection('centerx')"><svg viewBox="0 0 24 24"><line x1="12" y1="3" x2="12" y2="21"/><rect x="6" y="6" width="12" height="4"/><rect x="8" y="14" width="8" height="4"/></svg></button>
+      <button class="al-btn" title="Align right" onclick="alignSelection('right')"><svg viewBox="0 0 24 24"><line x1="20" y1="3" x2="20" y2="21"/><rect x="6" y="6" width="11" height="4"/><rect x="10" y="14" width="7" height="4"/></svg></button>
+      <span class="al-sep"></span>
+      <button class="al-btn" title="Align top" onclick="alignSelection('top')"><svg viewBox="0 0 24 24"><line x1="3" y1="4" x2="21" y2="4"/><rect x="6" y="7" width="4" height="11"/><rect x="14" y="7" width="4" height="7"/></svg></button>
+      <button class="al-btn" title="Align middle (Y)" onclick="alignSelection('middley')"><svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><rect x="6" y="6" width="4" height="12"/><rect x="14" y="8" width="4" height="8"/></svg></button>
+      <button class="al-btn" title="Align bottom" onclick="alignSelection('bottom')"><svg viewBox="0 0 24 24"><line x1="3" y1="20" x2="21" y2="20"/><rect x="6" y="6" width="4" height="11"/><rect x="14" y="10" width="4" height="7"/></svg></button>
+      <span class="al-sep"></span>
+      <button class="al-btn al-dist" title="Distribute horizontally" onclick="distributeSelection('h')"><svg viewBox="0 0 24 24"><rect x="3" y="8" width="4" height="8"/><rect x="10" y="8" width="4" height="8"/><rect x="17" y="8" width="4" height="8"/></svg></button>
+      <button class="al-btn al-dist" title="Distribute vertically" onclick="distributeSelection('v')"><svg viewBox="0 0 24 24"><rect x="8" y="3" width="8" height="4"/><rect x="8" y="10" width="8" height="4"/><rect x="8" y="17" width="8" height="4"/></svg></button>
     </div>
     </div><!-- end canvasContainer -->
     
@@ -1416,6 +1452,9 @@
       const wasOpen = dropdown.classList.contains('open');
       closeDropdowns();
       if (!wasOpen) dropdown.classList.add('open');
+      // Export-selection is only meaningful with a selection (#102).
+      const exSel = document.getElementById('exportSelItem');
+      if (exSel) exSel.classList.toggle('disabled', selectedNodeIds().length < 1);
     }
     function closeDropdowns() {
       document.querySelectorAll('.dropdown').forEach(d => d.classList.remove('open'));
@@ -2362,7 +2401,56 @@
       renderConnections();
       renderNodes();
       updateEmptyState();
-      renderMinimap();
+      updateAlignToolbar();   // #95
+      renderMinimap();        // #82
+    }
+
+    // === Align / distribute (#95) ===
+    // Show the contextual align bar only for a 2+ node selection; distribute needs 3+.
+    function updateAlignToolbar() {
+      const bar = document.getElementById('alignToolbar');
+      if (!bar) return;
+      const n = selectedNodeIds().length;
+      bar.classList.toggle('hidden', n < 2);
+      bar.querySelectorAll('.al-dist').forEach(b => { b.disabled = n < 3; });
+    }
+    // Selected node objects (in selection order), or [] when fewer than `min`.
+    function _alignNodes(min) {
+      const ids = selectedNodeIds();
+      if (ids.length < min) return [];
+      return ids.map(id => nodes.find(x => x.id === id)).filter(Boolean);
+    }
+    // Align the selection's chosen edge/center. One undo unit.
+    function alignSelection(mode) {
+      const ns = _alignNodes(2);
+      if (ns.length < 2) return;
+      saveState();
+      const L = Math.min(...ns.map(n => n.x)),           R = Math.max(...ns.map(n => n.x + n.width));
+      const T = Math.min(...ns.map(n => n.y)),           B = Math.max(...ns.map(n => n.y + n.height));
+      const cx = (L + R) / 2, my = (T + B) / 2;
+      ns.forEach(n => {
+        switch (mode) {
+          case 'left':    n.x = L; break;
+          case 'right':   n.x = R - n.width; break;
+          case 'centerx': n.x = cx - n.width / 2; break;
+          case 'top':     n.y = T; break;
+          case 'bottom':  n.y = B - n.height; break;
+          case 'middley': n.y = my - n.height / 2; break;
+        }
+      });
+      render();
+    }
+    // Distribute the selection so positions are equally spaced along the axis (3+).
+    function distributeSelection(axis) {
+      const ns = _alignNodes(3);
+      if (ns.length < 3) return;
+      saveState();
+      const key = axis === 'v' ? 'y' : 'x';
+      ns.sort((a, b) => a[key] - b[key]);
+      const min = ns[0][key], max = ns[ns.length - 1][key];
+      const gap = (max - min) / (ns.length - 1);
+      ns.forEach((n, i) => { n[key] = min + gap * i; });
+      render();
     }
 
     // === Minimap / overview (#82) ===
@@ -5829,8 +5917,21 @@
     // Build the export SVG as a string — content-cropped, UI chrome stripped,
     // background filled — WITHOUT triggering a download. Returns null if the
     // canvas is empty. Pure/testable; downloadSVG() wraps it for the file save.
-    function buildExportSVG() {
-      const bounds = getContentBounds();
+    // Build a standalone, chrome-free SVG of the diagram, cropped to its content.
+    // With `ids` (a node-id array, #102), exports ONLY those nodes + the
+    // connections wholly between them, cropped to the selection's bounds.
+    function buildExportSVG(ids) {
+      const sel = ids && ids.length ? new Set(ids) : null;
+      let bounds;
+      if (sel) {
+        const ns = nodes.filter(n => sel.has(n.id));
+        if (!ns.length) return null;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        ns.forEach(n => { minX = Math.min(minX, n.x); minY = Math.min(minY, n.y); maxX = Math.max(maxX, n.x + n.width); maxY = Math.max(maxY, n.y + n.height); });
+        bounds = { minX, minY, maxX, maxY };
+      } else {
+        bounds = getContentBounds();
+      }
       if (!bounds) return null;
 
       const padding = 40;
@@ -5840,11 +5941,19 @@
       const cropH = (bounds.maxY - bounds.minY) + padding * 2;
 
       const clone = canvas.cloneNode(true);
-      // Strip all interaction chrome: connectors, resize/line handles, marquee &
-      // draw previews, lifeline connectors, and the transparent conn-hit overlays.
-      clone.querySelectorAll('.connector, .resize-handle, #selectBox, #drawPreview, .lifeline-connector, .line-handle, .conn-hit').forEach(el => el.remove());
+      // Strip all interaction chrome: connectors, resize/line/group handles, marquee
+      // & draw previews, lifeline connectors, and the transparent conn-hit overlays.
+      clone.querySelectorAll('.connector, .resize-handle, .group-resize-handle, #selectBox, #drawPreview, .lifeline-connector, .line-handle, .conn-hit').forEach(el => el.remove());
       const gridBg = clone.querySelector('#gridBg');
       if (gridBg) gridBg.remove();
+
+      // Selection export (#102): drop unselected nodes and any connection that
+      // isn't wholly between two selected nodes.
+      if (sel) {
+        clone.querySelectorAll('#nodes .node').forEach(el => { if (!sel.has(el.dataset.id)) el.remove(); });
+        const keep = new Set(connections.filter(c => sel.has(c.from) && sel.has(c.to)).map(c => c.id));
+        clone.querySelectorAll('.connection-group').forEach(el => { if (!keep.has(el.dataset.id)) el.remove(); });
+      }
 
       // Crop the viewport to the content
       clone.setAttribute('viewBox', `${cropX} ${cropY} ${cropW} ${cropH}`);
@@ -5871,6 +5980,24 @@
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = 'diagram.svg';
+      a.click();
+    }
+
+    // Selection-only export (#102): just the selected nodes + their internal edges.
+    // Returns null when nothing is selected (callers fall back / disable).
+    function exportSelectionSVG() {
+      const ids = selectedNodeIds();
+      return ids.length ? buildExportSVG(ids) : null;
+    }
+    function downloadSelectionSVG() {
+      const ids = selectedNodeIds();
+      if (ids.length < 1) { toast('Select one or more nodes first', 'error'); return; }
+      const svg = exportSelectionSVG();
+      if (!svg) { toast('Nothing to export in the selection', 'error'); return; }
+      const blob = new Blob([svg], { type: 'image/svg+xml' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'selection.svg';
       a.click();
     }
     
@@ -5931,8 +6058,19 @@
     // Rasterize the current diagram (cropped to content) to a <canvas> at the
     // given pixel scale, then hand it to `cb`. Shared by PNG download / copy /
     // scaled-export. `scale` is the device-pixel multiplier (2 = retina-sharp).
-    function rasterizeDiagram(scale, cb) {
-      const bounds = getContentBounds();
+    function rasterizeDiagram(scale, cb, ids) {
+      const sel = ids && ids.length ? new Set(ids) : null;
+      let bounds;
+      if (sel) {
+        const ns = nodes.filter(n => sel.has(n.id));
+        if (ns.length) {
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          ns.forEach(n => { minX = Math.min(minX, n.x); minY = Math.min(minY, n.y); maxX = Math.max(maxX, n.x + n.width); maxY = Math.max(maxY, n.y + n.height); });
+          bounds = { minX, minY, maxX, maxY };
+        }
+      } else {
+        bounds = getContentBounds();
+      }
       if (!bounds) {
         toast('Nothing to export yet — add a shape first', 'error');
         return false;
@@ -5945,8 +6083,14 @@
       const cropH = (bounds.maxY - bounds.minY) + padding * 2;
 
       const clone = canvas.cloneNode(true);
-      clone.querySelectorAll('.connector, .resize-handle, #selectBox, #drawPreview, .lifeline-connector, .line-handle, .conn-hit').forEach(el => el.remove());
+      clone.querySelectorAll('.connector, .resize-handle, .group-resize-handle, #selectBox, #drawPreview, .lifeline-connector, .line-handle, .conn-hit').forEach(el => el.remove());
       clone.querySelector('#gridBg')?.remove();
+      // Selection PNG (#102): drop unselected nodes + non-internal connections.
+      if (sel) {
+        clone.querySelectorAll('#nodes .node').forEach(el => { if (!sel.has(el.dataset.id)) el.remove(); });
+        const keep = new Set(connections.filter(c => sel.has(c.from) && sel.has(c.to)).map(c => c.id));
+        clone.querySelectorAll('.connection-group').forEach(el => { if (!keep.has(el.dataset.id)) el.remove(); });
+      }
 
       // Set viewBox and dimensions to cropped area
       clone.setAttribute('viewBox', `${cropX} ${cropY} ${cropW} ${cropH}`);
@@ -6007,6 +6151,18 @@
         a.click();
         if (scale !== 2) toast(`PNG exported at ${scale}×`, 'success');
       });
+    }
+
+    // Export only the current selection as PNG (#102), reusing the raster path.
+    function downloadSelectionPNG(scale = 2) {
+      const ids = selectedNodeIds();
+      if (ids.length < 1) { toast('Select one or more nodes first', 'error'); return; }
+      rasterizeDiagram(scale, (c) => {
+        const a = document.createElement('a');
+        a.href = c.toDataURL('image/png');
+        a.download = 'selection.png';
+        a.click();
+      }, ids);
     }
 
     // Copy a 2× PNG of the diagram to the system clipboard (where supported).

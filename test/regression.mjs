@@ -2331,6 +2331,51 @@ group('#36 label wrapping: hard-break long unbreakable words');
   check('cap lives in CONFIG (no magic number)', typeof E('CONFIG.wrap.maxWidth') === 'number');
 }
 
+group('Align & distribute (#95): selection ops, undoable, toolbar-gated');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 100, 100, 80, 40);
+  const b = win.createNode('rect', 300, 160, 80, 40);
+  const c = win.createNode('rect', 220, 260, 80, 40);
+  E(`selectedIds = ['${a.id}','${b.id}','${c.id}']; selectedId = null;`);
+
+  win.alignSelection('left');
+  check('align-left equalizes x', a.x === b.x && b.x === c.x);
+  check('align-left uses the min x (100)', a.x === 100);
+
+  win.alignSelection('top');
+  check('align-top equalizes y', a.y === b.y && b.y === c.y && a.y === 100);
+
+  // center-x: all share the same center
+  win.alignSelection('centerx');
+  const cxs = [a, b, c].map(n => n.x + n.width / 2);
+  check('center-x equalizes centers', Math.abs(cxs[0] - cxs[1]) < 0.5 && Math.abs(cxs[1] - cxs[2]) < 0.5);
+
+  // distribute horizontally → equal gaps between left edges
+  E(`nodes.find(n=>n.id==='${a.id}').x = 100; nodes.find(n=>n.id==='${b.id}').x = 130; nodes.find(n=>n.id==='${c.id}').x = 400`);
+  win.distributeSelection('h');
+  const xs = [a.x, b.x, c.x].sort((p, q) => p - q);
+  check('distribute makes equal gaps', Math.abs((xs[1] - xs[0]) - (xs[2] - xs[1])) <= 1);
+
+  // undoable — each op is one undo step
+  const yBefore = a.y;
+  win.alignSelection('bottom');
+  win.undo();
+  check('align is undoable', E(`nodes.find(n=>n.id==='${a.id}').y`) === yBefore);
+
+  // toolbar gating: shown for 2+, distribute disabled under 3
+  win.render();
+  const bar = doc.getElementById('alignToolbar');
+  check('align bar visible for multi-select', !bar.classList.contains('hidden'));
+  E(`selectedIds = ['${a.id}','${b.id}']`); win.render();
+  check('distribute disabled with <3 selected', [...bar.querySelectorAll('.al-dist')].every(b => b.disabled));
+  E(`selectedIds = []; selectedId = '${a.id}'`); win.render();
+  check('align bar hidden for single selection', bar.classList.contains('hidden'));
+  // align is a no-op on a single selection
+  const x1 = a.x; win.alignSelection('right');
+  check('align no-op under 2 nodes', a.x === x1);
+}
+
 group('Minimap / overview (#82): markers + viewport rect + click-to-pan');
 {
   const { win, doc, E } = boot();
@@ -2621,6 +2666,39 @@ group('Screen-reader semantics (#59): node/conn aria-labels + live region');
 
   // no visual regression: node groups still render their shape markup
   check('node still renders its shape', !!doc.querySelector(`#nodes .node[data-id="${b.id}"] rect, #nodes .node[data-id="${b.id}"] path`));
+}
+
+group('Export selection only (#102): selected nodes + internal edges, cropped');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40);
+  const b = win.createNode('rect', 200, 0, 80, 40);
+  const far = win.createNode('rect', 900, 900, 80, 40);
+  E(`nodes.find(n=>n.id==='${a.id}').label='Alpha'; nodes.find(n=>n.id==='${b.id}').label='Bravo'; nodes.find(n=>n.id==='${far.id}').label='FarAway'`);
+  // an internal edge (a→b) and an edge to an unselected node (b→far)
+  E(`connections.push({id:'e_ab', from:'${a.id}', to:'${b.id}'}); connections.push({id:'e_bf', from:'${b.id}', to:'${far.id}'})`);
+  win.render();
+
+  E(`selectedIds=['${a.id}','${b.id}']; selectedId=null;`);
+  const svg = win.exportSelectionSVG();
+  check('selection export includes the selected nodes', /Alpha/.test(svg) && /Bravo/.test(svg));
+  check('selection export excludes unselected nodes', !/FarAway/.test(svg));
+  check('selection export keeps the internal edge', /e_ab/.test(svg));
+  check('selection export drops edges to unselected nodes', !/e_bf/.test(svg));
+  check('selection export is a standalone svg with a viewBox', /^<svg[\s>]/.test(svg.trim()) && /viewBox=/.test(svg));
+  check('selection export has no UI chrome (connectors/handles)', !/class="connector"|resize-handle|conn-hit/.test(svg));
+
+  // cropped to the selection: viewBox is far smaller than the full canvas span (Far is at 900,900)
+  const vb = svg.match(/viewBox="([^"]+)"/)[1].split(/\s+/).map(Number);
+  check('selection viewBox is cropped to the subset (not the far node)', vb[2] < 600 && vb[3] < 600);
+
+  // whole-canvas export is unchanged — still includes everything
+  const full = win.buildExportSVG();
+  check('whole-canvas export still includes all nodes', /Alpha/.test(full) && /FarAway/.test(full));
+
+  // guard: no selection → exportSelectionSVG returns null
+  E(`selectedIds=[]; selectedId=null;`);
+  check('exportSelectionSVG returns null with no selection', win.exportSelectionSVG() === null);
 }
 
 group('Group resize of a multi-selection (#101): scale + reposition, undoable');
