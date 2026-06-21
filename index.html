@@ -7456,28 +7456,60 @@
         idMap[p.id] = label.replace(/[^a-zA-Z0-9]/g, '');
       });
       
-      // Get sequence messages sorted by Y position
+      // Messages in flow order (by message index, which the frames reference).
       const messages = connections
         .filter(c => c.isSequenceMessage)
-        .sort((a, b) => (a.messageY || 0) - (b.messageY || 0));
-      
-      // Generate messages
+        .sort((a, b) => (a.index ?? a.messageY ?? 0) - (b.index ?? b.messageY ?? 0));
+
+      // Interleave frames (#171): loop/alt(+else)/opt/par wrap their messages by
+      // start/end message index. Outer frames (wider span) open first; nesting
+      // indents; alt sections emit `else <label>` at the frame's own indent.
+      const frames = (sequenceFrames || []).filter(f => f.startIndex != null && f.endIndex != null && f.endIndex >= f.startIndex);
+      const opening = [...frames].sort((a, b) => (a.startIndex - b.startIndex) || (b.endIndex - a.endIndex));
+      const KW = { loop: 'loop', alt: 'alt', opt: 'opt', par: 'par' };
+      const stack = [];
+      let depth = 0;
+      const pad = (d) => '    '.repeat(d + 1);
+      const openAt = (i) => {
+        opening.filter(f => f.startIndex === i && !stack.includes(f)).forEach(f => {
+          f._d = depth;
+          code += `${pad(depth)}${KW[f.type] || f.type || 'loop'}${f.label ? ' ' + f.label : ''}\n`;
+          stack.push(f); depth++;
+        });
+      };
+      const sectionsAt = (i) => {
+        stack.forEach(f => {
+          if (f.sections && f.sections.length > 1) f.sections.forEach((s, si) => {
+            if (si > 0 && s.startIndex === i) code += `${pad(f._d)}else${s.label ? ' ' + s.label : ''}\n`;
+          });
+        });
+      };
+      const closeAt = (i) => {
+        for (let k = stack.length - 1; k >= 0; k--) {
+          if (stack[k].endIndex === i) { const f = stack.splice(k, 1)[0]; depth--; code += `${pad(f._d)}end\n`; }
+        }
+      };
+
+      // Generate messages, wrapped by their frames.
       messages.forEach(msg => {
+        const i = msg.index ?? 0;
+        openAt(i);
+        sectionsAt(i);
         const fromId = idMap[msg.from];
         const toId = idMap[msg.to];
         if (fromId && toId) {
-          // Determine arrow type
           let arrow = '->>';
           if (msg.arrow) {
             if (msg.arrow.includes('--')) arrow = '-->>'; // dashed
             if (msg.arrow.includes(')')) arrow = arrow.replace('>>', ')'); // async (open arrow)
           }
-          
-          const label = msg.label || '';
-          code += `    ${fromId}${arrow}${toId}: ${label}\n`;
+          code += `${pad(depth)}${fromId}${arrow}${toId}: ${msg.label || ''}\n`;
         }
+        closeAt(i);
       });
-      
+      // Defensively close any frames left open (malformed spans).
+      while (stack.length) { const f = stack.pop(); depth--; code += `${pad(f._d)}end\n`; }
+
       return code.trim();
     }
     
