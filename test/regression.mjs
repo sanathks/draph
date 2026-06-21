@@ -2960,4 +2960,31 @@ group('Resize from any corner/edge (#126): 8 handles, origin-moving edges');
   check('se handle leaves origin fixed', m.x === mx0 && m.y === my0);
 }
 
+group('Shift-to-lock aspect ratio on resize (#125): proportional vs free');
+{
+  const { win, doc } = boot();
+
+  // Shift-drag the corner handle: the node keeps its STARTING aspect ratio
+  // (capture it live — createNode clamps to min sizes, so don't assume a value).
+  const n = win.createNode('rect', 100, 100, 160, 80);
+  win.selectNode(n.id); win.render();
+  const r0 = n.width / n.height;
+  let h = doc.querySelector(`#nodes .node[data-id="${n.id}"] .resize-handle.handle-se`);
+  mouse(h, 'mousedown', n.x + n.width, n.y + n.height);
+  mouse(doc, 'mousemove', n.x + n.width + 120, n.y + n.height + 8, { shiftKey: true });
+  mouse(doc, 'mouseup', 0, 0);
+  check('shift-resize preserves starting aspect', Math.abs((n.width / n.height) - r0) < 0.1);
+  check('shift-resize actually grew the node', n.width > 160);
+
+  // Without Shift: free resize — width and height move independently (skew allowed)
+  const m = win.createNode('rect', 400, 100, 160, 80);
+  win.selectNode(m.id); win.render();
+  const mr0 = m.width / m.height;
+  h = doc.querySelector(`#nodes .node[data-id="${m.id}"] .resize-handle.handle-se`);
+  mouse(h, 'mousedown', m.x + m.width, m.y + m.height);
+  mouse(doc, 'mousemove', m.x + m.width + 120, m.y + m.height + 4); // no shiftKey
+  mouse(doc, 'mouseup', 0, 0);
+  check('free resize is not aspect-locked', Math.abs((m.width / m.height) - mr0) > 0.3);
+}
+
 process.exit(report() ? 0 : 1);

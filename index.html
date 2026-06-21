@@ -5444,6 +5444,15 @@
         if (dir.includes('n')) newH = resizing.startH - dy;
         newW = Math.max(60, snap(newW));
         newH = Math.max(40, snap(newH));
+        if (e.shiftKey) {
+          // Shift locks the starting aspect ratio (#125), composed with the
+          // per-edge logic above: drive off whichever dimension changed more.
+          const ratio = resizing.startW / resizing.startH;
+          if (Math.abs(newW - resizing.startW) >= Math.abs(newH - resizing.startH)) newH = Math.max(40, newW / ratio);
+          else newW = Math.max(60, newH * ratio);
+        }
+        // Pin the opposite edge AFTER any aspect adjustment, so w/n handles keep
+        // the right/bottom edge fixed regardless of Shift.
         if (dir.includes('w')) newX = resizing.nodeX + resizing.startW - newW; // pin right edge
         if (dir.includes('n')) newY = resizing.nodeY + resizing.startH - newH; // pin bottom edge
         resizing.node.x = newX;
