@@ -3679,4 +3679,30 @@ group('Sequence frame export (#171): loop/alt/opt/par emitted around messages');
   check('frameless export has no frame keywords', !/\b(loop|alt|opt|par|end)\b/.test(plain) && /A->>B: hi/.test(plain));
 }
 
+group('Gantt milestone label + task status (#178): legible milestone, distinct status fills');
+{
+  const { win, doc, E } = boot();
+  win.importMermaid(true, { code: 'gantt\n  dateFormat YYYY-MM-DD\n  section S\n  Research :done, r1, 2024-01-01, 7d\n  Build :active, b1, after r1, 5d\n  Crunch :crit, c1, after b1, 2d\n  Plan :p1, after c1, 3d\n  Launch :milestone, m1, after p1, 0d' });
+
+  const m = E(`nodes.find(n => /Launch/.test(n.label))`);
+  check('milestone label not clipped inside the tiny box', !!m && (m.width > 40 || m.labelOutside === true));
+
+  const done = E(`nodes.find(n => /Research/.test(n.label))`);
+  const active = E(`nodes.find(n => /Build/.test(n.label))`);
+  const crit = E(`nodes.find(n => /Crunch/.test(n.label))`);
+  const norm = E(`nodes.find(n => /Plan/.test(n.label))`);
+  check('done status captured on the node', !!done && done.status === 'done');
+  check('active/crit statuses captured', !!active && active.status === 'active' && !!crit && crit.status === 'crit');
+  // each status renders a distinct fill, all different from the normal task
+  const fills = new Set([done.color, active.color, crit.color, norm.color]);
+  check('done/active/crit/normal all have distinct fills', fills.size === 4);
+
+  // milestone label is actually drawn on the canvas (beside the diamond)
+  win.render();
+  check('milestone label rendered', doc.getElementById('nodes').textContent.includes('Launch'));
+
+  // base gantt bar geometry unchanged (a normal task is a sized rect, not 40px)
+  check('normal task is a sized bar', norm.type === 'rect' && norm.width >= 40);
+}
+
 process.exit(report() ? 0 : 1);

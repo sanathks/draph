@@ -3248,10 +3248,15 @@
           // For outline, stripe, grid - use light text; for solid infill - use contrast text
           const txtColor = (style === 'outline' || style === 'stripe' || style === 'grid') ? (node.outlineColor || COLORS.fg) : textColor;
           const clipId = 'clip-' + node.id;
+          // labelOutside (#178): gantt milestone diamonds keep the label beside
+          // the shape so it isn't clipped inside the tiny diamond.
+          const diamondLabel = node.labelOutside
+            ? `<text x="${node.x + node.width + 6}" y="${cy + 4}" fill="${COLORS.fg}" font-size="11" font-family="system-ui, sans-serif" text-anchor="start" style="pointer-events:none">${esc(node.label || '')}</text>`
+            : `<g clip-path="url(#${clipId})">${renderWrappedText(node.label, cx, cy, node.width * 0.6, 11, txtColor, '', node.icon)}</g>`;
           shape = `${customPattern}<defs><clipPath id="${clipId}"><polygon points="${cx},${node.y} ${node.x + node.width},${cy} ${cx},${node.y + node.height} ${node.x},${cy}"/></clipPath></defs>
-            <polygon points="${cx},${node.y} ${node.x + node.width},${cy} ${cx},${node.y + node.height} ${node.x},${cy}" 
+            <polygon points="${cx},${node.y} ${node.x + node.width},${cy} ${cx},${node.y + node.height} ${node.x},${cy}"
             fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>
-            <g clip-path="url(#${clipId})">${renderWrappedText(node.label, cx, cy, node.width * 0.6, 11, txtColor, '', node.icon)}</g>`;
+            ${diamondLabel}`;
         } else if (node.type === 'circle') {
           const { fill, style } = getFill(node, 'infill');
           const customPattern = getCustomPattern(node);
@@ -8274,17 +8279,17 @@
         const ci = line.indexOf(':'); if (ci === -1) continue;
         const name = line.slice(0, ci).trim();
         const parts = line.slice(ci + 1).split(',').map(s => s.trim()).filter(Boolean);
-        let milestone = false, id = null, after = null, dateTok = null, dur = null, endDate = null;
+        let milestone = false, id = null, after = null, dateTok = null, dur = null, endDate = null, status = null;
         for (const p of parts) {
           const pl = p.toLowerCase();
           if (pl === 'milestone') { milestone = true; continue; }
-          if (['done', 'active', 'crit'].includes(pl)) continue;
+          if (['done', 'active', 'crit'].includes(pl)) { status = pl; continue; }   // task status (#178)
           if (/^after\s+/i.test(p)) { after = p.replace(/^after\s+/i, '').trim().split(/\s+/); continue; }
           const d = parseDate(p); if (d) { if (!dateTok) dateTok = d; else endDate = d; continue; }
           const dd = parseDurDays(p); if (dd != null) { dur = dd; continue; }
           if (!id) id = p;   // leftover token is the task id
         }
-        tasks.push({ name, id, milestone, after, dateTok, dur, endDate, section });
+        tasks.push({ name, id, milestone, status, after, dateTok, dur, endDate, section });
         if (id) byId[id] = tasks[tasks.length - 1];
       }
       // Resolve start dates sequentially (after / explicit date / follow previous).
@@ -8310,10 +8315,14 @@
         const off = Math.round((t._start - minDate) / DAY);
         const x = baseX + off * PXD;
         const y = baseY + row * rowH;
+        // Task status → distinct fill (#178); normal stays accent blue.
+        const GANTT_STATUS_COLOR = { done: '#9aa5ce', active: '#7dcfff', crit: '#f7768e' };
         if (t.milestone) {
-          result.nodes.push({ id: t._nodeId, type: 'diamond', label: t.name, fixed: true, x: x - 20, y, width: 40, height: 40 });
+          // Keep the diamond small but render its label BESIDE it (labelOutside)
+          // so it isn't clipped inside a 40px box (#178).
+          result.nodes.push({ id: t._nodeId, type: 'diamond', label: t.name, fixed: true, x: x - 20, y, width: 40, height: 40, labelOutside: true, status: t.status, color: GANTT_STATUS_COLOR[t.status] || undefined });
         } else {
-          result.nodes.push({ id: t._nodeId, type: 'rect', label: t.name, fixed: true, x, y, width: Math.max(40, t._days * PXD), height: barH, color: COLORS.accent, fillStyle: 'infill' });
+          result.nodes.push({ id: t._nodeId, type: 'rect', label: t.name, fixed: true, x, y, width: Math.max(40, t._days * PXD), height: barH, color: GANTT_STATUS_COLOR[t.status] || COLORS.accent, fillStyle: 'infill', status: t.status });
         }
       });
 
@@ -9581,7 +9590,7 @@
           const nodeType = isParticipant ? 'rect' : (isClass ? 'rect' : n.type);
           const node = createNode(nodeType, n.x, n.y, width, height);
           node.label = n.label;
-          if (isFixed) { if (n.color) node.color = n.color; if (n.fillStyle) node.fillStyle = n.fillStyle; }
+          if (isFixed) { if (n.color) node.color = n.color; if (n.fillStyle) node.fillStyle = n.fillStyle; if (n.status) node.status = n.status; if (n.labelOutside) node.labelOutside = true; }   // #178: gantt status + milestone label-outside
           if (n.type === 'pie') { node.slices = n.slices; node.title = n.title; }
           if (n.type === 'quadrant') { node.title = n.title; node.xAxis = n.xAxis; node.yAxis = n.yAxis; node.quadrants = n.quadrants; node.points = n.points; }
           if (n.type === 'xychart') { node.title = n.title; node.xAxis = n.xAxis; node.yAxis = n.yAxis; node.series = n.series; }
