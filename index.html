@@ -8229,21 +8229,21 @@
         m = token.match(/^(\w+)\[\["?(.+?)"?\]\]$/);
         if (m) return { id: m[1], type: 'container', label: m[2] };
         
-        // A[(database)]
+        // A[(database)] — cylinder (#123)
         m = token.match(/^(\w+)\[\((.+)\)\]$/);
-        if (m) return { id: m[1], type: 'circle', label: m[2] };
-        
-        // A{{hexagon}}
+        if (m) return { id: m[1], type: 'cylinder', label: m[2] };
+
+        // A{{hexagon}} — hexagon (#123)
         m = token.match(/^(\w+)\{\{(.+)\}\}$/);
-        if (m) return { id: m[1], type: 'diamond', label: m[2] };
-        
-        // A[/parallelogram/]
+        if (m) return { id: m[1], type: 'hexagon', label: m[2] };
+
+        // A[/parallelogram/] (#123)
         m = token.match(/^(\w+)\[\/(.+)\/\]$/);
-        if (m) return { id: m[1], type: 'rect', label: m[2] };
-        
-        // A[\parallelogram\]
+        if (m) return { id: m[1], type: 'parallelogram', label: m[2] };
+
+        // A[\trapezoid\] (#123)
         m = token.match(/^(\w+)\[\\(.+)\\\]$/);
-        if (m) return { id: m[1], type: 'rect', label: m[2] };
+        if (m) return { id: m[1], type: 'trapezoid', label: m[2] };
         
         // A[rect] 
         m = token.match(/^(\w+)\[(.+)\]$/);
