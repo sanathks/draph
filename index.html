@@ -890,6 +890,19 @@
           </button>
         </div>
 
+        <!-- Node opacity presets (#134) -->
+        <div id="opacityGroup" class="relative" style="display:inline-block">
+          <button id="opacityBtn" onclick="toggleOpacityDropdown()" title="Opacity" style="width:28px;height:28px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);display:flex;align-items:center;justify-content:center">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:16px;height:16px"><circle cx="12" cy="12" r="9"/><path d="M12 3 A9 9 0 0 1 12 21 Z" fill="currentColor" stroke="none"/></svg>
+          </button>
+          <div id="opacityDropdown" class="hidden absolute bg-storm-bg2 border border-storm-fg/20 rounded shadow-lg z-50" style="top:32px;left:0;padding:4px;min-width:60px">
+            <button class="opacity-opt w-full text-left text-xs text-storm-fg hover:bg-storm-accent/20 rounded" data-op="1" onclick="setNodeOpacity(1)" style="padding:5px 8px">100%</button>
+            <button class="opacity-opt w-full text-left text-xs text-storm-fg hover:bg-storm-accent/20 rounded" data-op="0.75" onclick="setNodeOpacity(0.75)" style="padding:5px 8px">75%</button>
+            <button class="opacity-opt w-full text-left text-xs text-storm-fg hover:bg-storm-accent/20 rounded" data-op="0.5" onclick="setNodeOpacity(0.5)" style="padding:5px 8px">50%</button>
+            <button class="opacity-opt w-full text-left text-xs text-storm-fg hover:bg-storm-accent/20 rounded" data-op="0.25" onclick="setNodeOpacity(0.25)" style="padding:5px 8px">25%</button>
+          </div>
+        </div>
+
         <!-- Fill style dropdown (hidden for line nodes) -->
         <div id="fillStyleGroup" class="relative" style="display:inline-block">
           <button id="fillStyleBtn" onclick="toggleFillDropdown()" class="flex items-center justify-center" style="width:28px;height:28px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:16px;color:var(--fg)" title="Fill Style">●</button>
@@ -3548,7 +3561,9 @@
         const resizeHandle = (isSelected && node.type !== 'line' && node.type !== 'pencil')
           ? renderResizeHandles(node) : '';
         
-        return `<g class="node ${isSelected ? 'selected' : ''}" data-id="${node.id}" role="img" aria-label="${esc(nodeAriaLabel(node))}">
+        // Per-node opacity (#134): dim/de-emphasize. Default 1 → no attr.
+        const opacityAttr = (node.opacity != null && node.opacity !== 1) ? ` opacity="${node.opacity}"` : '';
+        return `<g class="node ${isSelected ? 'selected' : ''}" data-id="${node.id}" role="img" aria-label="${esc(nodeAriaLabel(node))}"${opacityAttr}>
           ${lifeline}
           ${shape}
           ${connectors}
@@ -3766,6 +3781,7 @@
         closeFillColorPalette();
         closeOutlineColorPalette();
         closeLineStyleDropdown();
+        closeOpacityDropdown();
         
         // Show/hide controls based on node type. 'line' and 'pencil' are strokes:
         // no fill or lifeline; their color comes from the outline-color control.
@@ -4553,6 +4569,19 @@
       if (except !== 'fillColor') closeFillColorPalette();
       if (except !== 'outlineColor') closeOutlineColorPalette();
       if (except !== 'lineStyle') closeLineStyleDropdown();
+      if (except !== 'opacity') closeOpacityDropdown();
+    }
+
+    // Per-node opacity (#134): presets applied to the whole selection.
+    function toggleOpacityDropdown() { document.getElementById('opacityDropdown').classList.toggle('hidden'); closeOtherPalettes('opacity'); }
+    function closeOpacityDropdown() { const d = document.getElementById('opacityDropdown'); if (d) d.classList.add('hidden'); }
+    function setNodeOpacity(op) {
+      const ids = selectedNodeIds();
+      if (!ids.length) return;
+      ids.forEach(id => { const n = nodes.find(x => x.id === id); if (n) { if (op === 1) delete n.opacity; else n.opacity = op; } });
+      closeOpacityDropdown();
+      saveState();
+      render();
     }
     
     function toggleFillDropdown() { document.getElementById('fillDropdown').classList.toggle('hidden'); closeOtherPalettes('fill'); }
