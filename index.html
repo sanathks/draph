@@ -3145,7 +3145,21 @@
           const mid = wp || points[Math.floor(points.length / 2)] || { x: (x1 + endX) / 2, y: (y1 + endY) / 2 };
           selHandles = { fromX: x1, fromY: y1, toX: endX, toY: endY, midX: mid.x, midY: mid.y, hasWp: !!wp };
         }
-        return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" role="img" aria-label="${esc(connAriaLabel(conn, nodeById))}" style="cursor:pointer">${hitArea}${arrowHit}<path class="connection" d="${path}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${connDashArray}" style="pointer-events:none"/>${startMarkerSvg}${endMarkerSvg}${labelEl}</g>`;
+        // Class relationship multiplicities (#174): small labels just inside each
+        // endpoint (e.g. Customer "1" --> "0..*" Order).
+        let multSvg = '';
+        if (conn.fromMult || conn.toMult) {
+          const mtxt = (x, y, t) => `<text x="${x}" y="${y}" fill="${COLORS.fg}" font-size="10" font-family="system-ui, sans-serif" text-anchor="middle" style="pointer-events:none">${esc(t)}</text>`;
+          if (conn.fromMult && points.length >= 2) {
+            const a = points[0], b = points[1];
+            multSvg += mtxt(a.x + (b.x - a.x) * 0.15 + 7, a.y + (b.y - a.y) * 0.15 - 5, conn.fromMult);
+          }
+          if (conn.toMult && points.length >= 2) {
+            const a = points[points.length - 1], b = points[points.length - 2];
+            multSvg += mtxt(a.x + (b.x - a.x) * 0.15 + 7, a.y + (b.y - a.y) * 0.15 - 5, conn.toMult);
+          }
+        }
+        return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" role="img" aria-label="${esc(connAriaLabel(conn, nodeById))}" style="cursor:pointer">${hitArea}${arrowHit}<path class="connection" d="${path}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${connDashArray}" style="pointer-events:none"/>${startMarkerSvg}${endMarkerSvg}${labelEl}${multSvg}</g>`;
       }).join('');
 
       // Endpoint handles on top of everything, with a generous transparent hit area
@@ -7553,7 +7567,10 @@
             }
           }
           const label = c.label ? ` : ${c.label}` : '';
-          code += `    ${fromId} ${rel} ${toId}${label}\n`;
+          // Multiplicities (#174): A "1" --> "0..*" B
+          const fm = c.fromMult ? `"${c.fromMult}" ` : '';
+          const tm = c.toMult ? ` "${c.toMult}"` : '';
+          code += `    ${fromId} ${fm}${rel}${tm} ${toId}${label}\n`;
         }
       });
       
@@ -9705,7 +9722,9 @@
                   strokeStyle: c.strokeStyle,
                   thick: c.thick,
                   markerStart: c.markerStart,
-                  markerEnd: c.markerEnd
+                  markerEnd: c.markerEnd,
+                  fromMult: c.fromMult,   // class relationship multiplicities (#174)
+                  toMult: c.toMult
                 });
               }
             }
