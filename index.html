@@ -1213,6 +1213,7 @@
     // ---- Mutable application state -------------------------------------------
     let nodes = [];              // node[]        — all shapes on the canvas
     let connections = [];        // connection[]  — all edges
+    let diagramType = 'flowchart'; // source Mermaid type (#165): drives generateMermaid dispatch
     let sequenceFrames = [];     // loop/alt/opt frames for sequence diagrams
     let sequenceActivations = []; // activation bars: { participant, startIndex, endIndex } (#158)
     let selectedId = null;       // id of the single selected node (or null)
@@ -1745,7 +1746,7 @@
         return;
       }
       // Save viewport position along with diagram data
-      const data = { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom } };
+      const data = { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom }, dt: diagramType };
       const json = JSON.stringify(data);
       history.replaceState(null, '', '#' + btoa(encodeURIComponent(json)));
       // Autosave locally so the diagram survives a reload even without the hash
@@ -1797,6 +1798,7 @@
         const data = JSON.parse(json);
         nodes = data.n || [];
         connections = data.c || [];
+        diagramType = data.dt || 'flowchart';   // restore source type (#165)
         idCounter = Math.max(...nodes.map(n => parseInt(n.id.slice(1)) || 0), 0) + 1;
         // Link cards persist only their URL — rebuild the preview on load: show a
         // simple card immediately, then re-fetch the rich data (thumbnail/title).
@@ -1858,7 +1860,7 @@
     // Snapshot the live diagram as the persisted `{n, c, v}` payload (same shape
     // as the share-link / autosave / .draph file). Used by the document store.
     function exportState() {
-      return { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom } };
+      return { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom }, dt: diagramType };
     }
 
     // === SECTION: DOCUMENT STORE ("My diagrams") ===============================
@@ -1936,7 +1938,7 @@
     // The full share URL (hash-encoded diagram) WITHOUT touching the address bar,
     // so we can measure its length before committing.
     function diagramShareUrl() {
-      const data = { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom } };
+      const data = { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom }, dt: diagramType };
       return location.origin + location.pathname + '#' + btoa(encodeURIComponent(JSON.stringify(data)));
     }
 
@@ -1989,7 +1991,7 @@
         toast('Nothing to save yet — add a shape first', 'error');
         return;
       }
-      const data = { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom }, app: 'draph', version: 2 };
+      const data = { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom }, dt: diagramType, app: "draph", version: 2 };
       const json = JSON.stringify(data, null, 2);
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -7364,7 +7366,20 @@
       }
       if (nodes.length === 0) return 'flowchart TD\n    %% Empty diagram';
 
-      // Detect diagram type
+      // Honor the stored source diagram type so imports round-trip (#165).
+      if (diagramType === 'state') return generateStateMermaid();
+      if (diagramType === 'class') return generateClassMermaid();
+      if (diagramType === 'sequence') return generateSequenceMermaid();
+      // Types without a dedicated generator yet: do NOT mislabel them (e.g. ER's
+      // class-shaped nodes would otherwise emit `classDiagram`). Export as a
+      // flowchart and tell the user, rather than silently degrading the type.
+      const FLOWCHART_OK = new Set(['flowchart', 'graph', '']);
+      if (diagramType && !FLOWCHART_OK.has(diagramType)) {
+        if (typeof toast === 'function') toast(`Export for "${diagramType}" isn't supported yet — exported as a flowchart.`, 'info');
+        return generateFlowchartMermaid();
+      }
+
+      // Generic / hand-drawn diagrams: fall back to shape heuristics.
       const hasParticipants = nodes.some(n => n.isParticipant || n.hasLifeline);
       const hasSequenceMessages = connections.some(c => c.isSequenceMessage);
       const hasClasses = nodes.some(n => n.isClass);
@@ -7382,7 +7397,41 @@
       // Default: Flowchart
       return generateFlowchartMermaid();
     }
-    
+
+    // State-diagram generator (#165): stateDiagram-v2 with [*] start/end pseudo-
+    // states, transitions + labels, and `state "Label" as Id` aliases for labels
+    // that aren't bare identifiers. (Composite nesting is a follow-up.)
+    function generateStateMermaid() {
+      let code = 'stateDiagram-v2\n';
+      const byId = {};
+      nodes.forEach(n => { byId[n.id] = n; });
+      const stId = {};
+      let counter = 0;
+      const idFor = (n) => {
+        if (!n) return null;
+        if (n.isPseudo) return '[*]';
+        if (!stId[n.id]) {
+          const base = (n.label || '').replace(/[^A-Za-z0-9_]/g, '');
+          stId[n.id] = base || ('S' + (++counter));
+        }
+        return stId[n.id];
+      };
+      // Alias declarations for non-identifier labels (e.g. "In Progress").
+      nodes.filter(n => n.type !== 'line' && n.type !== 'pencil' && n.type !== 'note' && n.type !== 'container' && !n.isPseudo)
+        .forEach(n => {
+          const id = idFor(n);
+          if (n.label && n.label !== id) code += `    state "${String(n.label).replace(/"/g, "'")}" as ${id}\n`;
+        });
+      // Transitions (skip sequence messages defensively).
+      connections.filter(c => !c.isSequenceMessage).forEach(c => {
+        const f = byId[c.from], t = byId[c.to];
+        if (!f || !t) return;
+        const lbl = c.label ? ` : ${String(c.label).replace(/\n/g, ' ')}` : '';
+        code += `    ${idFor(f)} --> ${idFor(t)}${lbl}\n`;
+      });
+      return code.trim();
+    }
+
     function generateSequenceMermaid() {
       let code = 'sequenceDiagram\n';
       
@@ -7585,9 +7634,34 @@
       return code.trim();
     }
     
+    // The true SOURCE Mermaid type from the header keyword (#165). The per-type
+    // parsers normalize their result.diagramType to flowchart/class for layout, so
+    // this is the only reliable signal of what was imported (used by Export).
+    function detectMermaidType(firstLine) {
+      const s = (firstLine || '').trim();
+      if (/^classDiagram/i.test(s)) return 'class';
+      if (/^sequenceDiagram/i.test(s)) return 'sequence';
+      if (/^stateDiagram(-v2)?/i.test(s)) return 'state';
+      if (/^erDiagram/i.test(s)) return 'er';
+      if (/^mindmap/i.test(s)) return 'mindmap';
+      if (/^timeline\b/i.test(s)) return 'timeline';
+      if (/^gantt\b/i.test(s)) return 'gantt';
+      if (/^pie\b/i.test(s)) return 'pie';
+      if (/^journey\b/i.test(s)) return 'journey';
+      if (/^gitGraph/i.test(s)) return 'gitgraph';
+      if (/^quadrantChart/i.test(s)) return 'quadrant';
+      if (/^requirementDiagram/i.test(s)) return 'requirement';
+      if (/^C4(Context|Container|Component|Dynamic|Deployment)/i.test(s)) return 'c4';
+      if (/^architecture-beta/i.test(s)) return 'architecture';
+      if (/^block-beta/i.test(s)) return 'block';
+      if (/^xychart-beta/i.test(s)) return 'xychart';
+      if (/^sankey-beta/i.test(s)) return 'sankey';
+      return 'flowchart';
+    }
+
     function parseMermaid(code) {
       const lines = code.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('%%'));
-      
+
       // Detect diagram type
       const firstLine = lines[0] || '';
       if (firstLine.match(/^classDiagram/i)) {
@@ -9430,7 +9504,13 @@
         }
         const idMap = {};
         const isSequence = parsed.diagramType === 'sequence';
-        
+        // Remember the SOURCE diagram type (from the header keyword) so Export can
+        // round-trip it (#165). append imports keep the existing type.
+        if (!append) {
+          const firstMeaningful = (code.split('\n').find(l => l.trim() && !l.trim().startsWith('%%')) || '');
+          diagramType = detectMermaidType(firstMeaningful);
+        }
+
         // Store sequence frames for rendering
         if (isSequence && parsed.frames) {
           sequenceFrames = parsed.frames;
@@ -9490,7 +9570,7 @@
           }
 
           // [*] pseudo-states render as a small solid dot (bypass the 40px min).
-          if (isPseudo) { node.width = 24; node.height = 24; node.fillStyle = 'infill'; node.color = COLORS.fg; }
+          if (isPseudo) { node.isPseudo = true; node.width = 24; node.height = 24; node.fillStyle = 'infill'; node.color = COLORS.fg; }
           // state fork/join: a thin solid bar (explicit small geometry, not a rect).
           if (n.type === 'bar') { node.width = 90; node.height = 10; node.fillStyle = 'infill'; node.color = COLORS.fg; }
 
