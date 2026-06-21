@@ -2118,15 +2118,60 @@
     // otherwise only comes from Mermaid import. Reuses the existing renderNodes
     // branches (isClass / hasLifeline / isPseudo). Returns the created node so the
     // shape-library panel and tests can both reach it. Defaults to viewport center.
+    // Size a UML class box to fit its label + property/method rows (#163). Shared
+    // by placeShape and the in-place member editor so both reflow identically.
+    function sizeClassNode(n) {
+      const rows = [...(n.properties || []), ...(n.methods || []), n.label, n.stereotype ? '«' + n.stereotype + '»' : ''];
+      const longest = rows.reduce((m, s) => Math.max(m, (s || '').length), 0);
+      n.width = Math.max(170, longest * 7 + 24);
+      n.height = Math.max(70, (n.stereotype ? 42 : 28) + (n.properties || []).length * 16 + (n.methods || []).length * 16 + 8);
+    }
+
+    // Member editing for UML class-like nodes (#163): add / edit / remove a
+    // property or method row, then reflow + persist. `kind` is 'property' or
+    // 'method'. Works for any isClass node (class/interface/abstract/enum/entity).
+    function classArr(node, kind) {
+      const key = kind === 'method' ? 'methods' : 'properties';
+      if (!Array.isArray(node[key])) node[key] = [];
+      return node[key];
+    }
+    function addClassMember(id, kind, text) {
+      const node = nodes.find(n => n.id === id);
+      if (!node || !node.isClass) return;
+      classArr(node, kind).push(String(text).trim());
+      sizeClassNode(node); saveState(); render();
+    }
+    function editClassMember(id, kind, index, text) {
+      const node = nodes.find(n => n.id === id);
+      if (!node || !node.isClass) return;
+      const arr = classArr(node, kind);
+      if (index < 0 || index >= arr.length) return;
+      arr[index] = String(text).trim();
+      sizeClassNode(node); saveState(); render();
+    }
+    function removeClassMember(id, kind, index) {
+      const node = nodes.find(n => n.id === id);
+      if (!node || !node.isClass) return;
+      const arr = classArr(node, kind);
+      if (index < 0 || index >= arr.length) return;
+      arr.splice(index, 1);
+      sizeClassNode(node); saveState(); render();
+    }
+    // Replace ALL members at once from a newline-delimited text block (#163 UI):
+    // lines containing "()" are methods, the rest are properties. Empty → cleared.
+    function setClassMembers(id, text) {
+      const node = nodes.find(n => n.id === id);
+      if (!node || !node.isClass) return;
+      const lines = String(text).split('\n').map(s => s.trim()).filter(Boolean);
+      node.properties = lines.filter(l => !/\(.*\)/.test(l));
+      node.methods = lines.filter(l => /\(.*\)/.test(l));
+      sizeClassNode(node); saveState(); render();
+    }
+
     function placeShape(kind, x, y) {
       if (x == null) x = viewBox.x + viewBox.w / 2;
       if (y == null) y = viewBox.y + viewBox.h / 2;
-      const sizeClass = (n) => {
-        const rows = [...(n.properties || []), ...(n.methods || []), n.label, n.stereotype ? '«' + n.stereotype + '»' : ''];
-        const longest = rows.reduce((m, s) => Math.max(m, (s || '').length), 0);
-        n.width = Math.max(170, longest * 7 + 24);
-        n.height = Math.max(70, (n.stereotype ? 42 : 28) + (n.properties || []).length * 16 + (n.methods || []).length * 16 + 8);
-      };
+      const sizeClass = sizeClassNode;
       let node;
       const mkClass = (label, stereotype, properties, methods) => {
         node = createNode('rect', 0, 0, 170, 80);
@@ -3880,6 +3925,51 @@
       labelEditor = { commit, nodeId: node.id };
     }
 
+    // In-place member editor for UML class-like nodes (#163): a textarea over the
+    // body, one member per line (lines with "()" become methods, the rest
+    // properties). Add a line to add a member, clear a line to remove it.
+    function editClassMembers(node) {
+      if (readOnly || !node.isClass) return;
+      if (labelEditor) labelEditor.commit(true);
+      const canvasContainer = document.getElementById('canvasContainer');
+      const canvasRect = canvas.getBoundingClientRect();
+      const scaleX = canvasRect.width / viewBox.w;
+      const titleH = (node.stereotype ? 42 : 28);
+      const left = (node.x - viewBox.x) * scaleX;
+      const top = (node.y + titleH - viewBox.y) * scaleX;
+      const w = node.width * scaleX;
+      const h = Math.max(40, (node.height - titleH)) * scaleX;
+
+      const inp = document.createElement('textarea');
+      inp.className = 'node-label-editor';
+      inp.style.textAlign = 'left';
+      inp.value = [...(node.properties || []), ...(node.methods || [])].join('\n');
+      inp.placeholder = '+ field: Type\n+ method() void';
+      inp.style.left = left + 'px';
+      inp.style.top = top + 'px';
+      inp.style.width = w + 'px';
+      inp.style.height = h + 'px';
+      canvasContainer.appendChild(inp);
+      inp.focus();
+      inp.select();
+
+      let done = false;
+      const commit = (save) => {
+        if (done) return;
+        done = true;
+        if (save) setClassMembers(node.id, inp.value);
+        inp.remove();
+        labelEditor = null;
+      };
+      inp.addEventListener('blur', () => commit(true));
+      inp.addEventListener('keydown', (ev) => {
+        ev.stopPropagation();
+        if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); commit(true); }
+        else if (ev.key === 'Escape') { ev.preventDefault(); commit(false); }
+      });
+      labelEditor = { commit, nodeId: node.id };
+    }
+
     function deleteSelected() {
       // Delete selected connection
       if (selectedConnId) {
@@ -5246,6 +5336,14 @@
       if (!node) return;
       // A link card opens its URL on double-click; images have no label to edit.
       if (node.type === 'link') { if (node.url) window.open(node.url, '_blank', 'noopener'); return; }
+      // UML class (#163): double-click the title band edits the name; the body
+      // (property/method area) opens the in-place member editor.
+      if (node.isClass) {
+        const pos = screenToCanvas(e.clientX, e.clientY);
+        if (pos.y > node.y + (node.stereotype ? 42 : 28)) { editClassMembers(node); return; }
+        editNodeLabel(node);
+        return;
+      }
       if (node.type !== 'line' && node.type !== 'pencil' && node.type !== 'image') editNodeLabel(node);
     }
     
