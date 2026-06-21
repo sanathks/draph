@@ -3936,6 +3936,27 @@
       floatingToolbar.classList.add('hidden'); render();
     }
 
+    // Grow the selection to the full connected component(s) of the current
+    // selection (#133): walk connections as an undirected graph. Pure selection
+    // change — no diagram mutation, so no saveState.
+    function selectConnected() {
+      const seed = selectedNodeIds();
+      if (!seed.length) return;
+      const adj = new Map();
+      const link = (k, v) => { if (!adj.has(k)) adj.set(k, []); adj.get(k).push(v); };
+      connections.forEach(c => { link(c.from, c.to); link(c.to, c.from); });
+      const seen = new Set(seed);
+      const stack = seed.slice();
+      while (stack.length) {
+        const cur = stack.pop();
+        (adj.get(cur) || []).forEach(nb => { if (!seen.has(nb)) { seen.add(nb); stack.push(nb); } });
+      }
+      const ids = nodes.filter(n => seen.has(n.id) && n.type !== 'line' && n.type !== 'pencil').map(n => n.id);
+      if (ids.length <= 1) { if (ids.length === 1) selectNode(ids[0]); return; }
+      selectedId = null; selectedConnId = null; selectedIds = ids;
+      floatingToolbar.classList.add('hidden'); render();
+    }
+
     // --- Right-click context menu ---
     const contextMenu = document.getElementById('contextMenu');
     function hideContextMenu() { contextMenu.classList.add('hidden'); }
@@ -3975,6 +3996,7 @@
       delete: () => deleteSelected(),
       addshape: () => addShapeAtCenter(),
       selectall: () => selectAllNodes(),
+      selectconnected: () => selectConnected(),
       group: () => groupSelected(),
       ungroup: () => ungroupSelected(),
       copyMermaid: () => copyAsMermaid(),
@@ -4012,6 +4034,7 @@
         const items = [
           { act: 'edit', label: 'Edit label' },
           { act: 'duplicate', label: 'Duplicate', kbd: '⌘D' },
+          { act: 'selectconnected', label: 'Select connected', kbd: '⇧C' },
           { act: 'copyMermaid', label: 'Copy as Mermaid' },
           { act: 'copyStyle', label: 'Copy style' },   // #99
         ];
@@ -5995,6 +6018,13 @@
         const [dx, dy] = NUDGE[e.key];
         ids.forEach(id => { const n = nodes.find(x => x.id === id); if (n) { n.x += dx * step; n.y += dy * step; } });
         render();
+        return;
+      }
+
+      // Select connected component (#133): Shift+C, only with a node selected.
+      if (e.shiftKey && e.key.toLowerCase() === 'c' && !e.metaKey && !e.ctrlKey && selectedNodeIds().length) {
+        e.preventDefault();
+        selectConnected();
         return;
       }
 
