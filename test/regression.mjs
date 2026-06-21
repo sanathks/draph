@@ -2756,6 +2756,43 @@ group('Self-loop edges (#104): from===to renders a non-degenerate arc');
   check('importer keeps a self-transition', p.connections.some(c => c.from === c.to));
 }
 
+group('One-step z-order (#114): bringForward / sendBackward swap with nearest neighbour');
+{
+  const { win, E } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40);
+  const b = win.createNode('rect', 10, 10, 80, 40);
+  const c = win.createNode('rect', 20, 20, 80, 40);
+  a.z = 1; b.z = 2; c.z = 3;
+
+  // bringForward raises one step (swaps with the neighbour just above), not to the top
+  win.bringForward([a.id]);
+  check('bringForward raises one step above neighbour', a.z > b.z);
+  check('bringForward did not jump to front', a.z <= c.z);
+
+  // no-op at the top: the topmost node can't go higher
+  const topZ = c.z;
+  win.bringForward([c.id]);
+  check('bringForward is a no-op at the top', c.z === topZ);
+
+  // sendBackward is symmetric: lowers one step, no-op at the bottom
+  a.z = 1; b.z = 2; c.z = 3;
+  win.sendBackward([c.id]);
+  check('sendBackward lowers one step below neighbour', c.z < b.z);
+  check('sendBackward did not jump to back', c.z >= a.z);
+  const botZ = a.z;
+  win.sendBackward([a.id]);
+  check('sendBackward is a no-op at the bottom', a.z === botZ);
+
+  // one undo unit: a single bringForward is reverted by one undo
+  a.z = 1; b.z = 2; c.z = 3;
+  win.saveState();
+  win.bringForward([a.id]);
+  win.undo();
+  const aAfter = E(`nodes.find(n => n.id === '${a.id}').z`);
+  const bAfter = E(`nodes.find(n => n.id === '${b.id}').z`);
+  check('one undo reverts the z-swap', aAfter === 1 && bAfter === 2);
+}
+
 group('Auto-arrange direction (#113): TB / LR');
 {
   const { win, E } = boot();
@@ -2820,6 +2857,34 @@ group('Node text alignment (#120): textAlign drives text-anchor (left/center/rig
   const json = E(`JSON.stringify({ n: serializeNodes(), c: connections })`);
   win.loadDiagramJson(json);
   check('textAlign persists across serialize', E(`nodes.find(n => n.id === '${c.id}').textAlign`) === 'right');
+}
+
+group('Per-connection line style override (#119): setConnectionLineStyle is per-edge');
+{
+  const { win, E } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40);
+  const b = win.createNode('rect', 240, 0, 80, 40);
+  const c = win.createNode('rect', 0, 200, 80, 40);
+  win.connect(a.id, b.id);
+  win.connect(a.id, c.id);
+  const cid = E(`connections[0].id`);
+  const otherId = E(`connections[1].id`);
+  const globalBefore = E(`globalLineStyle`);
+  win.saveState(); // baseline WITH both connections so undo lands here
+
+  win.setConnectionLineStyle(cid, 'straight');
+  check('per-connection style overridden', E(`connections[0].lineStyle`) === 'straight');
+  check('global default unchanged', E(`globalLineStyle`) === globalBefore && globalBefore !== 'straight');
+  check('other connection unaffected', E(`connections.find(c => c.id === '${otherId}').lineStyle`) !== 'straight');
+
+  // override is undoable as a single unit, and persists through serialize round-trip
+  win.undo();
+  check('one undo reverts the override', E(`connections[0].lineStyle`) !== 'straight');
+
+  win.setConnectionLineStyle(cid, 'rounded');
+  const json = E(`JSON.stringify({ n: serializeNodes(), c: connections })`);
+  win.loadDiagramJson(json);
+  check('override persists across serialize round-trip', E(`connections.find(c => c.id === '${cid}').lineStyle`) === 'rounded');
 }
 
 process.exit(report() ? 0 : 1);
