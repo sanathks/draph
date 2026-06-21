@@ -3418,6 +3418,43 @@ group('Container drag carries contents (#153): members + nested move together');
   check('non-container drag moves only itself', q.x === qx0);
 }
 
+group('Sequence activation bars (#158): inline +/- and activate/deactivate → spans');
+{
+  const { E } = boot();
+
+  // inline markers: ->>+B activates B; -->>-A deactivates the source B
+  const p = E(`parseMermaid('sequenceDiagram\\n  participant A\\n  participant B\\n  A->>+B: req\\n  B-->>-A: res')`);
+  check('inline +/- produces one activation span', (p.activations || []).length === 1);
+  check('activation is on the target participant B', p.activations[0].participant === 'B');
+  check('span covers the req→res message range', p.activations[0].startIndex === 0 && p.activations[0].endIndex === 1);
+  check('messages still parse', p.connections.filter(c => c.label === 'req' || c.label === 'res').length === 2);
+
+  // explicit activate/deactivate
+  const p2 = E(`parseMermaid('sequenceDiagram\\n  participant A\\n  participant B\\n  activate B\\n  A->>B: req\\n  B-->>A: res\\n  deactivate B')`);
+  check('explicit activate/deactivate produces a span', (p2.activations || []).length === 1 && p2.activations[0].participant === 'B');
+
+  // full import path: stored on sequenceActivations and rendered as a bar
+  const { win, doc, E: E3 } = boot();
+  win.importMermaid(false, { code: 'sequenceDiagram\n  participant A\n  participant B\n  A->>+B: req\n  B-->>-A: res' });
+  check('importMermaid stores the activation', E3(`sequenceActivations.length`) === 1);
+  // the activation participant is remapped to the LIVE node id (review fix)
+  check('activation participant remapped to a live node id', E3(`!!nodes.find(n => n.id === sequenceActivations[0].participant)`));
+  // a NARROW activation bar (w≈10) renders on B's lifeline center-x, spanning a message range
+  const bNode = E3(`nodes.find(n => n.label === 'B')`);
+  const bcx = bNode.x + bNode.width / 2;
+  const bars = [...doc.querySelectorAll('#connections rect')].filter(r => {
+    const w = parseFloat(r.getAttribute('width'));
+    const x = parseFloat(r.getAttribute('x'));
+    return Math.abs(w - 10) < 2 && Math.abs((x + w / 2) - bcx) < 3;
+  });
+  check('a narrow activation bar renders on B’s lifeline center-x', bars.length === 1);
+  check('the activation bar spans a message range (tall, not a glyph)', parseFloat(bars[0].getAttribute('height')) >= 30);
+
+  // a plain sequence diagram has no activations (no regression / no stray bars)
+  const p3 = E(`parseMermaid('sequenceDiagram\\n  A->>B: hi')`);
+  check('plain sequence has no activations', (p3.activations || []).length === 0);
+}
+
 group('Sequence note import (#157): note over/left of/right of → note nodes');
 {
   const { E } = boot();
