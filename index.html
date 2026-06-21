@@ -1214,6 +1214,7 @@
     let sequenceFrames = [];     // loop/alt/opt frames for sequence diagrams
     let selectedId = null;       // id of the single selected node (or null)
     let selectedIds = [];        // ids in a multi-selection (marquee / shift-click)
+    let lastCanvasPointer = null;// last in-canvas pointer pos (canvas coords) for paste-at-cursor (#150)
     let selectedConnId = null;   // id of the selected connection (or null)
     let readOnly = false;        // #77: read-only/embed viewer — chrome hidden, mutations gated, pan/zoom kept
     let currentTool = 'select';  // 'select' | a SHAPE_TOOLS entry
@@ -5379,6 +5380,10 @@
       setTimeout(() => { const i = document.getElementById('toolbarLabel'); if (i) { i.focus(); i.select(); } }, 60);
     });
 
+    // Track the in-canvas pointer so paste/create can anchor there (#150).
+    canvas.addEventListener('pointermove', (e) => { lastCanvasPointer = screenToCanvas(e.clientX, e.clientY); });
+    canvas.addEventListener('pointerleave', () => { lastCanvasPointer = null; });
+
     canvas.addEventListener('pointerdown', (e) => {
       if (e.target.closest('.node') || e.target.classList.contains('connector')) return;
 
@@ -6150,11 +6155,22 @@
 
     // === Paste content onto the canvas (images & text; Mermaid later) =========
     function viewportCenter() { return { x: viewBox.x + viewBox.w / 2, y: viewBox.y + viewBox.h / 2 }; }
+    // Paste/create anchor (#150): the last in-canvas pointer position (canvas
+    // coords), when it's still inside the viewport; otherwise the viewport center
+    // (e.g. keyboard paste with the mouse off-canvas). lastCanvasPointer is tracked
+    // by the canvas pointermove/leave listeners.
+    function pasteAnchor() {
+      const p = lastCanvasPointer;
+      if (p && p.x >= viewBox.x && p.x <= viewBox.x + viewBox.w && p.y >= viewBox.y && p.y <= viewBox.y + viewBox.h) {
+        return { x: p.x, y: p.y };
+      }
+      return viewportCenter();
+    }
 
     // Create an image node (src = data URL) centered in the viewport. Pure —
     // no canvas/Image — so it's testable; the paste path downsizes before this.
     function createImageNode(src, w, h) {
-      const ctr = viewportCenter();
+      const ctr = pasteAnchor();
       const node = { id: generateId(), type: 'image', src, x: snap(ctr.x - w / 2), y: snap(ctr.y - h / 2), width: Math.max(40, w), height: Math.max(40, h), label: '' };
       nodes.push(node);
       saveState();
@@ -6165,7 +6181,7 @@
 
     // Paste text as a rect node (wraps + auto-sizes) centered in the viewport.
     function createTextNodeFromPaste(text) {
-      const ctr = viewportCenter();
+      const ctr = pasteAnchor();
       const node = createNode('rect', snap(ctr.x - 80), snap(ctr.y - 30), 160, 60);
       node.label = String(text).trim().slice(0, 600);
       fitNodeToLabel(node);
@@ -6199,7 +6215,7 @@
 
     // Create a link-preview card centered in the viewport, then enrich it async.
     function createLinkNode(url) {
-      const ctr = viewportCenter();
+      const ctr = pasteAnchor();
       const node = { id: generateId(), type: 'link', url, domain: urlDomain(url), title: '', desc: '', image: '', favicon: '', loading: true, x: snap(ctr.x - 150), y: snap(ctr.y - 50), width: 300, height: 96, label: '' };
       fitLinkNode(node);
       nodes.push(node);

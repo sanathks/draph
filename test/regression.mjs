@@ -3293,4 +3293,32 @@ group('Flowchart import mid-arrow labels (#146): A -- text --> B, no spurious no
   check('plain arrow unchanged', p4.connections.length === 1 && (p4.connections[0].label || '') === '' && p4.nodes.length === 2);
 }
 
+group('Paste/create at cursor (#150): anchor to last pointer, center fallback');
+{
+  const { win, E } = boot();
+  const cx = E(`viewBox.x + viewBox.w / 2`);
+  const ax = E(`viewBox.x + viewBox.w * 0.8`);   // pointer toward lower-right
+  const ay = E(`viewBox.y + viewBox.h * 0.8`);
+
+  // text paste anchors at the pointer, not center
+  E(`lastCanvasPointer = { x: ${ax}, y: ${ay} }`);
+  const t = win.createTextNodeFromPaste('hi there');
+  check('text paste is offset toward the pointer, not centered', Math.abs(t.x - cx) > 50);
+  check('text paste centers on the pointer x', Math.abs((t.x + t.width / 2) - ax) < 120);
+
+  // image paste anchors too
+  const img = win.createImageNode('data:image/png;base64,AAAA', 100, 80);
+  check('image paste is offset toward the pointer', Math.abs(img.x - cx) > 50);
+
+  // no pointer → viewport-center fallback
+  E(`lastCanvasPointer = null`);
+  const t2 = win.createTextNodeFromPaste('center me');
+  check('falls back to viewport center when no pointer', Math.abs((t2.x + 80) - cx) < 60);
+
+  // pointer outside the current viewport → center fallback
+  E(`lastCanvasPointer = { x: viewBox.x - 5000, y: viewBox.y - 5000 }`);
+  const t3 = win.createTextNodeFromPaste('off-screen');
+  check('off-viewport pointer falls back to center', Math.abs((t3.x + 80) - cx) < 60);
+}
+
 process.exit(report() ? 0 : 1);
