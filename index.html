@@ -7284,7 +7284,11 @@
           const toId = nodeIds[c.to];
           if (fromId && toId) {
             const label = c.label ? `|${c.label}|` : '';
-            code += `    ${fromId} -->${label} ${toId}\n`;
+            // Map the edge's stroke style to the Mermaid operator (#138): dashed/
+            // dotted → -.->, thick → ==>, else solid -->. Round-trips with the parser.
+            const ss = c.strokeStyle;
+            const op = (ss === 'dashed' || ss === 'dotted') ? '-.->' : (ss === 'thick' ? '==>' : '-->');
+            code += `    ${fromId} ${op}${label} ${toId}\n`;
           }
         });
       }
@@ -8537,10 +8541,13 @@
                 if (toNode) registerNode(toNode);
                 
                 if (fromNode && toNode) {
+                  // A dotted arrow (-.->) round-trips as a dashed edge (#138).
+                  const op = tokens[t].arrow || '';
                   result.connections.push({
                     from: fromNode.id,
                     to: toNode.id,
-                    label
+                    label,
+                    ...(op.includes('.') ? { strokeStyle: 'dashed' } : {})
                   });
                 }
               }

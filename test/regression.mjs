@@ -3116,6 +3116,38 @@ group('Select connected component (#133): grow selection across edges');
   check('lone node selectConnected is a no-op', E(`selectedNodeIds().length`) === 1 && E(`selectedNodeIds()[0]`) === d.id);
 }
 
+group('Mermaid export of edge style (#138): dashed → -.->, solid stays -->');
+{
+  const { win, E } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40); a.label = 'A';
+  const b = win.createNode('rect', 240, 0, 80, 40); b.label = 'B';
+  win.connect(a.id, b.id, { label: 'go' });
+
+  // solid default
+  let code = win.generateMermaid();
+  check('solid edge exports as -->', /-->/.test(code) && !/-\.->/.test(code));
+  check('label still emitted on solid', /\|go\|/.test(code));
+
+  // dashed
+  E(`connections[0].strokeStyle = 'dashed'`);
+  code = win.generateMermaid();
+  check('dashed edge exports as -.->', /-\.->/.test(code));
+  check('label still emitted on dashed', /-\.->\|go\|/.test(code));
+
+  // thick (forward-compat; draph has no thick UI but the operator is correct)
+  E(`connections[0].strokeStyle = 'thick'`);
+  check('thick edge exports as ==>', /==>/.test(win.generateMermaid()));
+
+  // round-trips: dashed re-imports as a dashed edge
+  E(`connections[0].strokeStyle = 'dashed'`);
+  const parsed = E(`parseMermaid(generateMermaid())`);
+  check('dashed round-trips to strokeStyle dashed', parsed.connections[0].strokeStyle === 'dashed');
+
+  // solid back to solid
+  E(`connections[0].strokeStyle = 'solid'`);
+  check('solid edge still --> after reset', /-->/.test(win.generateMermaid()) && !/-\.->/.test(win.generateMermaid()));
+}
+
 group('Mermaid export of #49 shapes (#137): emit real brackets, not [rect]');
 {
   const { win, E } = boot();
