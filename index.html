@@ -8989,11 +8989,17 @@
       for (let i = startIdx; i < lines.length; i++) {
         const line = lines[i];
         
-        // Subgraph start: subgraph id["label"] or subgraph "label" or subgraph label
-        const sgMatch = line.match(/^subgraph\s+(?:(\w+)\s*\[?"?([^"\]]*)"?\]?|"([^"]+)"|(\S+.*))\s*$/);
-        if (sgMatch) {
-          const id = sgMatch[1] || ('sg_' + subgraphs.length);
-          const label = sgMatch[2] || sgMatch[3] || sgMatch[4] || id;
+        // Subgraph start. Forms: `subgraph id[Title]` / `id["Title"]`,
+        // `subgraph "Title"`, or a bare (possibly multi-word) `subgraph Title`.
+        // A bare title is taken WHOLE — `subgraph Login Flow` must keep both
+        // words, not drop the first to an id (#173).
+        const sgStart = line.match(/^subgraph\s+(.+)$/i);
+        if (sgStart) {
+          const raw = sgStart[1].trim();
+          let id, label, m;
+          if ((m = raw.match(/^(\w+)\s*\[\s*"?(.+?)"?\s*\]$/))) { id = m[1]; label = m[2]; }   // id[Title]
+          else if ((m = raw.match(/^"(.+)"$/))) { id = 'sg_' + subgraphs.length; label = m[1]; }  // "Title"
+          else { id = 'sg_' + subgraphs.length; label = raw; }                                  // bare title (whole)
           const sg = { id, label: label.trim(), children: [] };
           subgraphs.push(sg);
           subgraphStack.push(sg);
