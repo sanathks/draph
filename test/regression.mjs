@@ -2619,4 +2619,33 @@ group('Group resize of a multi-selection (#101): scale + reposition, undoable');
   check('single-node geometry untouched by failed group ops', before === wA);
 }
 
+group('Self-loop edges (#104): from===to renders a non-degenerate arc');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 100, 100, 100, 60);
+  win.connect(a.id, a.id);
+  win.render();
+
+  const conn = E(`connections[0]`);
+  check('self-loop connection is kept (from===to)', conn && conn.from === conn.to);
+  const path = doc.querySelector('#connections path');
+  const dd = path && path.getAttribute('d');
+  check('self-loop renders a non-degenerate arc', !!dd && dd.length > 20 && !/NaN/.test(dd));
+
+  // route geometry: multiple points, extends beyond the node, arrow perpendicular on the right side
+  const r = E(`routeConnection(nodes[0], nodes[0], 'top', 'right')`);
+  check('self-loop route has a multi-point arc', r.points.length >= 4);
+  check('self-loop extends beyond the node bounds', r.points.some(p => p.x > 200) && r.points.some(p => p.y < 100));
+  check('self-loop arrow enters perpendicular on the right side', r.inDir.x === -1 && r.inDir.y === 0);
+
+  // distinct-node routing unchanged (no regression)
+  win.createNode('rect', 400, 100, 100, 60);
+  const r2 = E(`routeConnection(nodes[0], nodes[1], 'right', 'left')`);
+  check('distinct-node routing still produces a path', r2.points.length >= 2 && !r2.points.some(p => isNaN(p.x) || isNaN(p.y)));
+
+  // importing a self-transition keeps the self-edge
+  const p = E(`parseMermaid('stateDiagram-v2\\n  S --> S : retry')`);
+  check('importer keeps a self-transition', p.connections.some(c => c.from === c.to));
+}
+
 process.exit(report() ? 0 : 1);

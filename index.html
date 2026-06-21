@@ -1965,6 +1965,15 @@
       return node;
     }
 
+    // Create a connection between two node ids. Self-edges (from === to) are kept
+    // and render as a self-loop arc (#104). Returns the connection record.
+    function connect(fromId, toId, opts = {}) {
+      const conn = { id: 'c' + generateId(), from: fromId, to: toId, ...opts };
+      connections.push(conn);
+      announceConnect(fromId, toId);
+      return conn;
+    }
+
     // Manually place a diagram-specific shape (Class / Sequence / State / ER) that
     // otherwise only comes from Mermaid import. Reuses the existing renderNodes
     // branches (isClass / hasLifeline / isPseudo). Returns the created node so the
@@ -2086,6 +2095,7 @@
     // (not center direction) avoids picking left/right for nodes that are really
     // stacked vertically — which forced the router to fold back into a hook.
     function getOptimalSides(from, to) {
+      if (from === to) return { fromSide: 'top', toSide: 'right' };   // #104: self-loop
       const gapRight = to.x - (from.x + from.width);   // 'to' sits to the right
       const gapLeft  = from.x - (to.x + to.width);     // 'to' sits to the left
       const gapBelow = to.y - (from.y + from.height);  // 'to' sits below
@@ -2205,7 +2215,26 @@
 
     // Build the full route between two connectors. Returns the polyline (ending
     // exactly on the target connector) plus the inward arrow direction there.
+    // Self-loop arc (#104): a `from === to` edge has no two-rect geometry, so route
+    // a loop that exits the top and re-enters the right side (arrowhead perpendicular
+    // on the right). Orthogonal points; the renderer rounds them into a clean loop.
+    function selfLoopRoute(node) {
+      const loop = 28;
+      const x = node.x, y = node.y, w = node.width, h = node.height;
+      const p1 = { x: x + w * 0.7, y };              // exit the top edge
+      const p2 = { x: x + w, y: y + h * 0.35 };      // re-enter the right edge
+      const points = [
+        p1,
+        { x: p1.x, y: y - loop },
+        { x: x + w + loop, y: y - loop },
+        { x: x + w + loop, y: p2.y },
+        p2,
+      ];
+      return { points, fromSide: 'top', toSide: 'right', endX: p2.x, endY: p2.y, inDir: { x: -1, y: 0 } };
+    }
+
     function routeConnection(from, to, fromSide, toSide, fromFrac = 0.5, toFrac = 0.5, waypoints = null) {
+      if (from === to) return selfLoopRoute(from);   // #104: self-transition
       const p1 = sidePoint(from, fromSide, fromFrac);
       const p2 = sidePoint(to, toSide, toFrac);
       const n1 = SIDE_NORMAL[fromSide] || { x:0, y:0 };
@@ -2684,7 +2713,7 @@
         // Smart routing — respects manually-locked sides, auto-distributes the rest.
         // A waypoint'd edge renders orthogonally (rounded) so its bends are honored
         // — 'curved' threads one bezier end-to-end and would smooth the bend away.
-        const lineStyle = (conn.waypoints && conn.waypoints.length) ? 'rounded' : (conn.lineStyle || 'curved');
+        const lineStyle = (from === to || (conn.waypoints && conn.waypoints.length)) ? 'rounded' : (conn.lineStyle || 'curved');
         const cg = connGeom.sideOf.get(conn.id) || getOptimalSides(from, to);
         const { points, endX, endY, inDir } = routeConnection(from, to, cg.fromSide, cg.toSide, 0.5, 0.5, conn.waypoints);
         const [x1, y1] = [points[0].x, points[0].y];
