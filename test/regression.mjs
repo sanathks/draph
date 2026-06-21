@@ -3046,4 +3046,35 @@ group('Reverse connection direction (#129): swap from/to + sides/markers, undoab
   check('double reverse is identity', E(`connections[0].from`) === a.id && E(`connections[0].to`) === b.id);
 }
 
+group('Select connected component (#133): grow selection across edges');
+{
+  const { win, E } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40);
+  const b = win.createNode('rect', 200, 0, 80, 40);
+  const c = win.createNode('rect', 400, 0, 80, 40);
+  const d = win.createNode('rect', 900, 900, 80, 40); // unrelated
+  win.connect(a.id, b.id);
+  win.connect(b.id, c.id);
+
+  // from a single seed → whole A-B-C component, excluding D
+  win.selectNode(a.id);
+  win.selectConnected();
+  let sel = E(`selectedIds`);
+  check('includes direct neighbor', sel.includes(b.id));
+  check('includes transitive node', sel.includes(c.id));
+  check('excludes unconnected node', !sel.includes(d.id));
+  check('seed itself is selected', sel.includes(a.id));
+
+  // walking is undirected (seed from the tail reaches the head)
+  E(`selectedIds = []`); win.selectNode(c.id);
+  win.selectConnected();
+  sel = E(`selectedIds`);
+  check('undirected walk reaches the head', sel.includes(a.id) && sel.includes(b.id));
+
+  // a lone node with no edges stays a single selection (no crash, no spurious growth)
+  E(`selectedIds = []`); win.selectNode(d.id);
+  win.selectConnected();
+  check('lone node selectConnected is a no-op', E(`selectedNodeIds().length`) === 1 && E(`selectedNodeIds()[0]`) === d.id);
+}
+
 process.exit(report() ? 0 : 1);
