@@ -3116,4 +3116,36 @@ group('Select connected component (#133): grow selection across edges');
   check('lone node selectConnected is a no-op', E(`selectedNodeIds().length`) === 1 && E(`selectedNodeIds()[0]`) === d.id);
 }
 
+group('Mermaid export of #49 shapes (#137): emit real brackets, not [rect]');
+{
+  const { win, E } = boot();
+  const mk = (type, label) => { const n = win.createNode(type, 0, 0, 140, 70); n.label = label; return n; };
+  mk('cylinder', 'Users');
+  mk('hexagon', 'Gate');
+  mk('parallelogram', 'Input');
+  mk('trapezoid', 'Funnel');
+  mk('subroutine', 'Sub');
+  mk('rect', 'Plain');
+  mk('diamond', 'Decide');
+  win.render();
+  const code = win.generateMermaid();
+
+  check('cylinder → [(...)] not [rect]', /\[\(Users\)\]/.test(code) && !/[A-Za-z0-9]\[Users\]/.test(code));
+  check('hexagon → {{...}}', /\{\{Gate\}\}/.test(code));
+  check('parallelogram → [/.../]', /\[\/Input\/\]/.test(code));
+  check('trapezoid → [\\...\\]', /\[\\Funnel\\\]/.test(code));
+  check('subroutine → [[...]]', /\[\[Sub\]\]/.test(code));
+
+  // existing shapes unchanged
+  check('rect still [label]', /[A-Za-z0-9]\[Plain\]/.test(code));
+  check('diamond still {label}', /\{Decide\}/.test(code));
+
+  // round-trips with the #123 import side: re-parsing recovers the shape types
+  const parsed = E(`parseMermaid(generateMermaid())`);
+  const byLabel = {};
+  parsed.nodes.forEach(n => { byLabel[n.label] = n.type; });
+  check('cylinder round-trips', byLabel['Users'] === 'cylinder');
+  check('hexagon round-trips', byLabel['Gate'] === 'hexagon');
+}
+
 process.exit(report() ? 0 : 1);
