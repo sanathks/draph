@@ -3519,6 +3519,22 @@ group('Sequence note import (#157): note over/left of/right of → note nodes');
   check('consecutive notes do not vertically overlap', (ns[1].y - ns[0].y) >= ns[0].height);
 }
 
+group('Shape library panel icons (#164): every entry shows a shape-preview SVG');
+{
+  const { win, doc } = boot();
+  if (win.toggleShapePanel) win.toggleShapePanel(true);
+  const items = [...doc.querySelectorAll('#shapePanel .shape-item')];
+  check('shape panel has items', items.length >= 6);
+  check('every shape item renders an icon', items.every(b => !!b.querySelector('svg')));
+  check('every shape item keeps its label', items.every(b => (b.textContent || '').trim().length > 0));
+  // icons are theme-colored (currentColor), not hardcoded hex
+  check('icons use currentColor (theme)', items.every(b => /stroke="currentColor"/.test(b.querySelector('svg').outerHTML)));
+  // placeShape still wired (onclick intact) and a known kind has its matching glyph
+  const cyl = items.find(b => /placeShape\('cylinder'\)/.test(b.getAttribute('onclick') || ''));
+  check('cylinder entry present with onclick intact', !!cyl);
+  check('cylinder shows a path glyph (not just text)', !!cyl && !!cyl.querySelector('svg path'));
+}
+
 group('UML class member editing (#163): add/edit/remove + reflow + persist');
 {
   const { win, E } = boot();
