@@ -8323,6 +8323,7 @@
       const participantMap = {};
       const participantOrder = [];
       let messageIndex = 0;
+      const noteSubAt = {};  // messageIndex → count of notes already placed at that step (#157)
       const frameStack = []; // Track nested frames
       
       for (let i = 0; i < lines.length; i++) {
@@ -8424,9 +8425,13 @@
           overs.forEach(id => {
             if (!participantMap[id]) { participantMap[id] = { id, type: 'participant', label: id }; participantOrder.push(id); }
           });
+          // Each note at the same step gets its own vertical slot (noteSub) so
+          // consecutive notes stack instead of piling at one y (#157 review fix).
+          const noteSub = noteSubAt[messageIndex] || 0;
+          noteSubAt[messageIndex] = noteSub + 1;
           result.nodes.push({
             id: 'note_' + i, type: 'note', label: m[3].trim(),
-            noteOver: overs, notePlacement: placement, noteIndex: messageIndex,
+            noteOver: overs, notePlacement: placement, noteIndex: messageIndex, noteSub,
           });
           continue;
         }
@@ -8799,7 +8804,8 @@
             const xs = (n.noteOver || []).map(id => px[id]).filter(x => x != null);
             const base = xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : startX;
             const x = n.notePlacement === 'left' ? base - 140 : n.notePlacement === 'right' ? base + 140 : base;
-            return { ...n, x, y: startY + 90 + (n.noteIndex || 0) * 50 };
+            // Stack notes at the same step (noteSub) so they don't overlap (#157).
+            return { ...n, x, y: startY + 90 + (n.noteIndex || 0) * 50 + (n.noteSub || 0) * 46 };
           }
           return { ...n, x: px[n.id], y: startY };
         });

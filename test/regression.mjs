@@ -3440,6 +3440,14 @@ group('Sequence note import (#157): note over/left of/right of → note nodes');
   check('importMermaid creates a live note node', E2(`nodes.some(n => n.type === 'note' && n.label === 'validate token')`));
   check('imported note is positioned in the message area (below participants)', E2(`nodes.find(n => n.type === 'note' && n.label === 'validate token').y`) > 100);
   check('imported note renders a node element', [...doc.querySelectorAll('#nodes .node')].some(g => (g.textContent || '').replace(/\s+/g, '').includes('validatetoken')));
+
+  // review fix: two consecutive notes at the SAME step get distinct, non-overlapping y
+  const { win: w2, E: E4 } = boot();
+  w2.importMermaid(false, { code: 'sequenceDiagram\n  participant A\n  participant B\n  A->>B: hi\n  note over A: first\n  note over A,B: second' });
+  const ns = E4(`nodes.filter(n => n.type === 'note').sort((a,b)=>a.y-b.y)`);
+  check('two consecutive notes imported', ns.length === 2);
+  check('consecutive same-step notes have distinct y', ns[0].y !== ns[1].y);
+  check('consecutive notes do not vertically overlap', (ns[1].y - ns[0].y) >= ns[0].height);
 }
 
 process.exit(report() ? 0 : 1);
