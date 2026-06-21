@@ -2787,4 +2787,32 @@ group('Auto-arrange direction (#113): TB / LR');
   check('default arrange (no imported dir) is TB', a.y < b.y && b.y < c.y);
 }
 
+group('Per-connection line style override (#119): setConnectionLineStyle is per-edge');
+{
+  const { win, E } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40);
+  const b = win.createNode('rect', 240, 0, 80, 40);
+  const c = win.createNode('rect', 0, 200, 80, 40);
+  win.connect(a.id, b.id);
+  win.connect(a.id, c.id);
+  const cid = E(`connections[0].id`);
+  const otherId = E(`connections[1].id`);
+  const globalBefore = E(`globalLineStyle`);
+  win.saveState(); // baseline WITH both connections so undo lands here
+
+  win.setConnectionLineStyle(cid, 'straight');
+  check('per-connection style overridden', E(`connections[0].lineStyle`) === 'straight');
+  check('global default unchanged', E(`globalLineStyle`) === globalBefore && globalBefore !== 'straight');
+  check('other connection unaffected', E(`connections.find(c => c.id === '${otherId}').lineStyle`) !== 'straight');
+
+  // override is undoable as a single unit, and persists through serialize round-trip
+  win.undo();
+  check('one undo reverts the override', E(`connections[0].lineStyle`) !== 'straight');
+
+  win.setConnectionLineStyle(cid, 'rounded');
+  const json = E(`JSON.stringify({ n: serializeNodes(), c: connections })`);
+  win.loadDiagramJson(json);
+  check('override persists across serialize round-trip', E(`connections.find(c => c.id === '${cid}').lineStyle`) === 'rounded');
+}
+
 process.exit(report() ? 0 : 1);
