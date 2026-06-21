@@ -7235,6 +7235,12 @@
           case 'circle': shape = `((${label}))`; break;
           case 'container': shape = `[["${label}"]]`; break;
           case 'text': shape = `>${label}]`; break;
+          // #49 shape types — mirror of the #123 import mapping (round-trips).
+          case 'cylinder': shape = `[(${label})]`; break;
+          case 'hexagon': shape = `{{${label}}}`; break;
+          case 'parallelogram': shape = `[/${label}/]`; break;
+          case 'trapezoid': shape = `[\\${label}\\]`; break;
+          case 'subroutine': shape = `[[${label}]]`; break;
           default: shape = `[${label}]`;
         }
         code += `    ${id}${shape}\n`;
