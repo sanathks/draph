@@ -2987,6 +2987,42 @@ group('Shift-to-lock aspect ratio on resize (#125): proportional vs free');
   check('free resize is not aspect-locked', Math.abs((m.width / m.height) - mr0) > 0.3);
 }
 
+group('Connection arrowhead style (#130): none / end / start / both');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40);
+  const b = win.createNode('rect', 240, 0, 80, 40);
+  win.connect(a.id, b.id);
+  const cid = E(`connections[0].id`);
+  win.saveState(); // baseline (no arrowStyle) so undo lands here
+
+  // arrow markers are <path> elements that aren't the line (.connection) or hit area (.conn-hit)
+  const markers = () => doc.querySelectorAll(`#connections [data-id="${cid}"] path:not(.connection):not(.conn-hit)`).length;
+
+  win.render();
+  check('default edge has a single end arrow', markers() === 1);
+
+  win.setConnectionArrows(cid, 'both');
+  check('arrowStyle stored', E(`connections[0].arrowStyle`) === 'both');
+  check('both → two arrow markers', markers() === 2);
+
+  win.setConnectionArrows(cid, 'none');
+  check('none → no arrow markers', markers() === 0);
+
+  win.setConnectionArrows(cid, 'start');
+  check('start → one arrow marker', markers() === 1);
+
+  // undoable as one unit
+  win.undo();
+  check('undo restores the previous arrow style', E(`connections[0].arrowStyle`) === 'none');
+
+  // UML/sequence markers are not disturbed (no regression)
+  win.connect(a.id, b.id, { markerEnd: 'arrow', markerStart: 'triangle' });
+  const umlId = E(`connections[1].id`);
+  win.render();
+  check('UML edge still renders its markers', E(`connections[1].markerStart`) === 'triangle' && E(`connections[1].markerEnd`) === 'arrow');
+}
+
 group('Reverse connection direction (#129): swap from/to + sides/markers, undoable');
 {
   const { win, E } = boot();
@@ -3047,6 +3083,37 @@ group('Per-node opacity (#134): group opacity attr, multi-select, persistence');
   check('opacity persists across serialize', E(`nodes.find(x => x.id === '${n.id}').opacity`) === 0.75);
   win.selectNode(n.id); win.setNodeOpacity(1);
   check('setting 100% removes the opacity field', E(`nodes.find(x => x.id === '${n.id}').opacity`) === undefined);
+}
+
+group('Select connected component (#133): grow selection across edges');
+{
+  const { win, E } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40);
+  const b = win.createNode('rect', 200, 0, 80, 40);
+  const c = win.createNode('rect', 400, 0, 80, 40);
+  const d = win.createNode('rect', 900, 900, 80, 40); // unrelated
+  win.connect(a.id, b.id);
+  win.connect(b.id, c.id);
+
+  // from a single seed → whole A-B-C component, excluding D
+  win.selectNode(a.id);
+  win.selectConnected();
+  let sel = E(`selectedIds`);
+  check('includes direct neighbor', sel.includes(b.id));
+  check('includes transitive node', sel.includes(c.id));
+  check('excludes unconnected node', !sel.includes(d.id));
+  check('seed itself is selected', sel.includes(a.id));
+
+  // walking is undirected (seed from the tail reaches the head)
+  E(`selectedIds = []`); win.selectNode(c.id);
+  win.selectConnected();
+  sel = E(`selectedIds`);
+  check('undirected walk reaches the head', sel.includes(a.id) && sel.includes(b.id));
+
+  // a lone node with no edges stays a single selection (no crash, no spurious growth)
+  E(`selectedIds = []`); win.selectNode(d.id);
+  win.selectConnected();
+  check('lone node selectConnected is a no-op', E(`selectedNodeIds().length`) === 1 && E(`selectedNodeIds()[0]`) === d.id);
 }
 
 process.exit(report() ? 0 : 1);
