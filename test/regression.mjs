@@ -2774,6 +2774,43 @@ group('Adjustable snap grid size (#115): setGridSize drives snap + dot-grid + pe
   check('out-of-set grid size is ignored', E(`gridSize`) === 20);
 }
 
+group('One-step z-order (#114): bringForward / sendBackward swap with nearest neighbour');
+{
+  const { win, E } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40);
+  const b = win.createNode('rect', 10, 10, 80, 40);
+  const c = win.createNode('rect', 20, 20, 80, 40);
+  a.z = 1; b.z = 2; c.z = 3;
+
+  // bringForward raises one step (swaps with the neighbour just above), not to the top
+  win.bringForward([a.id]);
+  check('bringForward raises one step above neighbour', a.z > b.z);
+  check('bringForward did not jump to front', a.z <= c.z);
+
+  // no-op at the top: the topmost node can't go higher
+  const topZ = c.z;
+  win.bringForward([c.id]);
+  check('bringForward is a no-op at the top', c.z === topZ);
+
+  // sendBackward is symmetric: lowers one step, no-op at the bottom
+  a.z = 1; b.z = 2; c.z = 3;
+  win.sendBackward([c.id]);
+  check('sendBackward lowers one step below neighbour', c.z < b.z);
+  check('sendBackward did not jump to back', c.z >= a.z);
+  const botZ = a.z;
+  win.sendBackward([a.id]);
+  check('sendBackward is a no-op at the bottom', a.z === botZ);
+
+  // one undo unit: a single bringForward is reverted by one undo
+  a.z = 1; b.z = 2; c.z = 3;
+  win.saveState();
+  win.bringForward([a.id]);
+  win.undo();
+  const aAfter = E(`nodes.find(n => n.id === '${a.id}').z`);
+  const bAfter = E(`nodes.find(n => n.id === '${b.id}').z`);
+  check('one undo reverts the z-swap', aAfter === 1 && bAfter === 2);
+}
+
 group('Auto-arrange direction (#113): TB / LR');
 {
   const { win, E } = boot();

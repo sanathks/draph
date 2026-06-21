@@ -3788,6 +3788,32 @@
       ids.forEach((id, i) => { const n = nodes.find(x => x.id === id); if (n) n.z = minZ - 1 - i; });
       saveState(); render();
     }
+    // One-step z-order (#114): swap each selected node's z with the nearest
+    // NON-selected neighbour just above (bringForward) / below (sendBackward).
+    // No-op at the top/bottom. One undo unit.
+    function bringForward(ids = selectedNodeIds()) {
+      if (!ids.length) return;
+      const sel = new Set(ids);
+      let moved = false;
+      // Highest-z selected first, so a lower selected node can't leapfrog a higher one.
+      nodes.filter(n => sel.has(n.id)).sort((a, b) => (b.z || 0) - (a.z || 0)).forEach(n => {
+        const nz = n.z || 0;
+        const above = nodes.filter(m => !sel.has(m.id) && (m.z || 0) > nz).sort((a, b) => (a.z || 0) - (b.z || 0))[0];
+        if (above) { n.z = above.z || 0; above.z = nz; moved = true; }
+      });
+      if (moved) { saveState(); render(); }
+    }
+    function sendBackward(ids = selectedNodeIds()) {
+      if (!ids.length) return;
+      const sel = new Set(ids);
+      let moved = false;
+      nodes.filter(n => sel.has(n.id)).sort((a, b) => (a.z || 0) - (b.z || 0)).forEach(n => {
+        const nz = n.z || 0;
+        const below = nodes.filter(m => !sel.has(m.id) && (m.z || 0) < nz).sort((a, b) => (b.z || 0) - (a.z || 0))[0];
+        if (below) { n.z = below.z || 0; below.z = nz; moved = true; }
+      });
+      if (moved) { saveState(); render(); }
+    }
 
     // duplicate selected node(s), offset slightly, and select the copies.
     // Copies of a group get a fresh shared groupId (so they don't merge with the
@@ -3864,6 +3890,8 @@
       duplicate: () => duplicateSelected(),
       front: () => bringToFront(),
       back: () => sendToBack(),
+      forward: () => bringForward(),
+      backward: () => sendBackward(),
       delete: () => deleteSelected(),
       addshape: () => addShapeAtCenter(),
       selectall: () => selectAllNodes(),
@@ -3912,7 +3940,9 @@
         if (n && n.groupId) items.push({ act: 'ungroup', label: 'Ungroup', kbd: '⌘⇧G' });
         items.push(
           { sep: true },
+          { act: 'forward', label: 'Bring forward', kbd: ']' },
           { act: 'front', label: 'Bring to front' },
+          { act: 'backward', label: 'Send backward', kbd: '[' },
           { act: 'back', label: 'Send to back' },
           { sep: true },
           { act: 'delete', label: 'Delete', danger: true, kbd: '⌫' },
@@ -5692,6 +5722,8 @@
       m: () => toggleMermaidSidebar(),
       s: () => toggleShapePanel(),
       g: () => toggleGallery(),
+      ']': () => bringForward(),
+      '[': () => sendBackward(),
     };
 
     // === Find / search nodes by label (#83) ===
