@@ -2905,4 +2905,25 @@ group('Per-connection line style override (#119): setConnectionLineStyle is per-
   check('override persists across serialize round-trip', E(`connections.find(c => c.id === '${cid}').lineStyle`) === 'rounded');
 }
 
+group('Flowchart import shape mapping (#123): brackets → real shape types');
+{
+  const { E } = boot();
+  const code = 'flowchart TD\n  A[(Users DB)] --> B{{Gateway}}\n  C[/Input/] --> D[\\Output\\]\n  E((Round)) --> F{Decide}\n  G[Plain] --> H(Pill)';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  const by = {};
+  p.nodes.forEach(n => { by[n.label] = n; });
+
+  // the fixed mappings (#123)
+  check('database [(...)] -> cylinder', by['Users DB'] && by['Users DB'].type === 'cylinder');
+  check('hexagon {{...}} -> hexagon', by['Gateway'] && by['Gateway'].type === 'hexagon');
+  check('parallelogram [/.../] -> parallelogram', by['Input'] && by['Input'].type === 'parallelogram');
+  check('trapezoid [\\...\\] -> trapezoid', by['Output'] && by['Output'].type === 'trapezoid');
+
+  // unchanged mappings (no regression)
+  check('double-paren ((...)) still circle', by['Round'] && by['Round'].type === 'circle');
+  check('brace {...} still diamond', by['Decide'] && by['Decide'].type === 'diamond');
+  check('bracket [...] still rect', by['Plain'] && by['Plain'].type === 'rect');
+  check('paren (...) still pill', by['Pill'] && by['Pill'].type === 'pill');
+}
+
 process.exit(report() ? 0 : 1);
