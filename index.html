@@ -49,6 +49,12 @@
     /* SVG presentation attributes can't read var(), so theme these by CSS
        (CSS wins over the element's fill/stroke attribute). */
     #grid circle { fill: var(--border); }
+    /* Adjustable snap-grid size picker (#115) */
+    .grid-size-row { display: flex; align-items: center; }
+    .grid-size-opt { min-width: 26px; padding: 2px 6px; border-radius: 5px; border: 1px solid var(--border);
+      background: transparent; color: var(--fg); font-size: 11px; cursor: pointer; }
+    .grid-size-opt:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+    .grid-size-opt.active { background: var(--accent); border-color: var(--accent); color: #1a1b26; }
     #stripe line, #grid-fill circle { stroke: var(--fg); fill: var(--fg); }
     #selectBox, #drawPreview { fill: color-mix(in srgb, var(--accent) 10%, transparent); stroke: var(--accent); }
     #tempPath { stroke: var(--accent); }
@@ -551,6 +557,13 @@
             <div class="dropdown-item active" id="gridTool" onclick="toggleGrid();closeDropdowns()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
               Snap to grid <kbd>8</kbd>
+            </div>
+            <div class="dropdown-item grid-size-row" onclick="event.stopPropagation()" style="cursor:default;gap:6px">
+              <span style="opacity:.7;font-size:11px;margin-right:auto">Grid size</span>
+              <button class="grid-size-opt" data-size="8" onclick="setGridSize(8)">8</button>
+              <button class="grid-size-opt" data-size="12" onclick="setGridSize(12)">12</button>
+              <button class="grid-size-opt active" data-size="20" onclick="setGridSize(20)">20</button>
+              <button class="grid-size-opt" data-size="40" onclick="setGridSize(40)">40</button>
             </div>
             <div class="dropdown-item" id="flowTool" onclick="toggleFlow();closeDropdowns()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
@@ -1152,7 +1165,7 @@
     let idCounter = 0;           // monotonic id source (see generateId)
     let historyStack = [];       // JSON snapshots for undo/redo
     let historyIndex = -1;       // pointer into historyStack
-    let snapToGrid = true;       // snap positions to GRID_SIZE
+    let snapToGrid = true;       // snap positions to gridSize
     let clipboard = null;        // copy/paste buffer (internal nodes)
     let suppressNextPaste = false; // set when Cmd+V handled an internal node paste
     let globalLineStyle = 'curved'; // default lineStyle for new connections
@@ -1280,8 +1293,26 @@
       document.documentElement.style.removeProperty('--accent');
       if (typeof render === 'function' && nodes) render();
     }
-    const GRID_SIZE = 20;
-    const SHAPE_TOOLS = ['rect', 'pill', 'diamond', 'circle', 'container', 'text', 'note', 'line'];
+    // Snap grid: adjustable step (#115). gridSize is mutable; setGridSize keeps
+    // snap(), the dot-grid background and the picker UI in sync, and persists it.
+    const GRID_SIZES = [8, 12, 20, 40];
+    let gridSize = 20;
+    function setGridSize(n, persist = true) {
+      n = Number(n);
+      if (!GRID_SIZES.includes(n)) return;
+      gridSize = n;
+      if (persist) saveSetting('gridSize', String(n));
+      // dot-grid background spacing tracks the snap step
+      const pat = typeof document !== 'undefined' && document.getElementById('grid');
+      if (pat) {
+        pat.setAttribute('width', n); pat.setAttribute('height', n);
+        const c = pat.querySelector('circle');
+        if (c) { c.setAttribute('cx', n / 2); c.setAttribute('cy', n / 2); }
+        document.querySelectorAll('.grid-size-opt').forEach(b => b.classList.toggle('active', Number(b.dataset.size) === n));
+      }
+      if (typeof render === 'function' && typeof nodes !== 'undefined' && nodes) render();
+    }
+    const SHAPE_TOOLS =['rect', 'pill', 'diamond', 'circle', 'container', 'text', 'note', 'line'];
     const CONFIG = {
       palette: ['#7aa2f7', '#9ece6a', '#f7768e', '#e0af68', '#bb9af7', '#7dcfff', '#ff9e64'],
       arrow: { length: 11, width: 5.5 },  // arrowhead size (px)
@@ -1571,6 +1602,7 @@
       // Load any custom accent first so applyTheme re-applies it (#78).
       accentOverride = loadSetting('accent') || null;
       applyTheme(loadSetting('theme', 'dark'), false);
+      setGridSize(Number(loadSetting('gridSize', 20)), false); // restore saved snap step (#115)
       buildPalettes();
       buildIconPicker();
       applyA11yLabels();
@@ -1588,7 +1620,7 @@
     }
     
     function generateId() { return 'n' + (++idCounter); }
-    function snap(val) { return snapToGrid ? Math.round(val / GRID_SIZE) * GRID_SIZE : val; }
+    function snap(val) { return snapToGrid ? Math.round(val / gridSize) * gridSize : val; }
     
     function saveState() {
       historyStack = historyStack.slice(0, historyIndex + 1);
@@ -5711,7 +5743,7 @@
         if (!ids.length) return;
         e.preventDefault();
         saveState();
-        const step = e.shiftKey ? 1 : GRID_SIZE;
+        const step = e.shiftKey ? 1 : gridSize;
         const [dx, dy] = NUDGE[e.key];
         ids.forEach(id => { const n = nodes.find(x => x.id === id); if (n) { n.x += dx * step; n.y += dy * step; } });
         render();

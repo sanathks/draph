@@ -2442,13 +2442,13 @@ group('Keyboard nudge (#94): arrow moves selection, Shift = fine, undoable');
   const n = win.createNode('rect', 100, 100, 80, 40); win.selectNode(n.id);
   const x0 = n.x;
   key(doc, 'ArrowRight');
-  check('arrow nudges selection right by a grid step', n.x - x0 === E('GRID_SIZE'));
+  check('arrow nudges selection right by a grid step', n.x - x0 === E('gridSize'));
   const x1 = n.x;
   key(doc, 'ArrowRight', { shiftKey: true });
   check('shift+arrow is a 1px fine step', n.x - x1 === 1);
   const y0 = n.y;
   key(doc, 'ArrowDown');
-  check('arrow down moves on Y', n.y - y0 === E('GRID_SIZE'));
+  check('arrow down moves on Y', n.y - y0 === E('gridSize'));
 
   // undoable — undo reverts the most recent nudge (undo swaps in fresh node
   // objects from the snapshot, so re-read by id rather than the stale ref)
@@ -2461,7 +2461,7 @@ group('Keyboard nudge (#94): arrow moves selection, Shift = fine, undoable');
   E(`selectedId = null; selectedIds = ['${a.id}','${b.id}']`);
   const ax = a.x, bx = b.x;
   key(doc, 'ArrowLeft');
-  check('multi-selection nudges together', a.x - ax === -E('GRID_SIZE') && b.x - bx === -E('GRID_SIZE'));
+  check('multi-selection nudges together', a.x - ax === -E('gridSize') && b.x - bx === -E('gridSize'));
 
   // no nudge while typing in an input
   const before = a.x;
@@ -2724,6 +2724,24 @@ group('Self-loop edges (#104): from===to renders a non-degenerate arc');
   // importing a self-transition keeps the self-edge
   const p = E(`parseMermaid('stateDiagram-v2\\n  S --> S : retry')`);
   check('importer keeps a self-transition', p.connections.some(c => c.from === c.to));
+}
+
+group('Adjustable snap grid size (#115): setGridSize drives snap + dot-grid + persistence');
+{
+  const { win, doc, E } = boot();
+
+  win.setGridSize(40);
+  check('snap rounds to the new grid (50 -> 40)', E(`snap(50)`) === 40);
+  check('dot-grid pattern spacing tracks grid size', doc.getElementById('grid').getAttribute('width') === '40');
+  check('grid size persists via settings', E(`loadSetting('gridSize')`) === '40');
+
+  win.setGridSize(20);
+  check('default grid restored (50 -> 60)', E(`snap(50)`) === 60);
+  check('dot-grid pattern back to 20', doc.getElementById('grid').getAttribute('width') === '20');
+
+  // invalid / out-of-set sizes are ignored (no per-axis or arbitrary snapping)
+  win.setGridSize(7);
+  check('out-of-set grid size is ignored', E(`gridSize`) === 20);
 }
 
 process.exit(report() ? 0 : 1);
