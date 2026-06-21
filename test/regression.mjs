@@ -3637,6 +3637,22 @@ group('Mermaid export honors source type (#165): state generator + no mislabel')
   check('sequence still exports as sequenceDiagram', /^sequenceDiagram/.test(w5.generateMermaid()));
 }
 
+group('Flowchart subgraph title import (#173): multi-word bare titles kept whole');
+{
+  const { E } = boot();
+  const p = E(`parseMermaid('flowchart TD\\n  subgraph Login Flow\\n    X --> Y\\n  end')`);
+  check('multi-word bare subgraph keeps the full title', (p.subgraphs || []).some(s => s.label === 'Login Flow'));
+  check('subgraph members still nest', (p.subgraphs || []).some(s => (s.children || []).length === 2));
+
+  // unchanged: bracketed and quoted forms
+  const p2 = E(`parseMermaid('flowchart TD\\n  subgraph S1[My Group]\\n    A --> B\\n  end')`);
+  check('bracketed subgraph title still works', (p2.subgraphs || []).some(s => s.label === 'My Group'));
+  const p3 = E(`parseMermaid('flowchart TD\\n  subgraph "Quoted Title"\\n    A --> B\\n  end')`);
+  check('quoted subgraph title still works', (p3.subgraphs || []).some(s => s.label === 'Quoted Title'));
+  const p4 = E(`parseMermaid('flowchart TD\\n  subgraph Solo\\n    A --> B\\n  end')`);
+  check('single-word bare title still works', (p4.subgraphs || []).some(s => s.label === 'Solo'));
+}
+
 group('Flowchart stadium shape import (#172): ([text]) → pill, no literal brackets');
 {
   const { E } = boot();
@@ -3703,6 +3719,33 @@ group('Gantt milestone label + task status (#178): legible milestone, distinct s
 
   // base gantt bar geometry unchanged (a normal task is a sized rect, not 40px)
   check('normal task is a sized bar', norm.type === 'rect' && norm.width >= 40);
+}
+
+group('Class relationship multiplicities (#174): render + export + round-trip');
+{
+  const { win, doc, E } = boot();
+  const p = E(`parseMermaid('classDiagram\\n  Customer "1" --> "0..*" Order')`);
+  const c = p.connections[0];
+  check('multiplicities parsed', c.fromMult === '1' && c.toMult === '0..*');
+
+  win.importMermaid(true, { code: 'classDiagram\n  Customer "1" --> "0..*" Order' });
+  win.render();
+  check('multiplicities carried onto the live connection', E(`connections[0].fromMult`) === '1' && E(`connections[0].toMult`) === '0..*');
+  const cx = doc.getElementById('connections').textContent;
+  check('multiplicity labels rendered', /0\.\.\*/.test(cx) && cx.includes('1'));
+
+  const out = win.generateMermaid();
+  check('export emits both multiplicities', /"1"\s+-->\s+"0\.\.\*"/.test(out));
+
+  // round-trips
+  const re = E(`parseMermaid(generateMermaid())`);
+  check('multiplicities survive export→import', re.connections[0].fromMult === '1' && re.connections[0].toMult === '0..*');
+
+  // an edge without multiplicities is unchanged (no stray quotes, no labels)
+  const { win: w3, doc: d3 } = boot();
+  w3.importMermaid(true, { code: 'classDiagram\n  A --> B' });
+  w3.render();
+  check('plain class edge has no multiplicity quotes on export', !/"/.test(w3.generateMermaid().split('\n').find(l => /A --> B/.test(l)) || ''));
 }
 
 process.exit(report() ? 0 : 1);
