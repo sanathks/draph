@@ -2111,6 +2111,25 @@
     // user's size). Called whenever a label changes or a shape type changes, so
     // long labels like "Authenticated?" stop spilling out of the node. Diamonds
     // and circles only use ~60% of their box for text, so they grow more.
+    // Width-aware glyph measurement (#105). Latin/default ≈0.62em (matches the old
+    // flat estimate so existing Latin sizing is unchanged); CJK / full-width ≈1.05em;
+    // emoji & pictographs ≈1.2em. `for…of` iterates by code point, so an emoji
+    // surrogate pair counts as one glyph.
+    function glyphEm(cp) {
+      if (cp >= 0x1F000 || (cp >= 0x2600 && cp <= 0x27BF) || (cp >= 0x2B00 && cp <= 0x2BFF)) return 1.2;
+      if ((cp >= 0x1100 && cp <= 0x115F) || (cp >= 0x2E80 && cp <= 0xA4CF) ||   // CJK radicals … Yi
+          (cp >= 0xAC00 && cp <= 0xD7A3) || (cp >= 0xF900 && cp <= 0xFAFF) ||   // Hangul, CJK compat
+          (cp >= 0xFE30 && cp <= 0xFE4F) || (cp >= 0xFF00 && cp <= 0xFF60) ||   // vertical / full-width
+          (cp >= 0xFFE0 && cp <= 0xFFE6)) return 1.05;
+      return 0.62;
+    }
+    // Estimated rendered width (px) of a string at font size `fs`, width-aware.
+    function labelWidthPx(str, fs) {
+      let em = 0;
+      for (const ch of String(str || '')) em += glyphEm(ch.codePointAt(0));
+      return em * fs;
+    }
+
     function fitNodeToLabel(node) {
       if (!node || node.type === 'line' || node.type === 'pencil') return;
       const label = (node.label || '').trim();
@@ -2118,24 +2137,23 @@
       const fs = node.type === 'text' ? 14
         : node.type === 'container' ? 13
         : (node.type === 'diamond' || node.type === 'circle') ? 11 : 12;
-      const charW = fs * 0.62;
       // Honor explicit newlines: each \n segment is its own line and may wrap.
       const segments = label.split('\n');
-      const longestWord = label.replace(/\n/g, ' ').split(/\s+/).reduce((m, w) => Math.max(m, w.length), 0);
-      const longestSegW = Math.max(...segments.map(s => s.length)) * charW;
+      const longestWordW = label.replace(/\n/g, ' ').split(/\s+/).reduce((m, w) => Math.max(m, labelWidthPx(w, fs)), 0);
+      const longestSegW = Math.max(...segments.map(s => labelWidthPx(s, fs)));
       // Preferred max text width: past this, a multi-word segment WRAPS to new
       // lines (node grows taller) instead of stretching into one very wide node.
       // A single unbreakable word still forces the width so it never overflows.
       // 'text' and 'container' render their label on a single line, so they don't wrap.
       const prefMax = (node.type === 'text' || node.type === 'container') ? Infinity : 140;
-      let textW = Math.max(longestWord * charW, Math.min(longestSegW, prefMax));
+      let textW = Math.max(longestWordW, Math.min(longestSegW, prefMax));
       // Cap the width for wrapping shapes: a single very long token hard-breaks
       // (wrapLabel) instead of stretching the node past CONFIG.wrap.maxWidth (#36).
       if (prefMax !== Infinity) textW = Math.min(textW, CONFIG.wrap.maxWidth);
       // Reserve room for an inline icon (drawn left of the label).
       if (node.icon && ICONS[node.icon]) textW += Math.round(fs * 1.3) + 6;
       let numLines = 0;
-      for (const s of segments) numLines += Math.max(1, Math.ceil((s.length * charW) / textW));
+      for (const s of segments) numLines += Math.max(1, Math.ceil(labelWidthPx(s, fs) / textW));
       const textH = numLines * (fs + 3);
 
       let ratio = 1, padX = 22, padY = 18; // text area as a fraction of the box + padding
@@ -2782,7 +2800,7 @@
             const labelX = rightX + 5;
             const labelY = startY + loopHeight / 2;
             const labelEl = label ? `
-              <rect x="${labelX}" y="${labelY - 7}" width="${label.length * 7 + 8}" height="14" fill="${COLORS.bg}" rx="2" data-conn="${conn.id}" style="cursor:pointer;pointer-events:fill"/>
+              <rect x="${labelX}" y="${labelY - 7}" width="${labelWidthPx(label, 11) + 8}" height="14" fill="${COLORS.bg}" rx="2" data-conn="${conn.id}" style="cursor:pointer;pointer-events:fill"/>
               <text x="${labelX + 4}" y="${labelY + 4}" fill="${COLORS.fg}" font-size="11" font-family="system-ui, sans-serif" data-conn="${conn.id}" style="cursor:pointer;pointer-events:painted">${esc(label)}</text>
             ` : '';
             
@@ -2814,7 +2832,7 @@
           // Label
           const midX = (fromX + toX) / 2;
           const labelEl = label ? `
-            <rect x="${midX - label.length * 3.5 - 4}" y="${y - 18}" width="${label.length * 7 + 8}" height="14" fill="${COLORS.bg}" rx="2" data-conn="${conn.id}" style="cursor:pointer;pointer-events:fill"/>
+            <rect x="${midX - labelWidthPx(label, 11) / 2 - 4}" y="${y - 18}" width="${labelWidthPx(label, 11) + 8}" height="14" fill="${COLORS.bg}" rx="2" data-conn="${conn.id}" style="cursor:pointer;pointer-events:fill"/>
             <text x="${midX}" y="${y - 8}" fill="${COLORS.fg}" font-size="11" font-family="system-ui, sans-serif" text-anchor="middle" data-conn="${conn.id}" style="cursor:pointer;pointer-events:painted">${esc(label)}</text>
           ` : '';
           
@@ -3279,7 +3297,7 @@
           const midX = (x1 + x2) / 2;
           const midY = (y1 + y2) / 2;
           const labelEl = node.label && node.label !== 'Arrow' ? `
-            <rect x="${midX - node.label.length * 3.5 - 4}" y="${midY - 10}" width="${node.label.length * 7 + 8}" height="16" fill="${COLORS.bg}" rx="2"/>
+            <rect x="${midX - labelWidthPx(node.label, 11) / 2 - 4}" y="${midY - 10}" width="${labelWidthPx(node.label, 11) + 8}" height="16" fill="${COLORS.bg}" rx="2"/>
             <text x="${midX}" y="${midY + 3}" fill="${COLORS.fg}" font-size="11" font-family="system-ui, sans-serif" text-anchor="middle">${esc(node.label)}</text>
           ` : '';
           
