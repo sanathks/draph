@@ -3637,4 +3637,23 @@ group('Mermaid export honors source type (#165): state generator + no mislabel')
   check('sequence still exports as sequenceDiagram', /^sequenceDiagram/.test(w5.generateMermaid()));
 }
 
+group('Flowchart stadium shape import (#172): ([text]) → pill, no literal brackets');
+{
+  const { E } = boot();
+  const p = E(`parseMermaid('flowchart TD\\n  A([User opens app]) --> B')`);
+  const a = p.nodes.find(n => /opens app/.test(n.label));
+  check('stadium label has no literal brackets', !!a && a.label === 'User opens app');
+  check('stadium maps to a pill', !!a && a.type === 'pill');
+
+  // no regression: other shapes unchanged
+  const q = E(`parseMermaid('flowchart TD\\n  C(Rounded) --> D((Circle)) --> E[Rect] --> F{Diamond} --> G[(DB)] --> H{{Hex}}')`);
+  const by = {}; q.nodes.forEach(n => { by[n.label] = n.type; });
+  check('round-paren still pill', by['Rounded'] === 'pill');
+  check('double-paren still circle', by['Circle'] === 'circle');
+  check('bracket still rect', by['Rect'] === 'rect');
+  check('brace still diamond', by['Diamond'] === 'diamond');
+  check('db still cylinder', by['DB'] === 'cylinder');
+  check('hex still hexagon', by['Hex'] === 'hexagon');
+}
+
 process.exit(report() ? 0 : 1);
