@@ -3023,4 +3023,27 @@ group('Connection arrowhead style (#130): none / end / start / both');
   check('UML edge still renders its markers', E(`connections[1].markerStart`) === 'triangle' && E(`connections[1].markerEnd`) === 'arrow');
 }
 
+group('Reverse connection direction (#129): swap from/to + sides/markers, undoable');
+{
+  const { win, E } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40);
+  const b = win.createNode('rect', 240, 0, 80, 40);
+  win.connect(a.id, b.id, { fromSide: 'right', toSide: 'left', markerEnd: 'arrow' });
+  const cid = E(`connections[0].id`);
+  win.saveState(); // baseline with the connection present so undo lands here
+
+  win.reverseConnection(cid);
+  check('reverse swaps from/to', E(`connections[0].from`) === b.id && E(`connections[0].to`) === a.id);
+  check('reverse swaps sides', E(`connections[0].fromSide`) === 'left' && E(`connections[0].toSide`) === 'right');
+  check('reverse moves the arrow marker to the new end', E(`connections[0].markerStart`) === 'arrow' && (E(`connections[0].markerEnd`) === undefined || E(`connections[0].markerEnd`) === null));
+
+  // undoable as one unit
+  win.undo();
+  check('one undo restores original direction', E(`connections[0].from`) === a.id && E(`connections[0].to`) === b.id);
+
+  // round-trips a second reverse back to original
+  win.reverseConnection(cid); win.reverseConnection(cid);
+  check('double reverse is identity', E(`connections[0].from`) === a.id && E(`connections[0].to`) === b.id);
+}
+
 process.exit(report() ? 0 : 1);
