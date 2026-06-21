@@ -2726,4 +2726,35 @@ group('Self-loop edges (#104): from===to renders a non-degenerate arc');
   check('importer keeps a self-transition', p.connections.some(c => c.from === c.to));
 }
 
+group('Auto-arrange direction (#113): TB / LR');
+{
+  const { win, E } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40);
+  const b = win.createNode('rect', 0, 0, 80, 40);
+  const c = win.createNode('rect', 0, 0, 80, 40);
+  win.connect(a.id, b.id); win.connect(b.id, c.id);
+
+  win.arrangeDiagram('LR');
+  check('LR spreads layers horizontally', a.x < b.x && b.x < c.x);
+  check('LR keeps a chain at similar y', Math.abs(a.y - b.y) < 80 && Math.abs(b.y - c.y) < 80);
+
+  win.arrangeDiagram('TB');
+  check('TB stacks layers vertically', a.y < b.y && b.y < c.y);
+  check('TB keeps a chain at similar x', Math.abs(a.x - b.x) < 80 && Math.abs(b.x - c.x) < 80);
+
+  // parseMermaid captures the declared direction
+  const pl = E(`parseMermaid('flowchart LR\\n  A-->B')`);
+  check('parser captures LR direction', pl.direction === 'LR');
+  const pt = E(`parseMermaid('flowchart TD\\n  A-->B')`);
+  check('parser normalizes TD direction to TB', pt.direction === 'TB');
+
+  // no-arg arrange honors an imported direction
+  E(`importedDirection = 'LR'`);
+  win.arrangeDiagram();
+  check('no-arg arrange honors imported LR', a.x < b.x && b.x < c.x);
+  E(`importedDirection = null`);
+  win.arrangeDiagram();
+  check('default arrange (no imported dir) is TB', a.y < b.y && b.y < c.y);
+}
+
 process.exit(report() ? 0 : 1);
