@@ -3577,4 +3577,24 @@ group('UML class member editing (#163): add/edit/remove + reflow + persist');
   check('addClassMember is a no-op on non-class nodes', !rect.properties);
 }
 
+group('Class export name alias (#168): spaced names keep their display label');
+{
+  const { win, E } = boot();
+  const c = win.createNode('rect', 0, 0, 160, 80); c.label = 'Order Service';
+  c.isClass = true; c.properties = ['+id: int']; c.methods = [];
+  const plain = win.createNode('rect', 300, 0, 160, 80); plain.label = 'Account';
+  plain.isClass = true; plain.properties = []; plain.methods = [];
+  win.connect(c.id, plain.id, { relType: '<|--' });
+
+  const code = win.generateMermaid();
+  check('spaced class name uses the alias form', /class\s+\w+\["Order Service"\]/.test(code));
+  check('bare class name stays un-aliased', /class Account \{/.test(code) && !/Account\[/.test(code));
+  check('relationship still references the safe ids', /\bOrderService\b/.test(code) && /\bAccount\b/.test(code));
+
+  // round-trip: re-import preserves the display name
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('round-trip preserves the spaced display name', p.nodes.some(n => n.label === 'Order Service'));
+  check('round-trip keeps the bare-named class too', p.nodes.some(n => n.label === 'Account'));
+}
+
 process.exit(report() ? 0 : 1);

@@ -7434,31 +7434,28 @@
     
     function generateClassMermaid() {
       let code = 'classDiagram\n';
-      
-      // Generate class definitions
-      nodes.filter(n => n.isClass).forEach(cls => {
-        const name = (cls.label || 'Class').replace(/[^a-zA-Z0-9]/g, '');
-        code += `    class ${name} {\n`;
-        
-        // Properties
-        (cls.properties || []).forEach(prop => {
-          code += `        ${prop}\n`;
-        });
-        
-        // Methods  
-        (cls.methods || []).forEach(method => {
-          code += `        ${method}\n`;
-        });
-        
+      const classes = nodes.filter(n => n.isClass);
+
+      // Safe Mermaid id per class — used by BOTH the declaration and the
+      // relationship id map below, so edges keep resolving (#168).
+      const idMap = {};
+      classes.forEach(cls => {
+        idMap[cls.id] = (cls.label || 'Class').replace(/[^a-zA-Z0-9]/g, '') || 'Class';
+      });
+
+      // Generate class definitions. A label that isn't a bare identifier is
+      // emitted via Mermaid's alias form `class Id["label"] {` so spaces/punct
+      // survive the round-trip (#168); bare names stay un-aliased (no churn).
+      classes.forEach(cls => {
+        const label = cls.label || 'Class';
+        const id = idMap[cls.id];
+        const bare = /^[A-Za-z_]\w*$/.test(label);
+        code += bare ? `    class ${id} {\n` : `    class ${id}["${label.replace(/"/g, "'")}"] {\n`;
+        (cls.properties || []).forEach(prop => { code += `        ${prop}\n`; });
+        (cls.methods || []).forEach(method => { code += `        ${method}\n`; });
         code += `    }\n`;
       });
-      
-      // Build ID map
-      const idMap = {};
-      nodes.filter(n => n.isClass).forEach(cls => {
-        idMap[cls.id] = (cls.label || 'Class').replace(/[^a-zA-Z0-9]/g, '');
-      });
-      
+
       // Generate relationships
       connections.forEach(c => {
         const fromId = idMap[c.from];
