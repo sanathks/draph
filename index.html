@@ -8892,10 +8892,15 @@
         m = token.match(/^(\w+)\{(.+)\}$/);
         if (m) return { id: m[1], type: 'diamond', label: unq(m[2]) };
         
+        // A([stadium]) — rounded capsule, rendered as a pill (#172). MUST come
+        // before the round-paren branch, else `([text])` captures `[text]`.
+        m = token.match(/^(\w+)\(\[(.+)\]\)$/);
+        if (m) return { id: m[1], type: 'pill', label: unq(m[2]) };
+
         // A(pill)
         m = token.match(/^(\w+)\((.+)\)$/);
         if (m) return { id: m[1], type: 'pill', label: unq(m[2]) };
-        
+
         // A>asymmetric]
         m = token.match(/^(\w+)>(.+)\]$/);
         if (m) return { id: m[1], type: 'rect', label: unq(m[2]) };
