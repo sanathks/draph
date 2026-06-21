@@ -3231,4 +3231,27 @@ group('Mermaid export of containers as subgraphs (#141): grouping survives round
   check('no-container diagram has no subgraph', !/subgraph/.test(win2.generateMermaid()));
 }
 
+group('Flowchart import mid-arrow labels (#146): A -- text --> B, no spurious nodes');
+{
+  const { E } = boot();
+  const code = 'flowchart TD\n  A -- yes --> B\n  A -- no --> C';
+  const p = E(`parseMermaid(${JSON.stringify(code)})`);
+  check('no spurious label-nodes', !p.nodes.some(n => n.label === 'yes' || n.label === 'no'));
+  check('exactly the real nodes (A,B,C)', p.nodes.length === 3);
+  check('two labelled edges', p.connections.length === 2 && p.connections.some(c => c.label === 'yes') && p.connections.some(c => c.label === 'no'));
+
+  // == text ==> and -. text .-> also attach labels (and keep their style)
+  const p2 = E(`parseMermaid('flowchart TD\\n  X == thick ==> Y\\n  M -. dotted .-> N')`);
+  check('thick mid-label attaches, no stray node', !p2.nodes.some(n => n.label === 'thick') && p2.connections.some(c => c.label === 'thick'));
+  check('dotted mid-label attaches, no stray node', !p2.nodes.some(n => n.label === 'dotted') && p2.connections.some(c => c.label === 'dotted'));
+
+  // the |label| form still works
+  const p3 = E(`parseMermaid('flowchart TD\\n  P -->|piped| Q')`);
+  check('pipe-label form still works', p3.connections.some(c => c.label === 'piped') && !p3.nodes.some(n => n.label === 'piped'));
+
+  // plain unlabeled arrow unchanged
+  const p4 = E(`parseMermaid('flowchart TD\\n  S --> T')`);
+  check('plain arrow unchanged', p4.connections.length === 1 && (p4.connections[0].label || '') === '' && p4.nodes.length === 2);
+}
+
 process.exit(report() ? 0 : 1);
