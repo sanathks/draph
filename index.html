@@ -5395,8 +5395,17 @@
       if (resizing) {
         const dx = e.clientX - resizing.startX;
         const dy = e.clientY - resizing.startY;
-        resizing.node.width = Math.max(60, snap(resizing.startW + dx / zoom));
-        resizing.node.height = Math.max(40, snap(resizing.startH + dy / zoom));
+        let w = Math.max(60, snap(resizing.startW + dx / zoom));
+        let h = Math.max(40, snap(resizing.startH + dy / zoom));
+        if (e.shiftKey) {
+          // Shift locks the starting aspect ratio (#125); drive off the dominant
+          // drag axis so the node scales proportionally. Release Shift → free.
+          const ratio = resizing.startW / resizing.startH;
+          if (Math.abs(dx) >= Math.abs(dy)) h = Math.max(40, w / ratio);
+          else w = Math.max(60, h * ratio);
+        }
+        resizing.node.width = w;
+        resizing.node.height = h;
         resizing.node.manuallyResized = true;   // never auto-shrink a user-sized node (#35)
         scheduleRender();
       }
