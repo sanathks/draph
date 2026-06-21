@@ -171,6 +171,11 @@
     .container-fill { pointer-events: none; }
     .resize-handle { cursor: se-resize; opacity: 0; }
     .node.selected .resize-handle { opacity: 1; }
+    /* Per-direction resize cursors (#126) */
+    .resize-handle.handle-nw, .resize-handle.handle-se { cursor: nwse-resize; }
+    .resize-handle.handle-ne, .resize-handle.handle-sw { cursor: nesw-resize; }
+    .resize-handle.handle-n,  .resize-handle.handle-s  { cursor: ns-resize; }
+    .resize-handle.handle-e,  .resize-handle.handle-w  { cursor: ew-resize; }
     
     .tool-btn {
       position: relative;
@@ -3502,9 +3507,10 @@
         const hasLifelineActive = node.isParticipant || node.hasLifeline;
         const noConnectors = node.type === 'line' || node.type === 'pencil' || hasLifelineActive;
         const connectors = noConnectors ? '' : renderConnectors(node);
-        // Don't render resize handle for line/pencil shapes
-        const resizeHandle = (isSelected && node.type !== 'line' && node.type !== 'pencil') ?
-          `<rect class="resize-handle" x="${node.x + node.width - 8}" y="${node.y + node.height - 8}" width="8" height="8" fill="${COLORS.accent}" rx="2"/>` : '';
+        // Resize handles: 8 handles (4 corners + 4 edge midpoints) on a selected
+        // node (#126). Not for line/pencil shapes.
+        const resizeHandle = (isSelected && node.type !== 'line' && node.type !== 'pencil')
+          ? renderResizeHandles(node) : '';
         
         return `<g class="node ${isSelected ? 'selected' : ''}" data-id="${node.id}" role="img" aria-label="${esc(nodeAriaLabel(node))}">
           ${lifeline}
@@ -3594,6 +3600,26 @@
       });
     }
     
+    // 8 resize handles (#126): 4 corners + 4 edge midpoints. Each carries a
+    // `handle-<dir>` class so the CSS sets the right cursor and onResizeMouseDown
+    // knows which edges to move. Rects are centered on their anchor point.
+    function renderResizeHandles(node) {
+      const x = node.x, y = node.y, w = node.width, h = node.height;
+      const handles = [
+        { dir: 'nw', cx: x,         cy: y },
+        { dir: 'n',  cx: x + w / 2, cy: y },
+        { dir: 'ne', cx: x + w,     cy: y },
+        { dir: 'e',  cx: x + w,     cy: y + h / 2 },
+        { dir: 'se', cx: x + w,     cy: y + h },
+        { dir: 's',  cx: x + w / 2, cy: y + h },
+        { dir: 'sw', cx: x,         cy: y + h },
+        { dir: 'w',  cx: x,         cy: y + h / 2 },
+      ];
+      return handles.map(({ dir, cx, cy }) =>
+        `<rect class="resize-handle handle-${dir}" x="${cx - 4}" y="${cy - 4}" width="8" height="8" fill="${COLORS.accent}" rx="2"/>`
+      ).join('');
+    }
+
     function renderConnectors(node) {
       // One connector per side at center (idx=1), bigger for easy clicking
       const sides = [
@@ -5154,7 +5180,18 @@
     function onResizeMouseDown(e) {
       const node = nodes.find(n => n.id === selectedId);
       if (node) {
-        resizing = { node, startW: node.width, startH: node.height, startX: e.clientX, startY: e.clientY };
+        // Which of the 8 handles? (#126) Default to 'se' (bottom-right) so a bare
+        // .resize-handle still behaves as before.
+        const handleEl = e.target.closest('.resize-handle');
+        const cls = handleEl ? (handleEl.getAttribute('class') || '') : '';
+        const m = cls.match(/handle-(nw|ne|sw|se|n|s|e|w)\b/);
+        const dir = (m && m[1]) || 'se';
+        resizing = {
+          node, dir,
+          startW: node.width, startH: node.height,
+          nodeX: node.x, nodeY: node.y,
+          startX: e.clientX, startY: e.clientY,
+        };
       }
       e.preventDefault();
       e.stopPropagation();
@@ -5393,10 +5430,26 @@
 
       // Resizing
       if (resizing) {
-        const dx = e.clientX - resizing.startX;
-        const dy = e.clientY - resizing.startY;
-        resizing.node.width = Math.max(60, snap(resizing.startW + dx / zoom));
-        resizing.node.height = Math.max(40, snap(resizing.startH + dy / zoom));
+        const dx = (e.clientX - resizing.startX) / zoom;
+        const dy = (e.clientY - resizing.startY) / zoom;
+        const dir = resizing.dir;
+        // Adjust the edges named by the handle direction (#126). For 'w'/'n'
+        // handles the origin moves so the opposite (right/bottom) edge stays put,
+        // even after snap + min-size clamp.
+        let newW = resizing.startW, newH = resizing.startH;
+        let newX = resizing.nodeX, newY = resizing.nodeY;
+        if (dir.includes('e')) newW = resizing.startW + dx;
+        if (dir.includes('w')) newW = resizing.startW - dx;
+        if (dir.includes('s')) newH = resizing.startH + dy;
+        if (dir.includes('n')) newH = resizing.startH - dy;
+        newW = Math.max(60, snap(newW));
+        newH = Math.max(40, snap(newH));
+        if (dir.includes('w')) newX = resizing.nodeX + resizing.startW - newW; // pin right edge
+        if (dir.includes('n')) newY = resizing.nodeY + resizing.startH - newH; // pin bottom edge
+        resizing.node.x = newX;
+        resizing.node.y = newY;
+        resizing.node.width = newW;
+        resizing.node.height = newH;
         resizing.node.manuallyResized = true;   // never auto-shrink a user-sized node (#35)
         scheduleRender();
       }
