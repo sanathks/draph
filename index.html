@@ -539,9 +539,13 @@
               Redo <kbd>⌘⇧Z</kbd>
             </div>
             <div class="menu-sep"></div>
-            <div class="dropdown-item" onclick="arrangeDiagram();closeDropdowns()">
+            <div class="dropdown-item" onclick="arrangeDiagram('TB');closeDropdowns()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="9" y="15" width="6" height="6" rx="1"/><path d="M6 9v3h3M18 9v3h-3M12 15v-3"/></svg>
-              Auto-arrange <kbd>A</kbd>
+              Auto-arrange ↓ <kbd>A</kbd>
+            </div>
+            <div class="dropdown-item" onclick="arrangeDiagram('LR');closeDropdowns()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="9" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M9 12h3M12 6h3M12 18h3M12 6v12"/></svg>
+              Auto-arrange → (LR)
             </div>
             <div class="dropdown-item" id="mermaidToggle" onclick="toggleMermaidSidebar();closeDropdowns()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
@@ -4447,21 +4451,27 @@
     // Smart auto-arrange based on diagram type
     // === SECTION: LAYOUT (auto-arrange algorithms per diagram type) ===
 
-    function arrangeDiagram() {
+    let importedDirection = null;   // #113: last imported flowchart direction (TB/LR), default for auto-arrange
+    function arrangeDiagram(direction) {
       if (nodes.length === 0) return;
-      
+      // Direction (#113): explicit arg wins, else honor an imported flowchart's
+      // declared direction, else top-down. Only TB/LR are supported (TD→TB).
+      let dir = (direction || importedDirection || 'TB').toUpperCase();
+      if (dir === 'TD') dir = 'TB';
+      if (dir !== 'LR') dir = 'TB';
+
       // Detect diagram type
       const hasLifelines = nodes.some(n => n.hasLifeline || n.isParticipant);
       const hasClasses = nodes.some(n => n.isClass);
       const hasSequenceMessages = connections.some(c => c.isSequenceMessage);
-      
+
       if (hasLifelines || hasSequenceMessages) {
         arrangeSequence();
       } else if (hasClasses) {
         arrangeClass();
       } else {
         // Use the same Sugiyama layout algorithm as Mermaid import
-        arrangeFlowchartSugiyama();
+        arrangeFlowchartSugiyama(dir);
       }
       
       saveState();
@@ -4640,7 +4650,8 @@
     }
     
     // Sugiyama-style layout for auto-arrange (reuses layoutNodes algorithm from Mermaid import)
-    function arrangeFlowchartSugiyama() {
+    function arrangeFlowchartSugiyama(direction = 'TB') {
+      const isLR = direction === 'LR';
       // Separate container nodes from regular nodes
       const containers = nodes.filter(n => n.type === 'container');
       const flowNodes = nodes.filter(n => n.type !== 'container' && n.type !== 'line' && n.type !== 'pencil' && n.type !== 'note');
@@ -4679,12 +4690,14 @@
       // Run the same layout algorithm used by Mermaid import
       const layouted = layoutNodes(parsedNodes, diagramType, subgraphs.length > 0 ? subgraphs : null, parsedConnections);
       
-      // Apply positions back to actual nodes
+      // Apply positions back to actual nodes. LR (#113): transpose the TB layout
+      // (swap x↔y) so layers spread horizontally and within-layer nodes stack
+      // vertically — a valid left-to-right layered arrangement from the same solver.
       layouted.forEach(ln => {
         const node = nodes.find(n => n.id === ln.id);
         if (node) {
-          node.x = ln.x;
-          node.y = ln.y;
+          node.x = isLR ? ln.y : ln.x;
+          node.y = isLR ? ln.x : ln.y;
         }
       });
       
@@ -4720,9 +4733,20 @@
         const fromNode = nodes.find(n => n.id === c.from);
         const toNode = nodes.find(n => n.id === c.to);
         if (!fromNode || !toNode) return;
+        if (fromNode === toNode) return;   // self-loop keeps its own sides (#104)
         c.fromSideLocked = false;
         c.toSideLocked = false;
-        if (fromNode.y + fromNode.height <= toNode.y + 1) {
+        if (isLR) {
+          // Left-to-right: route along x (parent-left → right side into child's left).
+          if (fromNode.x + fromNode.width <= toNode.x + 1) {
+            c.fromSide = 'right'; c.toSide = 'left';         // parent left of child
+          } else if (toNode.x + toNode.width <= fromNode.x + 1) {
+            c.fromSide = 'left'; c.toSide = 'right';         // back-edge (child left)
+          } else {
+            const { fromSide, toSide } = getOptimalSides(fromNode, toNode);
+            c.fromSide = fromSide; c.toSide = toSide;        // same column: nearest sides
+          }
+        } else if (fromNode.y + fromNode.height <= toNode.y + 1) {
           c.fromSide = 'bottom'; c.toSide = 'top';          // parent above child
         } else if (toNode.y + toNode.height <= fromNode.y + 1) {
           c.fromSide = 'top'; c.toSide = 'bottom';          // back-edge (child above)
@@ -8172,10 +8196,13 @@
         return tokens.some(t => t.type === 'arrow');
       }
       
-      // Skip flowchart/graph directive
+      // Skip flowchart/graph directive, capturing the declared direction (#113).
       let startIdx = 0;
-      if (lines[0]?.match(/^(flowchart|graph)\s+(TD|TB|LR|RL|BT)/i)) {
+      const dirMatch = lines[0]?.match(/^(?:flowchart|graph)\s+(TD|TB|LR|RL|BT)/i);
+      if (dirMatch) {
         startIdx = 1;
+        const d = dirMatch[1].toUpperCase();
+        result.direction = (d === 'TD') ? 'TB' : d;   // normalize TD→TB for auto-arrange (#113)
       }
       
       // Track subgraphs: each has { id, label, children: [nodeId, ...] }
@@ -8647,6 +8674,7 @@
 
       try {
         const parsed = parseMermaid(code);
+        if (parsed.direction) importedDirection = parsed.direction;   // #113: remember LR/TB for auto-arrange
 
         if (parsed.nodes.length === 0) {
           if (!append) { errorDiv.textContent = 'No nodes found in code'; errorDiv.style.display = 'block'; }
