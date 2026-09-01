@@ -1948,7 +1948,8 @@
     // so we can measure its length before committing.
     function diagramShareUrl() {
       const data = { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom }, dt: diagramType };
-      return location.origin + location.pathname + '#' + btoa(encodeURIComponent(JSON.stringify(data)));
+      const base = draphNativeHostAvailable() ? 'https://draph.sanath.dev/' : location.origin + location.pathname;
+      return base + '#' + btoa(encodeURIComponent(JSON.stringify(data)));
     }
 
     // Practical max URL length the CURRENT browser can carry in a link, by UA.
@@ -6852,15 +6853,18 @@
 
     // Copy a 2× PNG of the diagram to the system clipboard (where supported).
     function copyPNG() {
+      if (draphNativeHostAvailable()) {
+        rasterizeDiagram(2, (c) => {
+          draphPostNative('copyImage', { dataURL: c.toDataURL('image/png') });
+          toast('Diagram image copied to clipboard', 'success');
+        });
+        return;
+      }
       if (!navigator.clipboard || typeof window.ClipboardItem === 'undefined') {
         toast('Clipboard image copy not supported here — use Export PNG', 'error');
         return;
       }
       rasterizeDiagram(2, (c) => {
-        if (draphPostNative('copyImage', { dataURL: c.toDataURL('image/png') })) {
-          toast('Diagram image copied to clipboard', 'success');
-          return;
-        }
         c.toBlob((blob) => {
           if (!blob) { toast('Could not copy image', 'error'); return; }
           navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blob })])

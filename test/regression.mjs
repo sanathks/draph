@@ -3766,7 +3766,7 @@ group('Native host bridge: versioned state, Mermaid, and change events');
   win.saveDiagramFile();
   check('.draph save routes to the native save service', posts.some(p => p.type === 'saveFile' && p.suggestedName === 'diagram.draph'));
   win.shareDiagram();
-  check('share links route to the native clipboard', posts.some(p => p.type === 'copyText' && /^http/.test(p.text)));
+  check('share links route to the native clipboard', posts.some(p => p.type === 'copyText' && /^https:\/\/draph\.sanath\.dev\//.test(p.text)));
   win.draphHostAPI.clear();
   check('host clear empties the diagram', JSON.parse(win.draphHostAPI.exportState()).n.length === 0);
 }
