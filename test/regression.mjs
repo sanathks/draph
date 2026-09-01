@@ -3760,6 +3760,13 @@ group('Native host bridge: versioned state, Mermaid, and change events');
   check('host state export contains nodes', JSON.parse(win.draphHostAPI.exportState()).n.length === 2);
   check('host Mermaid export contains the edge', /A\s+-->\s+B/.test(win.draphHostAPI.exportMermaid()));
   check('host receives a versioned change event', posts.some(p => p.type === 'changed' && p.protocolVersion === 1));
+  posts.length = 0;
+  win.downloadSVG();
+  check('SVG export routes to the native save service', posts.some(p => p.type === 'saveFile' && p.suggestedName === 'diagram.svg'));
+  win.saveDiagramFile();
+  check('.draph save routes to the native save service', posts.some(p => p.type === 'saveFile' && p.suggestedName === 'diagram.draph'));
+  win.shareDiagram();
+  check('share links route to the native clipboard', posts.some(p => p.type === 'copyText' && /^http/.test(p.text)));
   win.draphHostAPI.clear();
   check('host clear empties the diagram', JSON.parse(win.draphHostAPI.exportState()).n.length === 0);
 }
