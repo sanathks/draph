@@ -1683,9 +1683,11 @@
       applyA11yLabels();
       bindCanvasEvents();
       initKeyboardA11y();
-      // Share-link hash wins; otherwise restore the last autosaved diagram.
-      if (!loadFromUrl()) restoreAutosave();
-      docStore._open();   // hydrate the document library from IndexedDB (best-effort; no-op without IDB)
+      // A native host owns persistence. Standalone Draph keeps browser storage.
+      if (!draphNativeHostAvailable()) {
+        if (!loadFromUrl()) restoreAutosave();
+        docStore._open();
+      }
       saveState();
       render();
       // Restore the saved line-style preference (defaults to curved).
@@ -1740,6 +1742,13 @@
     }
 
     function updateUrlHash() {
+      if (draphNativeHostAvailable()) {
+        draphPostNative('changed', {
+          state: JSON.stringify(exportState()),
+          mermaid: nodes.length ? generateMermaid() : ''
+        });
+        return;
+      }
       if (nodes.length === 0 && connections.length === 0) {
         history.replaceState(null, '', window.location.pathname);
         removeSetting('autosave');
@@ -1939,7 +1948,8 @@
     // so we can measure its length before committing.
     function diagramShareUrl() {
       const data = { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom }, dt: diagramType };
-      return location.origin + location.pathname + '#' + btoa(encodeURIComponent(JSON.stringify(data)));
+      const base = draphNativeHostAvailable() ? 'https://draph.sanath.dev/' : location.origin + location.pathname;
+      return base + '#' + btoa(encodeURIComponent(JSON.stringify(data)));
     }
 
     // Practical max URL length the CURRENT browser can carry in a link, by UA.
@@ -1972,6 +1982,10 @@
       }
 
       updateUrlHash();
+      if (draphPostNative('copyText', { text: url })) {
+        toast('Share link copied to clipboard', 'success');
+        return;
+      }
       navigator.clipboard.writeText(url).then(() => {
         if (url.length > SHARE_SAFE_LEN) {
           toast(`Link copied (~${kb} KB) — it's long and may not open in some browsers. For big diagrams, “Save to file” is more reliable.`, 'info', 6000);
@@ -1993,6 +2007,9 @@
       }
       const data = { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom }, dt: diagramType, app: "draph", version: 2 };
       const json = JSON.stringify(data, null, 2);
+      if (draphPostNative('saveFile', { content: json, suggestedName: 'diagram.draph', mime: 'application/json' })) {
+        return;
+      }
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -2004,6 +2021,7 @@
     }
 
     function openDiagramFile() {
+      if (draphPostNative('openFile', {})) return;
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = '.draph,application/json,.json';
@@ -6637,6 +6655,7 @@
     function downloadSVG() {
       const svg = buildExportSVG();
       if (!svg) { toast('Nothing to export yet — add a shape first', 'error'); return; }
+      if (draphPostNative('saveFile', { content: svg, suggestedName: 'diagram.svg', mime: 'image/svg+xml' })) return;
       const blob = new Blob([svg], { type: 'image/svg+xml' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -6655,6 +6674,7 @@
       if (ids.length < 1) { toast('Select one or more nodes first', 'error'); return; }
       const svg = exportSelectionSVG();
       if (!svg) { toast('Nothing to export in the selection', 'error'); return; }
+      if (draphPostNative('saveFile', { content: svg, suggestedName: 'selection.svg', mime: 'image/svg+xml' })) return;
       const blob = new Blob([svg], { type: 'image/svg+xml' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -6806,8 +6826,11 @@
     // Download a PNG at the given scale (1/2/3×). Default 2× for retina sharpness.
     function downloadPNG(scale = 2) {
       rasterizeDiagram(scale, (c) => {
+        const dataURL = c.toDataURL('image/png');
+        const name = scale === 2 ? 'diagram.png' : `diagram@${scale}x.png`;
+        if (draphPostNative('saveDataURL', { dataURL, suggestedName: name, mime: 'image/png' })) return;
         const a = document.createElement('a');
-        a.href = c.toDataURL('image/png');
+        a.href = dataURL;
         a.download = scale === 2 ? 'diagram.png' : `diagram@${scale}x.png`;
         a.click();
         if (scale !== 2) toast(`PNG exported at ${scale}×`, 'success');
@@ -6819,8 +6842,10 @@
       const ids = selectedNodeIds();
       if (ids.length < 1) { toast('Select one or more nodes first', 'error'); return; }
       rasterizeDiagram(scale, (c) => {
+        const dataURL = c.toDataURL('image/png');
+        if (draphPostNative('saveDataURL', { dataURL, suggestedName: 'selection.png', mime: 'image/png' })) return;
         const a = document.createElement('a');
-        a.href = c.toDataURL('image/png');
+        a.href = dataURL;
         a.download = 'selection.png';
         a.click();
       }, ids);
@@ -6828,6 +6853,13 @@
 
     // Copy a 2× PNG of the diagram to the system clipboard (where supported).
     function copyPNG() {
+      if (draphNativeHostAvailable()) {
+        rasterizeDiagram(2, (c) => {
+          draphPostNative('copyImage', { dataURL: c.toDataURL('image/png') });
+          toast('Diagram image copied to clipboard', 'success');
+        });
+        return;
+      }
       if (!navigator.clipboard || typeof window.ClipboardItem === 'undefined') {
         toast('Clipboard image copy not supported here — use Export PNG', 'error');
         return;
@@ -7131,12 +7163,19 @@
       }
       
       const gifBytes = encoder.encode();
-      const blob = new Blob([gifBytes], { type: 'image/gif' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'diagram-animated.gif';
-      a.click();
-      URL.revokeObjectURL(a.href);
+      let binary = '';
+      for (let i = 0; i < gifBytes.length; i += 0x8000) {
+        binary += String.fromCharCode.apply(null, gifBytes.subarray(i, i + 0x8000));
+      }
+      const dataURL = 'data:image/gif;base64,' + btoa(binary);
+      if (!draphPostNative('saveDataURL', { dataURL, suggestedName: 'diagram-animated.gif', mime: 'image/gif' })) {
+        const blob = new Blob([gifBytes], { type: 'image/gif' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'diagram-animated.gif';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
       
       document.body.removeChild(progress);
     }
@@ -9804,7 +9843,53 @@
       }
     });
     
+    // Stable API for native shells. Keep this versioned and JSON-only.
+    const DRAPH_HOST_PROTOCOL_VERSION = 1;
+    function draphNativeHostAvailable() {
+      return !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.draphHost);
+    }
+    function draphPostNative(type, payload) {
+      if (!draphNativeHostAvailable()) return false;
+      window.webkit.messageHandlers.draphHost.postMessage(Object.assign({
+        protocolVersion: DRAPH_HOST_PROTOCOL_VERSION,
+        type
+      }, payload || {}));
+      return true;
+    }
+    window.draphHostAPI = Object.freeze({
+      protocolVersion: DRAPH_HOST_PROTOCOL_VERSION,
+      loadState(json) {
+        const loaded = loadDiagramJson(typeof json === 'string' ? json : JSON.stringify(json));
+        historyStack = [];
+        historyIndex = -1;
+        saveState();
+        render();
+        return loaded;
+      },
+      importMermaid(code) {
+        const loaded = importMermaid(true, { code: String(code || '') });
+        if (loaded) {
+          historyStack = [];
+          historyIndex = -1;
+          saveState();
+          render();
+        }
+        return loaded;
+      },
+      clear() {
+        nodes = [];
+        connections = [];
+        sequenceFrames = [];
+        sequenceActivations = [];
+        saveState();
+        render();
+      },
+      exportState() { return JSON.stringify(exportState()); },
+      exportMermaid() { return nodes.length ? generateMermaid() : ''; }
+    });
+
     init();
+    draphPostNative('ready', { protocolVersion: DRAPH_HOST_PROTOCOL_VERSION });
   </script>
 </body>
 </html>

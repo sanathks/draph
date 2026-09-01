@@ -3748,4 +3748,27 @@ group('Class relationship multiplicities (#174): render + export + round-trip');
   check('plain class edge has no multiplicity quotes on export', !/"/.test(w3.generateMermaid().split('\n').find(l => /A --> B/.test(l)) || ''));
 }
 
+group('Native host bridge: versioned state, Mermaid, and change events');
+{
+  const { win } = boot();
+  const posts = [];
+  win.webkit = { messageHandlers: { draphHost: { postMessage: value => posts.push(value) } } };
+
+  check('host API reports protocol version 1', win.draphHostAPI.protocolVersion === 1);
+  check('host is detected after injection', win.draphNativeHostAvailable());
+  check('host Mermaid import succeeds', win.draphHostAPI.importMermaid('flowchart TD\n  A --> B'));
+  check('host state export contains nodes', JSON.parse(win.draphHostAPI.exportState()).n.length === 2);
+  check('host Mermaid export contains the edge', /A\s+-->\s+B/.test(win.draphHostAPI.exportMermaid()));
+  check('host receives a versioned change event', posts.some(p => p.type === 'changed' && p.protocolVersion === 1));
+  posts.length = 0;
+  win.downloadSVG();
+  check('SVG export routes to the native save service', posts.some(p => p.type === 'saveFile' && p.suggestedName === 'diagram.svg'));
+  win.saveDiagramFile();
+  check('.draph save routes to the native save service', posts.some(p => p.type === 'saveFile' && p.suggestedName === 'diagram.draph'));
+  win.shareDiagram();
+  check('share links route to the native clipboard', posts.some(p => p.type === 'copyText' && /^https:\/\/draph\.sanath\.dev\//.test(p.text)));
+  win.draphHostAPI.clear();
+  check('host clear empties the diagram', JSON.parse(win.draphHostAPI.exportState()).n.length === 0);
+}
+
 process.exit(report() ? 0 : 1);
