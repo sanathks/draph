@@ -3110,13 +3110,14 @@
     }
 
     function bridgeMarkup(items, color, width) {
-      return (items || []).map(item => {
+      const markup = (items || []).map(item => {
         const mask = `<circle cx="${item.x}" cy="${item.y}" r="7" fill="${COLORS.bg}" style="pointer-events:none"/>`;
         const path = item.horizontal
           ? `M${item.x - 7},${item.y} Q${item.x},${item.y - 9} ${item.x + 7},${item.y}`
           : `M${item.x},${item.y - 7} Q${item.x + 9},${item.y} ${item.x},${item.y + 7}`;
         return `${mask}<path d="${path}" fill="none" stroke="${color}" stroke-width="${width}" style="pointer-events:none"/>`;
       }).join('');
+      return markup ? `<g class="connection-bridges">${markup}</g>` : '';
     }
 
     function connectionLabelMetrics(label) {
@@ -3629,7 +3630,11 @@
       // Connections
       const connGeom = computeConnectionGeometry(nodeById);
       const movingIds = fastPreview && dragging ? new Set((dragging.multiDrag || [{ node: dragging.node }]).map(item => item.node.id)) : new Set();
-      const routeOf = fastPreview ? new Map(connections.filter(conn => !conn.isSequenceMessage).map(conn => {
+      const partialPreview = fastPreview && connectionsGroup.querySelector('.connection-group');
+      const renderedConnections = partialPreview
+        ? connections.filter(conn => movingIds.has(conn.from) || movingIds.has(conn.to))
+        : connections;
+      const routeOf = fastPreview ? new Map(renderedConnections.filter(conn => !conn.isSequenceMessage).map(conn => {
         const cached = _routeCache?.get(conn.id);
         if (cached && !movingIds.has(conn.from) && !movingIds.has(conn.to)) return [conn.id, cached];
         const from = nodeById.get(conn.from), to = nodeById.get(conn.to);
@@ -3643,7 +3648,7 @@
       const labelOf = fastPreview ? new Map() : computeConnectionLabels(routeOf, nodeById, bridgeOf);
       let selHandles = null;  // endpoint coords for the selected connection (drawn on top)
       const cullActive = nodes.length > CONFIG.cullThreshold;
-      connectionsGroup.innerHTML = framesSvg + activationsSvg + connections.map(conn => {
+      const connectionMarkup = renderedConnections.map(conn => {
         const from = nodeById.get(conn.from);
         const to = nodeById.get(conn.to);
         if (!from || !to) return '';
@@ -3863,6 +3868,22 @@
         }
         return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" role="img" aria-label="${esc(connAriaLabel(conn, nodeById))}" style="cursor:pointer">${hitArea}${arrowHit}<path class="connection" d="${path}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${connDashArray}" style="pointer-events:none"/>${bridgeEl}${startMarkerSvg}${endMarkerSvg}${labelEl}${multSvg}</g>`;
       }).join('');
+      if (partialPreview) {
+        const scratch = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        scratch.innerHTML = connectionMarkup;
+        Array.from(scratch.children).forEach(group => {
+          const current = Array.from(connectionsGroup.querySelectorAll('.connection-group')).find(item => item.dataset.id === group.dataset.id);
+          if (current) {
+            ['.connection-bridges', '.connection-label'].forEach(selector => {
+              const staticElement = current.querySelector(selector);
+              if (staticElement) group.appendChild(staticElement);
+            });
+            current.replaceWith(group);
+          }
+        });
+      } else {
+        connectionsGroup.innerHTML = framesSvg + activationsSvg + connectionMarkup;
+      }
 
       // Endpoint handles on top of everything, with a generous transparent hit area
       const handle = (end, cx, cy) => `

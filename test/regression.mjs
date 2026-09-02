@@ -167,8 +167,10 @@ group('Batch routing performance and cache');
   check('fifty-node batch routes within the release budget', timing.first < 100, `${timing.first.toFixed(1)}ms`);
   check('medium fixture has no route or node violations', !timing.findings.some(finding => ['edge-node', 'shared-segment'].includes(finding.type)), JSON.stringify(timing.findings));
   check('unchanged route geometry uses the cache', timing.cached < 20, `${timing.cached.toFixed(1)}ms`);
-  const dragTiming = E(`(()=>{dragging={node:nodes[0],startX:nodes[0].x,startY:nodes[0].y};nodes[0].x+=4;const original=routeConnection;let calls=0;routeConnection=(...args)=>{calls++;return original(...args)};const start=performance.now();renderConnections(true);const elapsed=performance.now()-start;routeConnection=original;dragging=null;return {calls,elapsed};})()`);
+  E(`renderConnections()`);
+  const dragTiming = E(`(()=>{const unrelated=Array.from(connectionsGroup.querySelectorAll('.connection-group')).find(group=>group.dataset.id==='h10');dragging={node:nodes[0],startX:nodes[0].x,startY:nodes[0].y};nodes[0].x+=4;const original=routeConnection;let calls=0;routeConnection=(...args)=>{calls++;return original(...args)};const start=performance.now();renderConnections(true);const elapsed=performance.now()-start;routeConnection=original;dragging=null;return {calls,elapsed,unchanged:unrelated===Array.from(connectionsGroup.querySelectorAll('.connection-group')).find(group=>group.dataset.id==='h10'),count:connectionsGroup.querySelectorAll('.connection-group').length};})()`);
   check('drag preview reroutes only connected edges', dragTiming.calls < 10, `${dragTiming.calls} routes`);
+  check('drag preview preserves unrelated connection elements', dragTiming.unchanged && dragTiming.count === 100);
   check('medium drag preview stays within one frame', dragTiming.elapsed < 16.7, `${dragTiming.elapsed.toFixed(1)}ms`);
 }
 
