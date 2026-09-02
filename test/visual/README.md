@@ -1,0 +1,34 @@
+# Visual quality tests
+
+These Playwright tests verify rendered Draph output in a real browser.
+
+The first fixture locks these connector contracts:
+
+- Fan-in and fan-out edges use separate attach points.
+- Adjacent automatic ports target a 12-pixel gap.
+- Fan routes use separate cross-channels.
+- Mermaid-created edges use rounded orthogonal paths.
+- Light and dark output match reviewed screenshots.
+
+Run logic and visual checks:
+
+```bash
+npm run test:all
+```
+
+Update macOS screenshots after an intentional visual change:
+
+```bash
+npm run test:visual -- --update-snapshots
+```
+
+Update Linux screenshots with the pinned CI image:
+
+```bash
+docker run --rm --init --ipc=host \
+  -v "$PWD:/work" -v /work/node_modules -w /work \
+  mcr.microsoft.com/playwright:v1.62.1-noble \
+  bash -lc "npm ci && npm run test:visual -- --update-snapshots"
+```
+
+Review every changed screenshot before commit. Do not update screenshots to hide a failed geometry contract.

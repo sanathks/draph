@@ -1177,10 +1177,12 @@
      *   fromSide,toSide:  'top'|'bottom'|'left'|'right'   which connector to attach to
      *   fromSideLocked, toSideLocked?: boolean   true = user chose this side; the
      *                                            auto-router must NOT override it
+     *   fromFrac,toFrac?: number     attach position along the chosen side (0..1)
+     *   fromFracLocked,toFracLocked?: boolean   true = user placed this endpoint
      *   fromIdx, toIdx?: number      connector index along a side (legacy; usually 1)
      *   label?:     string
      *   color?:     string           line color
-     *   lineStyle?: 'rounded'|'straight'
+     *   lineStyle?: 'curved'|'rounded'|'straight'
      *   strokeStyle?: 'dashed'       (else solid)
      *   isSequenceMessage?, messageY?, arrow?:  (sequence diagrams)
      * }
@@ -2358,7 +2360,11 @@
     //  All tunables live in ROUTE_CFG so future tweaks are one-liners.
     // =====================================================================
     const SIDE_NORMAL = { top: {x:0,y:-1}, bottom: {x:0,y:1}, left: {x:-1,y:0}, right: {x:1,y:0} };
-    const ROUTE_CFG = { maxClear: 24 }; // max perpendicular stub off a node connector
+    const ROUTE_CFG = {
+      maxClear: 24,        // max perpendicular stub off a node connector
+      portGap: 12,         // target gap between automatic ports on one side
+      portCornerPad: 16,   // keep automatic ports clear of rounded corners
+    };
 
     // Point on a node's side at a fractional position along it (0..1).
     function sidePoint(node, side, frac = 0.5) {
@@ -2371,25 +2377,150 @@
       return { x: node.x + node.width / 2, y: node.y + node.height / 2 };
     }
 
-    // Resolve each connection's attach sides. A side is honored verbatim when the
-    // user locked it (by dragging an endpoint); otherwise it's auto-chosen toward
-    // the other node. Edges landing on the same side share the connector (merged).
+    // Convert a pointer position into a stable fraction along one node side.
+    function sideFractionAtPoint(node, side, x, y) {
+      const raw = (side === 'top' || side === 'bottom')
+        ? (x - node.x) / Math.max(1, node.width)
+        : (y - node.y) / Math.max(1, node.height);
+      return Math.max(0, Math.min(1, raw));
+    }
+
+    function endpointProjection(entry, side, nodeById) {
+      const other = nodeById.get(entry.end === 'from' ? entry.conn.to : entry.conn.from);
+      if (!other) return 0;
+      return (side === 'top' || side === 'bottom')
+        ? other.x + other.width / 2
+        : other.y + other.height / 2;
+    }
+
+    // Separate automatic ports and order them by the opposite endpoint.
+    // Locked fractions remain exact user intent.
+    function assignPortFractions(sideOf, nodeById) {
+      const groups = new Map();
+      const add = (conn, end, nodeId, side) => {
+        const key = `${nodeId}:${side}`;
+        if (!groups.has(key)) groups.set(key, { nodeId, side, entries: [] });
+        groups.get(key).entries.push({ conn, end, geometry: sideOf.get(conn.id) });
+      };
+
+      connections.forEach(conn => {
+        if (conn.isSequenceMessage || conn.from === conn.to) return;
+        const geometry = sideOf.get(conn.id);
+        if (!geometry) return;
+        add(conn, 'from', conn.from, geometry.fromSide);
+        add(conn, 'to', conn.to, geometry.toSide);
+      });
+
+      groups.forEach(group => {
+        const node = nodeById.get(group.nodeId);
+        if (!node) return;
+        const horizontal = group.side === 'top' || group.side === 'bottom';
+        const dimension = Math.max(1, horizontal ? node.width : node.height);
+        const padding = Math.min(ROUTE_CFG.portCornerPad, dimension / 4);
+        const lower = padding;
+        const upper = dimension - padding;
+        const entries = group.entries.sort((a, b) => {
+          const delta = endpointProjection(a, group.side, nodeById) - endpointProjection(b, group.side, nodeById);
+          return Math.abs(delta) > 0.01 ? delta : `${a.conn.id}:${a.end}`.localeCompare(`${b.conn.id}:${b.end}`);
+        });
+        const span = Math.min(Math.max(0, upper - lower), ROUTE_CFG.portGap * Math.max(0, entries.length - 1));
+        const start = dimension / 2 - span / 2;
+        const step = entries.length > 1 ? span / (entries.length - 1) : 0;
+        const occupied = [];
+
+        // Reserve locked positions before placing automatic endpoints.
+        entries.forEach(entry => {
+          const key = `${entry.end}Frac`;
+          const lockKey = `${key}Locked`;
+          if (!entry.conn[lockKey] || !Number.isFinite(entry.conn[key])) return;
+          const position = Math.max(0, Math.min(dimension, entry.conn[key] * dimension));
+          entry.geometry[key] = position / dimension;
+          occupied.push(position);
+        });
+
+        entries.forEach((entry, index) => {
+          const key = `${entry.end}Frac`;
+          const lockKey = `${key}Locked`;
+          if (entry.conn[lockKey] && Number.isFinite(entry.conn[key])) return;
+          const desired = start + index * step;
+          const candidates = [desired];
+          for (let position = lower; position <= upper + 0.01; position += ROUTE_CFG.portGap) candidates.push(position);
+          for (let position = upper; position >= lower - 0.01; position -= ROUTE_CFG.portGap) candidates.push(position);
+          const unique = [...new Set(candidates.map(value => Math.round(value * 1000) / 1000))];
+          const valid = unique.filter(value => occupied.every(used => Math.abs(value - used) >= ROUTE_CFG.portGap - 0.01));
+          const pool = valid.length ? valid : unique;
+          pool.sort((a, b) => Math.abs(a - desired) - Math.abs(b - desired) || a - b);
+          const position = Math.max(0, Math.min(dimension, pool[0] ?? desired));
+          entry.geometry[key] = position / dimension;
+          occupied.push(position);
+        });
+
+        // Separate the cross-channels for fan-in and fan-out routes. The larger
+        // endpoint group wins when one edge belongs to groups at both ends.
+        if (entries.length > 1) {
+          entries.forEach((entry, index) => {
+            if ((entry.geometry._laneGroupSize || 0) >= entries.length) return;
+            entry.geometry._laneGroupSize = entries.length;
+            entry.geometry.laneOffset = (index - (entries.length - 1) / 2) * ROUTE_CFG.portGap;
+          });
+        }
+      });
+    }
+
+    // Resolve connection sides and separate automatic ports.
+    // Store only manual endpoint positions; calculate automatic fractions here.
     function computeConnectionGeometry(nodeById) {
-      const sideOf = new Map();   // connId -> { fromSide, toSide }
+      const sideOf = new Map();   // connId -> { fromSide, toSide, fromFrac, toFrac }
       connections.forEach(conn => {
         if (conn.isSequenceMessage) return;
         const from = nodeById.get(conn.from), to = nodeById.get(conn.to);
         if (!from || !to) return;
         const auto = getOptimalSides(from, to);
         // Re-seat non-locked sides every render so an edge follows its nodes as
-        // they move (no manual Auto-Arrange needed). Locked sides are user intent
-        // and never change. Write back to the connection so stored == rendered
-        // (export, endpoint handles, persistence all read conn.fromSide/toSide).
+        // they move. Locked sides are user intent and never change.
         if (!conn.fromSideLocked) conn.fromSide = auto.fromSide;
         if (!conn.toSideLocked) conn.toSide = auto.toSide;
-        sideOf.set(conn.id, { fromSide: conn.fromSide, toSide: conn.toSide });
+        sideOf.set(conn.id, {
+          fromSide: conn.fromSide,
+          toSide: conn.toSide,
+          fromFrac: conn.from === conn.to ? 0.7 : 0.5,
+          toFrac: conn.from === conn.to ? 0.35 : 0.5,
+        });
       });
+      assignPortFractions(sideOf, nodeById);
       return { sideOf };
+    }
+
+    // First geometry quality check: report ports that remain too close because a
+    // side is too small or manual endpoint locks conflict.
+    function analyzePortGeometry(nodeById, sideOf, minimumGap = 8) {
+      const groups = new Map();
+      const add = (conn, nodeId, side, frac) => {
+        const key = `${nodeId}:${side}`;
+        if (!groups.has(key)) groups.set(key, []);
+        const node = nodeById.get(nodeId);
+        if (!node) return;
+        const point = sidePoint(node, side, frac);
+        groups.get(key).push({ connId: conn.id, value: side === 'top' || side === 'bottom' ? point.x : point.y });
+      };
+      connections.forEach(conn => {
+        if (conn.isSequenceMessage || conn.from === conn.to) return;
+        const geometry = sideOf.get(conn.id);
+        if (!geometry) return;
+        add(conn, conn.from, geometry.fromSide, geometry.fromFrac);
+        add(conn, conn.to, geometry.toSide, geometry.toFrac);
+      });
+      const findings = [];
+      groups.forEach((ports, key) => {
+        ports.sort((a, b) => a.value - b.value || String(a.connId).localeCompare(String(b.connId)));
+        for (let index = 1; index < ports.length; index++) {
+          const gap = ports[index].value - ports[index - 1].value;
+          if (gap + 0.01 >= minimumGap) continue;
+          const [nodeId, side] = key.split(':');
+          findings.push({ type: 'port-gap', nodeId, side, connectionIds: [ports[index - 1].connId, ports[index].connId], gap, required: minimumGap });
+        }
+      });
+      return findings;
     }
 
     // Remove duplicate points and any point that sits *between* its neighbours on
@@ -2448,21 +2579,19 @@
     // from each node). The corner is picked so the segment ENTERING e2 is
     // perpendicular to the target normal n2 -> a clean 90° at the target, which
     // is what keeps the arrowhead from ever sitting on a spike/reversal.
-    function connectExits(e1, n1, e2, n2) {
+    function connectExits(e1, n1, e2, n2, laneOffset = 0) {
       const h1 = n1.x !== 0, h2 = n2.x !== 0;
       if (h1 === h2) {
         const sameDir = n1.x === n2.x && n1.y === n2.y;
         if (h1) {
-          // Both ends point the SAME horizontal way (e.g. both 'right'): the line
-          // has to wrap around, so run the cross-channel at the OUTERMOST x (past
-          // both nodes) instead of the midpoint, which would cut through a node.
-          // Opposite-facing ends (e.g. right->left) just jog at the midpoint.
+          // Same-facing ends wrap outside both nodes.
+          // Opposite-facing ends use separate fan-in and fan-out lanes.
           const x = sameDir ? (n1.x > 0 ? Math.max(e1.x, e2.x) : Math.min(e1.x, e2.x))
-                            : (e1.x + e2.x) / 2;
+                            : (e1.x + e2.x) / 2 + laneOffset;
           return [{ x, y: e1.y }, { x, y: e2.y }];
         }
         const y = sameDir ? (n1.y > 0 ? Math.max(e1.y, e2.y) : Math.min(e1.y, e2.y))
-                          : (e1.y + e2.y) / 2;
+                          : (e1.y + e2.y) / 2 + laneOffset;
         return [{ x: e1.x, y }, { x: e2.x, y }];
       }
       // mixed orientation -> one corner, entering e2 perpendicular to n2
@@ -2490,7 +2619,7 @@
       return { points, fromSide: 'top', toSide: 'right', endX: p2.x, endY: p2.y, inDir: { x: -1, y: 0 } };
     }
 
-    function routeConnection(from, to, fromSide, toSide, fromFrac = 0.5, toFrac = 0.5, waypoints = null) {
+    function routeConnection(from, to, fromSide, toSide, fromFrac = 0.5, toFrac = 0.5, waypoints = null, laneOffset = 0) {
       if (from === to) return selfLoopRoute(from);   // #104: self-transition
       const p1 = sidePoint(from, fromSide, fromFrac);
       const p2 = sidePoint(to, toSide, toFrac);
@@ -2527,7 +2656,7 @@
       const e1 = { x: p1.x + n1.x * clear, y: p1.y + n1.y * clear };
       const e2 = { x: p2.x + n2.x * clear, y: p2.y + n2.y * clear };
 
-      const points = simplifyPath([p1, e1, ...connectExits(e1, n1, e2, n2), e2, p2]);
+      const points = simplifyPath([p1, e1, ...connectExits(e1, n1, e2, n2, laneOffset), e2, p2]);
       return { points, fromSide, toSide, endX: p2.x, endY: p2.y, inDir: { x: -n2.x, y: -n2.y } };
     }
 
@@ -3040,8 +3169,8 @@
         // A waypoint'd edge renders orthogonally (rounded) so its bends are honored
         // — 'curved' threads one bezier end-to-end and would smooth the bend away.
         const lineStyle = (from === to || (conn.waypoints && conn.waypoints.length)) ? 'rounded' : (conn.lineStyle || 'curved');
-        const cg = connGeom.sideOf.get(conn.id) || getOptimalSides(from, to);
-        const { points, endX, endY, inDir } = routeConnection(from, to, cg.fromSide, cg.toSide, 0.5, 0.5, conn.waypoints);
+        const cg = connGeom.sideOf.get(conn.id) || { ...getOptimalSides(from, to), fromFrac: 0.5, toFrac: 0.5 };
+        const { points, endX, endY, inDir } = routeConnection(from, to, cg.fromSide, cg.toSide, cg.fromFrac, cg.toFrac, conn.waypoints, cg.laneOffset || 0);
         const [x1, y1] = [points[0].x, points[0].y];
         const [x2, y2] = [points[points.length-1].x, points[points.length-1].y];
         
@@ -4549,6 +4678,8 @@
       [conn.fromSide, conn.toSide] = [conn.toSide, conn.fromSide];
       [conn.fromIdx, conn.toIdx] = [conn.toIdx, conn.fromIdx];
       [conn.fromSideLocked, conn.toSideLocked] = [conn.toSideLocked, conn.fromSideLocked];
+      [conn.fromFrac, conn.toFrac] = [conn.toFrac, conn.fromFrac];
+      [conn.fromFracLocked, conn.toFracLocked] = [conn.toFracLocked, conn.fromFracLocked];
       if (conn.markerStart !== undefined || conn.markerEnd !== undefined) {
         [conn.markerStart, conn.markerEnd] = [conn.markerEnd, conn.markerStart];
       }
@@ -5270,6 +5401,10 @@
         if (fromNode === toNode) return;   // self-loop keeps its own sides (#104)
         c.fromSideLocked = false;
         c.toSideLocked = false;
+        c.fromFracLocked = false;
+        c.toFracLocked = false;
+        delete c.fromFrac;
+        delete c.toFrac;
         if (isLR) {
           // Left-to-right: route along x (parent-left → right side into child's left).
           if (fromNode.x + fromNode.width <= toNode.x + 1) {
@@ -5346,10 +5481,12 @@
       const from = nodes.find(n => n.id === conn.from);
       const to = nodes.find(n => n.id === conn.to);
       if (!from || !to) return null;
+      const nodeById = new Map(nodes.map(node => [node.id, node]));
+      const geometry = computeConnectionGeometry(nodeById).sideOf.get(conn.id);
       const auto = getOptimalSides(from, to);
-      const fromSide = conn.fromSideLocked ? conn.fromSide : auto.fromSide;
-      const toSide = conn.toSideLocked ? conn.toSide : auto.toSide;
-      const g = routeConnection(from, to, fromSide, toSide);
+      const fromSide = geometry?.fromSide || (conn.fromSideLocked ? conn.fromSide : auto.fromSide);
+      const toSide = geometry?.toSide || (conn.toSideLocked ? conn.toSide : auto.toSide);
+      const g = routeConnection(from, to, fromSide, toSide, geometry?.fromFrac ?? 0.5, geometry?.toFrac ?? 0.5, null, geometry?.laneOffset || 0);
       return { start: g.points[0], end: { x: g.endX, y: g.endY } };
     }
 
@@ -5949,8 +6086,14 @@
           }
           if (attachNode) {
             const side = getBestConnectorSide(attachNode, pos.x, pos.y);
-            if (end === 'from') { conn.fromSide = side; conn.fromSideLocked = true; }
-            else { conn.toSide = side; conn.toSideLocked = true; }
+            const fraction = sideFractionAtPoint(attachNode, side, pos.x, pos.y);
+            if (end === 'from') {
+              conn.fromSide = side; conn.fromSideLocked = true;
+              conn.fromFrac = fraction; conn.fromFracLocked = true;
+            } else {
+              conn.toSide = side; conn.toSideLocked = true;
+              conn.toFrac = fraction; conn.toFracLocked = true;
+            }
             saveState();
             render();
           }
@@ -9777,6 +9920,7 @@
                   fromIdx: 1,
                   toIdx: 1,
                   label: c.label || '',
+                  lineStyle: 'rounded',
                   relType: c.relType,
                   strokeStyle: c.strokeStyle,
                   thick: c.thick,

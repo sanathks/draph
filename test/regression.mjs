@@ -47,6 +47,62 @@ group('Routing geometry (perpendicular exit/entry, arrow direction)');
 }
 
 // ---------------------------------------------------------------------------
+group('Connection ports: fan-out separation and geometry quality');
+{
+  const { win, doc, E } = boot();
+  const source = win.createNode('rect', 300, 100, 120, 60);
+  const targets = [220, 280, 340, 400, 460].map((x, index) => {
+    const node = win.createNode('rect', x, 350, 80, 50);
+    E(`connections.push({id:'fan${index}',from:'${source.id}',to:'${node.id}',lineStyle:'rounded'})`);
+    return node;
+  });
+  const geometry = E(`computeConnectionGeometry(new Map(nodes.map(node => [node.id, node])))`);
+  const fractions = targets.map((_, index) => geometry.sideOf.get(`fan${index}`).fromFrac);
+  const lanes = targets.map((_, index) => geometry.sideOf.get(`fan${index}`).laneOffset);
+  const positions = fractions.map(fraction => source.x + source.width * fraction);
+  const sortedPositions = [...positions].sort((a, b) => a - b);
+  const gaps = sortedPositions.slice(1).map((position, index) => position - sortedPositions[index]);
+
+  check('fan-out gets one source port per edge', new Set(positions.map(value => value.toFixed(3))).size === targets.length, positions.join(','));
+  check('fan-out ports keep the 12px target gap', gaps.every(gap => gap >= 11.99), gaps.join(','));
+  check('fan-out ports follow target order', positions.every((position, index) => index === 0 || position > positions[index - 1]), positions.join(','));
+  check('fan-out routes receive separate cross-channels', new Set(lanes).size === targets.length && lanes.slice(1).every((lane, index) => lane - lanes[index] >= 11.99), lanes.join(','));
+  check('automatic fractions are not persisted', E(`connections.every(c => c.fromFrac === undefined && !c.fromFracLocked)`));
+  check('port quality analyzer reports no fan-out issue', E(`analyzePortGeometry(new Map(nodes.map(node => [node.id, node])), computeConnectionGeometry(new Map(nodes.map(node => [node.id, node]))).sideOf).length`) === 0);
+
+  win.render();
+  const renderedStarts = [...doc.querySelectorAll('path.connection')].map(path => {
+    const match = path.getAttribute('d').match(/^M([\-\d.]+),([\-\d.]+)/);
+    return match ? Number(match[1]) : NaN;
+  });
+  check('rendered fan-out paths use separate attach points', new Set(renderedStarts.map(value => value.toFixed(3))).size === targets.length, renderedStarts.join(','));
+
+  E(`connections[2].fromFrac = 0.5; connections[2].fromFracLocked = true`);
+  const locked = E(`computeConnectionGeometry(new Map(nodes.map(node => [node.id, node]))).sideOf.get('fan2').fromFrac`);
+  check('manual port fraction remains exact', Math.abs(locked - 0.5) < 0.001, String(locked));
+}
+
+// ---------------------------------------------------------------------------
+group('Connection ports: fan-in separation');
+{
+  const { win, E } = boot();
+  const target = win.createNode('rect', 300, 350, 120, 60);
+  const sources = [220, 280, 340, 400, 460].map((x, index) => {
+    const node = win.createNode('rect', x, 100, 80, 50);
+    E(`connections.push({id:'sink${index}',from:'${node.id}',to:'${target.id}',lineStyle:'rounded'})`);
+    return node;
+  });
+  const geometry = E(`computeConnectionGeometry(new Map(nodes.map(node => [node.id, node])))`);
+  const fractions = sources.map((_, index) => geometry.sideOf.get(`sink${index}`).toFrac);
+  const lanes = sources.map((_, index) => geometry.sideOf.get(`sink${index}`).laneOffset);
+  const positions = fractions.map(fraction => target.x + target.width * fraction);
+
+  check('fan-in gets one target port per edge', new Set(positions.map(value => value.toFixed(3))).size === sources.length, positions.join(','));
+  check('fan-in ports follow source order', positions.every((position, index) => index === 0 || position > positions[index - 1]), positions.join(','));
+  check('fan-in routes receive separate cross-channels', new Set(lanes).size === sources.length, lanes.join(','));
+}
+
+// ---------------------------------------------------------------------------
 group('Arrow sits on the connector, line trimmed to its base');
 {
   const { win, doc, E } = boot();
@@ -93,12 +149,14 @@ group('Endpoint drag re-routes + snap highlight');
   const c = win.createNode('rect', 800, 100, 120, 60); win.render();
   const ep = doc.querySelector('#connHandles .conn-endpoint[data-end="to"]');
   mouse(ep, 'mousedown', 0, 0);
-  mouse(doc, 'mousemove', 805, 130); // over node C's left edge
+  mouse(doc, 'mousemove', 805, 115); // over node C's upper-left edge
   const snap = !!doc.querySelector('.connector.snap-target');
-  mouse(doc, 'mouseup', 805, 130);
+  mouse(doc, 'mouseup', 805, 115);
   check('snap-target highlighted while dragging', snap);
   check('endpoint drag retargets connection to C', E(`connections.find(c=>c.id==='e').to`) === c.id);
   check('dropped side is locked', E(`connections.find(c=>c.id==='e').toSideLocked`) === true);
+  check('dropped position is locked', E(`connections.find(c=>c.id==='e').toFracLocked`) === true);
+  check('dropped position persists along the side', Math.abs(E(`connections.find(c=>c.id==='e').toFrac`) - 0.25) < 0.01);
 }
 
 // ---------------------------------------------------------------------------
@@ -132,6 +190,7 @@ group('Mermaid generate -> parse round-trip');
   win.importMermaid(true);
   check('import builds nodes', E('nodes.length') >= 4, 'got ' + E('nodes.length'));
   check('import builds connections', E('connections.length') >= 3, 'got ' + E('connections.length'));
+  check('Mermaid import uses rounded orthogonal edges', E(`connections.every(c => c.lineStyle === 'rounded')`));
   const code = win.generateMermaid();
   check('generateMermaid returns flowchart code', /flowchart/.test(code), code.slice(0, 30));
 }
@@ -451,6 +510,7 @@ group('Auto-arrange: clean layered layout (no overlap, parents centered)');
   const sub = mk('rect', 150, 60, 'Submit credentials');
   const link = (a, b) => E(`connections.push({from:'${a.id}',to:'${b.id}'})`);
   link(ur, auth); link(auth, ld); link(auth, sl); link(ld, done); link(sl, sub);
+  E(`connections[0].fromFrac = 0.25; connections[0].fromFracLocked = true`);
   win.arrangeDiagram();
   const N = (id) => E(`(()=>{const n=nodes.find(x=>x.id==='${id}');return {x:n.x,y:n.y,w:n.width,h:n.height}})()`);
   const ns = { ur: N(ur.id), auth: N(auth.id), ld: N(ld.id), sl: N(sl.id), done: N(done.id), sub: N(sub.id) };
@@ -472,6 +532,7 @@ group('Auto-arrange: clean layered layout (no overlap, parents centered)');
   check('Authenticated->Load dashboard routes bottom->top', e1.fromSide === 'bottom' && e1.toSide === 'top');
   check('Authenticated->Show login routes bottom->top', e2.fromSide === 'bottom' && e2.toSide === 'top');
   check('arrange clears manual side locks', !e1.fl && !e1.tl && !e2.fl && !e2.tl);
+  check('arrange clears manual port positions', E(`connections[0].fromFrac === undefined && !connections[0].fromFracLocked`));
 }
 
 // ---------------------------------------------------------------------------
@@ -3030,11 +3091,13 @@ group('Reverse connection direction (#129): swap from/to + sides/markers, undoab
   const b = win.createNode('rect', 240, 0, 80, 40);
   win.connect(a.id, b.id, { fromSide: 'right', toSide: 'left', markerEnd: 'arrow' });
   const cid = E(`connections[0].id`);
+  E(`connections[0].fromFrac = 0.25; connections[0].toFrac = 0.75; connections[0].fromFracLocked = true; connections[0].toFracLocked = true`);
   win.saveState(); // baseline with the connection present so undo lands here
 
   win.reverseConnection(cid);
   check('reverse swaps from/to', E(`connections[0].from`) === b.id && E(`connections[0].to`) === a.id);
   check('reverse swaps sides', E(`connections[0].fromSide`) === 'left' && E(`connections[0].toSide`) === 'right');
+  check('reverse swaps port fractions', E(`connections[0].fromFrac`) === 0.75 && E(`connections[0].toFrac`) === 0.25 && E(`connections[0].fromFracLocked`) && E(`connections[0].toFracLocked`));
   check('reverse moves the arrow marker to the new end', E(`connections[0].markerStart`) === 'arrow' && (E(`connections[0].markerEnd`) === undefined || E(`connections[0].markerEnd`) === null));
 
   // undoable as one unit
