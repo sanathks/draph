@@ -1,0 +1,66 @@
+{
+  "n": [
+    {
+      "id": "one",
+      "type": "rect",
+      "x": 470,
+      "y": 70,
+      "width": 150,
+      "height": 56,
+      "label": "Plan",
+      "semanticRole": "focal"
+    },
+    {
+      "id": "two",
+      "type": "rect",
+      "x": 180,
+      "y": 380,
+      "width": 150,
+      "height": 56,
+      "label": "Execute"
+    },
+    {
+      "id": "three",
+      "type": "rect",
+      "x": 760,
+      "y": 380,
+      "width": 150,
+      "height": 56,
+      "label": "Review"
+    }
+  ],
+  "c": [
+    {
+      "id": "a",
+      "to": "two",
+      "label": "",
+      "lineStyle": "rounded",
+      "from": "one"
+    },
+    {
+      "id": "b",
+      "to": "three",
+      "label": "",
+      "lineStyle": "rounded",
+      "from": "two"
+    },
+    {
+      "id": "c",
+      "to": "one",
+      "label": "feedback",
+      "lineStyle": "rounded",
+      "isBackEdge": true,
+      "from": "three"
+    }
+  ],
+  "v": {
+    "x": 0,
+    "y": 0,
+    "z": 1
+  },
+  "dt": "flowchart",
+  "vp": "editorial",
+  "vg": "dependency",
+  "vd": "balanced",
+  "vq": 1
+}

@@ -1,0 +1,112 @@
+{
+  "n": [
+    {
+      "id": "gateway",
+      "type": "rect",
+      "x": 480,
+      "y": 70,
+      "width": 170,
+      "height": 64,
+      "label": "API Gateway",
+      "icon": "link",
+      "semanticRole": "focal"
+    },
+    {
+      "id": "t0",
+      "type": "rect",
+      "x": 80,
+      "y": 420,
+      "width": 150,
+      "height": 56,
+      "label": "Identity",
+      "icon": "user"
+    },
+    {
+      "id": "t1",
+      "type": "rect",
+      "x": 285,
+      "y": 420,
+      "width": 150,
+      "height": 56,
+      "label": "Orders",
+      "icon": "table"
+    },
+    {
+      "id": "t2",
+      "type": "rect",
+      "x": 490,
+      "y": 420,
+      "width": 150,
+      "height": 56,
+      "label": "Inventory",
+      "icon": "database"
+    },
+    {
+      "id": "t3",
+      "type": "rect",
+      "x": 695,
+      "y": 420,
+      "width": 150,
+      "height": 56,
+      "label": "Billing",
+      "icon": "credit-card"
+    },
+    {
+      "id": "t4",
+      "type": "rect",
+      "x": 900,
+      "y": 420,
+      "width": 150,
+      "height": 56,
+      "label": "Notifications",
+      "icon": "message"
+    }
+  ],
+  "c": [
+    {
+      "id": "e0",
+      "to": "t0",
+      "label": "OIDC",
+      "lineStyle": "rounded",
+      "from": "gateway"
+    },
+    {
+      "id": "e1",
+      "to": "t1",
+      "label": "HTTP",
+      "lineStyle": "rounded",
+      "from": "gateway"
+    },
+    {
+      "id": "e2",
+      "to": "t2",
+      "label": "events",
+      "lineStyle": "rounded",
+      "from": "gateway"
+    },
+    {
+      "id": "e3",
+      "to": "t3",
+      "label": "gRPC",
+      "lineStyle": "rounded",
+      "from": "gateway"
+    },
+    {
+      "id": "e4",
+      "to": "t4",
+      "label": "queue",
+      "lineStyle": "rounded",
+      "from": "gateway"
+    }
+  ],
+  "v": {
+    "x": 0,
+    "y": 0,
+    "z": 1
+  },
+  "dt": "flowchart",
+  "vp": "editorial",
+  "vg": "architecture",
+  "vd": "balanced",
+  "vq": 1
+}

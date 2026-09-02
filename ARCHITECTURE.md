@@ -51,7 +51,7 @@ Top to bottom inside the `<script>`:
 node = {
   id, type,                         // type: rect|pill|diamond|circle|container|text|line
   x, y, width, height,              // for 'line', width/height are dx/dy of the end point
-  label,
+  label, tag?, sublabel?, semanticRole?,
   color?, outlineColor?, fillStyle?,        // styling
   isParticipant?, hasLifeline?,             // sequence diagrams
   isClass?, properties?, methods?,          // UML class diagrams
@@ -61,7 +61,9 @@ connection = {
   id, from, to,                     // from/to are node ids
   fromSide, toSide,                 // 'top'|'bottom'|'left'|'right'
   fromSideLocked?, toSideLocked?,   // true = user chose it; the auto-router won't override
-  label?, color?, lineStyle?, strokeStyle?,
+  fromFrac?, toFrac?, fromFracLocked?, toFracLocked?,
+  waypoints?, label?, labelX?, labelY?, labelPositionLocked?,
+  semanticRole?, color?, lineStyle?, strokeStyle?,
   isSequenceMessage?, messageY?, arrow?,    // sequence diagrams
 }
 ```
@@ -91,8 +93,9 @@ rebuilds the `innerHTML` of three persistent SVG layers, painted back-to-front:
 In the GEOMETRY & ROUTING section. Pure geometry, no side effects:
 
 - `getOptimalSides(from, to)` — auto-pick which sides to attach to (unless locked).
-- `routeConnection(from, to, fromSide, toSide)` — returns the polyline (ending on
-  the target connector) plus `inDir`, the inward arrow direction.
+- `routeConnection(from, to, fromSide, toSide)` — returns the preview polyline.
+- `computeConnectionRoutes()` batch-routes final edges around expanded node and
+  container-header obstacles, then reserves accepted channels.
   - It pushes a short **perpendicular stub** off each node so the line leaves the
     source and enters the target square-on (the arrowhead always sits perpendicular
     on the connector). The stub clearance is adaptive (`ROUTE_CFG`) so close nodes
@@ -101,9 +104,9 @@ In the GEOMETRY & ROUTING section. Pure geometry, no side effects:
     entering the target is perpendicular to its side (a clean 90°, never a spike).
 - The renderer places the arrow tip exactly on the connector and trims the drawn
   line back to the arrow's base, so no line shows through the arrowhead.
-- Users can drag a selected connection's endpoint handle onto any side or node;
-  that **locks** the side (`fromSideLocked`/`toSideLocked`) so the auto-router leaves
-  it alone.
+- Automatic endpoint fractions and route lanes are computed, not persisted.
+- Endpoint, waypoint, and label drags persist only explicit user intent.
+- Crossing bridges and collision-aware labels derive from final routes.
 
 ## How to extend (common tasks)
 
@@ -120,13 +123,13 @@ In the GEOMETRY & ROUTING section. Pure geometry, no side effects:
 
 ```bash
 npm install   # once, to get jsdom (devDependency)
-npm test      # runs test/regression.mjs
-npm run dev   # serve at http://localhost:3000 for a visual check
+npm test        # runs test/regression.mjs
+npm run test:visual
+npm run test:all
+npm run dev     # serve at http://localhost:3000 for a visual check
 ```
 
-`npm test` boots the real `index.html` in jsdom and asserts logic-level behavior:
-state/CRUD, routing geometry, arrow placement, selection, endpoint re-routing,
-history, URL round-trip, Mermaid round-trip, empty state, label editing, palettes,
-and keyboard shortcuts. It **cannot** see pixels — spacing/color/layout regressions
-still need a human (or a browser screenshot) on `npm run dev`. When you add a
-feature, add a check so the next agent can refactor without fear.
+`npm test` boots the real `index.html` in jsdom for logic checks. Playwright checks
+reviewed Darwin and Linux screenshots for every canonical geometry fixture.
+
+When you change rendering, update and review both platform baseline sets.

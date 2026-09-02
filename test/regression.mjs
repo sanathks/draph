@@ -17,6 +17,8 @@ group('State & node/connection CRUD');
   check('createNode adds to state', E('nodes.length') === 2);
   check('nodes render as .node elements', doc.querySelectorAll('#nodes .node').length === 2);
   check('createNode returns a node with id', !!a.id && a.id !== b.id);
+  a.tag = 'API'; a.sublabel = '/v1/orders'; win.render();
+  check('editorial tags and technical sublabels render', doc.querySelector(`.node[data-id="${a.id}"]`).textContent.includes('API') && doc.querySelector(`.node[data-id="${a.id}"]`).textContent.includes('/v1/orders'));
   E(`connections.push({id:'c1',from:'${a.id}',to:'${b.id}'})`);
   win.render();
   check('connection renders a connection-group', doc.querySelectorAll('.connection-group').length === 1);
@@ -100,6 +102,122 @@ group('Connection ports: fan-in separation');
   check('fan-in gets one target port per edge', new Set(positions.map(value => value.toFixed(3))).size === sources.length, positions.join(','));
   check('fan-in ports follow source order', positions.every((position, index) => index === 0 || position > positions[index - 1]), positions.join(','));
   check('fan-in routes receive separate cross-channels', new Set(lanes).size === sources.length, lanes.join(','));
+}
+
+// ---------------------------------------------------------------------------
+group('Obstacle routing avoids unrelated nodes');
+{
+  const { win, E } = boot();
+  const source = win.createNode('rect', 100, 200, 120, 60);
+  const target = win.createNode('rect', 600, 200, 120, 60);
+  const blocker = win.createNode('rect', 330, 150, 140, 160);
+  E(`connections.push({id:'blocked',from:'${source.id}',to:'${target.id}',fromSide:'right',toSide:'left',fromSideLocked:true,toSideLocked:true,lineStyle:'rounded'})`);
+  const result = E(`(()=>{const byId=new Map(nodes.map(n=>[n.id,n]));const geometry=computeConnectionGeometry(byId);const routes=computeConnectionRoutes(byId,geometry);return {route:routes.get('blocked'),findings:analyzeDiagramGeometry(byId,geometry,routes,computeCrossingBridges(routes),computeConnectionLabels(routes,byId))}})()`);
+  const rect = { left: blocker.x, right: blocker.x + blocker.width, top: blocker.y, bottom: blocker.y + blocker.height };
+  const crosses = result.route.points.slice(1).some((point, index) => E(`segmentHitsObstacle(${JSON.stringify(result.route.points[index])},${JSON.stringify(point)},${JSON.stringify(rect)})`));
+
+  check('blocked route takes an obstacle detour', result.route.detoured === true);
+  check('detoured route does not enter the blocker', !crosses, JSON.stringify(result.route.points));
+  check('quality report has no edge-node finding', !result.findings.some(finding => finding.type === 'edge-node'), JSON.stringify(result.findings));
+  const deterministic = E(`(()=>{const byId=new Map(nodes.map(n=>[n.id,n]));const geometry=computeConnectionGeometry(byId);_routeCacheKey=null;_routeCache=null;const first=JSON.stringify([...computeConnectionRoutes(byId,geometry)]);_routeCacheKey=null;_routeCache=null;const second=JSON.stringify([...computeConnectionRoutes(byId,geometry)]);return first===second})()`);
+  check('identical input produces deterministic routes', deterministic);
+}
+
+// ---------------------------------------------------------------------------
+group('Container routes avoid labelled headers');
+{
+  const { win, E } = boot();
+  const zone = win.createNode('container', 100, 100, 400, 300); zone.label = 'Runtime Zone';
+  const child = win.createNode('rect', 240, 210, 120, 60);
+  const external = win.createNode('rect', 240, -80, 120, 60);
+  E(`connections.push({id:'zone-exit',from:'${child.id}',to:'${external.id}',lineStyle:'rounded'})`);
+  const route = E(`(()=>{const byId=new Map(nodes.map(n=>[n.id,n]));const geometry=computeConnectionGeometry(byId);return computeConnectionRoutes(byId,geometry).get('zone-exit')})()`);
+  const header = { left: zone.x - 6, right: zone.x + zone.width + 6, top: zone.y - 6, bottom: zone.y + 41 };
+  const crossesHeader = route.points.slice(1).some((point, index) => E(`segmentHitsObstacle(${JSON.stringify(route.points[index])},${JSON.stringify(point)},${JSON.stringify(header)})`));
+  check('cross-container route uses a gateway outside the header', !crossesHeader, JSON.stringify(route.points));
+}
+
+// ---------------------------------------------------------------------------
+group('Manual waypoint intervals avoid obstacles');
+{
+  const { win, E } = boot();
+  const source = win.createNode('rect', 100, 200, 120, 60);
+  const blocker = win.createNode('rect', 360, 130, 140, 200);
+  const target = win.createNode('rect', 700, 200, 120, 60);
+  E(`connections.push({id:'manual-obstacle',from:'${source.id}',to:'${target.id}',fromSide:'right',toSide:'left',fromSideLocked:true,toSideLocked:true,waypoints:[{x:300,y:230}],lineStyle:'rounded'})`);
+  const result = E(`(()=>{const byId=new Map(nodes.map(n=>[n.id,n]));const geometry=computeConnectionGeometry(byId);const route=computeConnectionRoutes(byId,geometry).get('manual-obstacle');return route})()`);
+  const rect = { left: blocker.x - 12, right: blocker.x + blocker.width + 12, top: blocker.y - 12, bottom: blocker.y + blocker.height + 12 };
+  const crosses = result.points.slice(1).some((point, index) => E(`segmentHitsObstacle(${JSON.stringify(result.points[index])},${JSON.stringify(point)},${JSON.stringify(rect)})`));
+  check('manual route keeps the exact waypoint anchor', result.points.some(point => point.x === 300 && point.y === 230), JSON.stringify(result.points));
+  check('manual waypoint intervals avoid unrelated nodes', !crosses, JSON.stringify(result.points));
+}
+
+// ---------------------------------------------------------------------------
+group('Batch routing performance and cache');
+{
+  const { win, E } = boot();
+  for (let index = 0; index < 50; index++) win.createNode('rect', 100 + (index % 10) * 160, 100 + Math.floor(index / 10) * 140, 110, 50);
+  E(`(()=>{
+    for(let row=0;row<5;row++)for(let col=0;col<9;col++){const i=row*10+col;connections.push({id:'h'+i,from:nodes[i].id,to:nodes[i+1].id,lineStyle:'rounded'});}
+    for(let row=0;row<4;row++)for(let col=0;col<10;col++){const i=row*10+col;connections.push({id:'v'+i,from:nodes[i].id,to:nodes[i+10].id,lineStyle:'rounded'});}
+    for(let i=0;i<15;i++)connections.push({id:'d'+i,from:nodes[i].id,to:nodes[i+11].id,lineStyle:'rounded'});
+  })()`);
+  const timing = E(`(()=>{const byId=new Map(nodes.map(n=>[n.id,n]));const geometry=computeConnectionGeometry(byId);const start=performance.now();const routes=computeConnectionRoutes(byId,geometry);const first=performance.now()-start;const findings=analyzeDiagramGeometry(byId,geometry,routes,computeCrossingBridges(routes),computeConnectionLabels(routes,byId));const cachedStart=performance.now();computeConnectionRoutes(byId,geometry);return {first,cached:performance.now()-cachedStart,count:routes.size,findings};})()`);
+  check('fifty-node fixture contains one hundred routes', timing.count === 100);
+  check('fifty-node batch routes within the release budget', timing.first < 100, `${timing.first.toFixed(1)}ms`);
+  check('medium fixture has no route or node violations', !timing.findings.some(finding => ['edge-node', 'shared-segment'].includes(finding.type)), JSON.stringify(timing.findings));
+  check('unchanged route geometry uses the cache', timing.cached < 20, `${timing.cached.toFixed(1)}ms`);
+  const dragTiming = E(`(()=>{dragging={node:nodes[0],startX:nodes[0].x,startY:nodes[0].y};nodes[0].x+=4;const original=routeConnection;let calls=0;routeConnection=(...args)=>{calls++;return original(...args)};const start=performance.now();renderConnections(true);const elapsed=performance.now()-start;routeConnection=original;dragging=null;return {calls,elapsed};})()`);
+  check('drag preview reroutes only connected edges', dragTiming.calls < 10, `${dragTiming.calls} routes`);
+  check('medium drag preview stays within one frame', dragTiming.elapsed < 16.7, `${dragTiming.elapsed.toFixed(1)}ms`);
+}
+
+// ---------------------------------------------------------------------------
+group('Crossing bridges and offset labels');
+{
+  const { win, E } = boot();
+  const a = win.createNode('rect', 0, 0, 80, 40);
+  const b = win.createNode('rect', 320, 240, 80, 40);
+  const c = win.createNode('rect', 0, 240, 80, 40);
+  const d = win.createNode('rect', 320, 0, 80, 40);
+  E(`connections.push({id:'first',from:'${a.id}',to:'${b.id}',label:'primary path',lineStyle:'rounded'})`);
+  E(`connections.push({id:'second',from:'${c.id}',to:'${d.id}',label:'return path',lineStyle:'rounded'})`);
+  const bridges = E(`computeCrossingBridges(new Map([
+    ['first',{points:[{x:40,y:40},{x:40,y:140},{x:360,y:140},{x:360,y:240}]}],
+    ['second',{points:[{x:40,y:240},{x:40,y:180},{x:200,y:180},{x:200,y:0},{x:360,y:0}]}]
+  ]))`);
+  check('later edge receives a bridge at a crossing', bridges.has('second') && bridges.get('second').length === 1);
+  const priorityBridge = E(`(()=>{connections.find(c=>c.id==='first').semanticRole='passive';connections.find(c=>c.id==='second').semanticRole='primary';return computeCrossingBridges(new Map([['first',{points:[{x:40,y:140},{x:360,y:140}]}],['second',{points:[{x:200,y:0},{x:200,y:240}]}]]))})()`);
+  check('lower-priority passive edge receives the bridge', priorityBridge.has('first') && !priorityBridge.has('second'));
+  E(`connectionsGroup.innerHTML=bridgeMarkup([{x:200,y:180,horizontal:true}],COLORS.fg,2)`);
+  check('SVG export preserves crossing bridge markup', /r="7"/.test(win.buildExportSVG()) && /Q200,171/.test(win.buildExportSVG()));
+  const missingBridge = E(`(()=>{const original=connections;connections=[{id:'x1',from:'a',to:'b'},{id:'x2',from:'c',to:'d'}];const byId=new Map();const routes=new Map([['x1',{points:[{x:0,y:50},{x:100,y:50}]}],['x2',{points:[{x:50,y:0},{x:50,y:100}]}]]);const finding=analyzeDiagramGeometry(byId,{sideOf:new Map()},routes,new Map(),new Map()).find(f=>f.type==='unbridged-crossing');connections=original;return finding})()`);
+  check('unbridged crossing reports exact connection identifiers', missingBridge?.connectionIds?.join(',') === 'x1,x2');
+
+  const placement = E(`(()=>{const routes=new Map([['first',{points:[{x:80,y:120},{x:320,y:120}]}]]);return computeConnectionLabels(routes,new Map(nodes.map(n=>[n.id,n]))).get('first')})()`);
+  check('edge label sits away from its route', placement && (placement.y + placement.height <= 112 || placement.y >= 128), JSON.stringify(placement));
+}
+
+// ---------------------------------------------------------------------------
+group('Manual label positions persist and can return to automatic placement');
+{
+  const { win, doc, E } = boot();
+  const a = win.createNode('rect', 80, 180, 120, 60);
+  const b = win.createNode('rect', 600, 180, 120, 60);
+  E(`connections.push({id:'label-drag',from:'${a.id}',to:'${b.id}',label:'drag me',lineStyle:'rounded'})`);
+  win.render();
+  let label = doc.querySelector('.connection-label');
+  const rect = label.querySelector('rect');
+  const x = Number(rect.getAttribute('x')) + 5, y = Number(rect.getAttribute('y')) + 5;
+  pointer(label, 'pointerdown', x, y);
+  pointer(doc, 'pointermove', x + 60, y + 40);
+  pointer(doc, 'pointerup', x + 60, y + 40);
+  check('dragging a label locks its manual position', E(`connections[0].labelPositionLocked`) === true && Number.isFinite(E(`connections[0].labelX`)));
+  const saved = JSON.parse(win.draphHostAPI.exportState()).c[0];
+  check('manual label intent persists in Draph state', saved.labelPositionLocked === true && Number.isFinite(saved.labelX) && Number.isFinite(saved.labelY));
+  label = doc.querySelector('.connection-label');
+  label.dispatchEvent(new win.MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+  check('double-click returns a label to automatic placement', E(`connections[0].labelPositionLocked === undefined && connections[0].labelX === undefined`));
 }
 
 // ---------------------------------------------------------------------------
@@ -511,7 +629,10 @@ group('Auto-arrange: clean layered layout (no overlap, parents centered)');
   const link = (a, b) => E(`connections.push({from:'${a.id}',to:'${b.id}'})`);
   link(ur, auth); link(auth, ld); link(auth, sl); link(ld, done); link(sl, sub);
   E(`connections[0].fromFrac = 0.25; connections[0].fromFracLocked = true`);
+  win.saveState();
+  const historyBeforeArrange = E('historyIndex');
   win.arrangeDiagram();
+  check('auto-arrange records one undo operation', E('historyIndex') === historyBeforeArrange + 1);
   const N = (id) => E(`(()=>{const n=nodes.find(x=>x.id==='${id}');return {x:n.x,y:n.y,w:n.width,h:n.height}})()`);
   const ns = { ur: N(ur.id), auth: N(auth.id), ld: N(ld.id), sl: N(sl.id), done: N(done.id), sub: N(sub.id) };
   const overlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
@@ -533,6 +654,68 @@ group('Auto-arrange: clean layered layout (no overlap, parents centered)');
   check('Authenticated->Show login routes bottom->top', e2.fromSide === 'bottom' && e2.toSide === 'top');
   check('arrange clears manual side locks', !e1.fl && !e1.tl && !e2.fl && !e2.tl);
   check('arrange clears manual port positions', E(`connections[0].fromFrac === undefined && !connections[0].fromFracLocked`));
+}
+
+// ---------------------------------------------------------------------------
+group('Layered ordering reduces canonical crossings');
+{
+  const { win, E } = boot();
+  const sources = [], targets = [];
+  for (let index = 0; index < 4; index++) {
+    sources.push(win.createNode('rect', 100 + index * 180, 80, 120, 50));
+    targets.push(win.createNode('rect', 100 + (3 - index) * 180, 420, 120, 50));
+  }
+  sources.forEach((source, index) => E(`connections.push({id:'layer${index}',from:'${source.id}',to:'${targets[index].id}'})`));
+  const crossingCount = () => E(`(()=>{const segments=connections.map(c=>{const a=nodes.find(n=>n.id===c.from),b=nodes.find(n=>n.id===c.to);return {a:{x:a.x+a.width/2,y:a.y+a.height/2},b:{x:b.x+b.width/2,y:b.y+b.height/2}}});let count=0;for(let i=0;i<segments.length;i++)for(let j=i+1;j<segments.length;j++)if(perpendicularIntersection(segments[i],segments[j])||((segments[i].a.x-segments[j].a.x)*(segments[i].b.x-segments[j].b.x)<0))count++;return count})()`);
+  const before = crossingCount();
+  win.arrangeDiagram('TB');
+  const after = crossingCount();
+  check('canonical layout starts with crossings', before >= 6, `${before}`);
+  check('weighted-median ordering reduces crossings by at least sixty percent', after <= before * 0.4, `${before} -> ${after}`);
+}
+
+// ---------------------------------------------------------------------------
+group('Polish applies grammar, semantic roles, and editorial presentation');
+{
+  const { win, doc, E } = boot();
+  const source = win.createNode('rect', 0, 0, 120, 50); source.label = 'Gateway';
+  const store = win.createNode('cylinder', 0, 0, 120, 60); store.label = 'Database';
+  const worker = win.createNode('rect', 0, 0, 120, 50); worker.label = 'Worker';
+  win.connect(source.id, store.id);
+  win.connect(source.id, worker.id);
+  E(`visualPreset='classic'; applyVisualPreset('classic', false)`);
+  const historyBeforePolish = E('historyIndex');
+  const contentBeforePolish = E(`JSON.stringify({nodes:nodes.map(n=>[n.id,n.label]),connections:connections.map(c=>[c.id,c.from,c.to,c.label])})`);
+  const report = win.polishDiagram('TB');
+
+  check('Polish preserves labels, identifiers, and direction', E(`JSON.stringify({nodes:nodes.map(n=>[n.id,n.label]),connections:connections.map(c=>[c.id,c.from,c.to,c.label])})`) === contentBeforePolish);
+  check('Polish records one undo operation', E('historyIndex') === historyBeforePolish + 1);
+  check('Polish switches to editorial presentation', E('visualPreset') === 'editorial' && doc.documentElement.dataset.preset === 'editorial');
+  check('Polish selects a visual grammar', report.grammar === 'flowchart' && E('visualGrammar') === 'flowchart');
+  check('grammar registry defines layout and connector contracts', E(`Object.values(VISUAL_GRAMMARS).every(g=>g.direction&&g.roles.length&&g.spacing.rank&&g.spacing.cross&&g.backEdge&&g.labelPreference&&Array.isArray(g.connectorExemptions))`));
+  check('Polish assigns one focal node', E(`nodes.filter(n => n.semanticRole === 'focal').length`) === 1);
+  check('Polish assigns store semantics', E(`nodes.find(n => n.id === '${store.id}').semanticRole`) === 'store');
+  check('Polish uses rounded technical routes', E(`connections.every(c => c.lineStyle === 'rounded')`));
+  check('Polish control is available in the menu', !!doc.getElementById('polishDiagramItem'));
+  check('presentation controls are available in the menu', !!doc.getElementById('presentationValue') && !!doc.getElementById('grammarValue') && !!doc.getElementById('detailValue'));
+  check('Polish opens a non-blocking quality panel', !!doc.getElementById('qualityPanel'));
+  check('quality report returns exact findings', Array.isArray(report.findings));
+}
+
+// ---------------------------------------------------------------------------
+group('Cycle back-edges route outside the graph');
+{
+  const { win, E } = boot();
+  const a = win.createNode('rect', 0, 0, 100, 50);
+  const b = win.createNode('rect', 0, 0, 100, 50);
+  const c = win.createNode('rect', 0, 0, 100, 50);
+  win.connect(a.id, b.id); win.connect(b.id, c.id); win.connect(c.id, a.id);
+  win.arrangeDiagram('TB');
+  const result = E(`(()=>{const back=connections.find(c=>c.isBackEdge);const byId=new Map(nodes.map(n=>[n.id,n]));const geometry=computeConnectionGeometry(byId);return {back,route:computeConnectionRoutes(byId,geometry).get(back.id),left:Math.min(...nodes.map(n=>n.x)),right:Math.max(...nodes.map(n=>n.x+n.width))}})()`);
+  const outside = result.route.points.some(point => point.x < result.left || point.x > result.right);
+  check('cycle has a marked back-edge', !!result.back);
+  check('back-edge route is marked as an outside detour', result.route.backEdge === true && result.route.detoured === true);
+  check('back-edge route leaves the main rank stack', outside, JSON.stringify(result.route.points));
 }
 
 // ---------------------------------------------------------------------------
@@ -862,21 +1045,28 @@ group('v2: light/dark theme toggle');
   const { win, doc, E } = boot();
   // defaults to dark
   check('default theme is dark', E('currentTheme') === 'dark');
-  check('COLORS.bg starts at dark bg', E('COLORS.bg') === '#0f0f15');
+  check('COLORS.bg starts at editorial dark bg', E('COLORS.bg') === E('EDITORIAL_THEMES.dark.bg'));
   // toggle to light
   win.toggleTheme();
   check('toggleTheme switches to light', E('currentTheme') === 'light');
   check('html data-theme set to light', doc.documentElement.dataset.theme === 'light');
-  check('COLORS swap to light palette', E('COLORS.bg') === E('THEMES.light.bg') && E('COLORS.bg') !== '#0f0f15');
+  check('COLORS swap to editorial light palette', E('COLORS.bg') === E('EDITORIAL_THEMES.light.bg'));
   check('light theme persisted to localStorage', win.localStorage.getItem('draph:theme') === 'light');
   check('top-right toggle button exists', !!doc.getElementById('themeToggleBtn'));
   check('toggle tooltip reflects next action', /dark/i.test(doc.getElementById('themeToggleBtn').title));
   // toggle back
   win.toggleTheme();
-  check('toggleTheme switches back to dark', E('currentTheme') === 'dark' && E('COLORS.bg') === '#0f0f15');
+  check('toggleTheme switches back to dark', E('currentTheme') === 'dark' && E('COLORS.bg') === E('EDITORIAL_THEMES.dark.bg'));
   // applyTheme restores a persisted choice without persisting again
   win.applyTheme('light', false);
   check('applyTheme(light,false) applies light', E('currentTheme') === 'light' && doc.documentElement.dataset.theme === 'light');
+  check('new documents use the editorial preset', E('visualPreset') === 'editorial' && doc.documentElement.dataset.preset === 'editorial');
+  win.createNode('rect', 0, 0, 80, 40);
+  check('export stores the visual preset', E(`exportState().vp`) === 'editorial');
+  win.loadDiagramJson(JSON.stringify({ n: [{ id: 'n1', type: 'rect', x: 0, y: 0, width: 80, height: 40, label: 'Old' }], c: [] }));
+  check('old documents keep classic presentation', E('visualPreset') === 'classic' && E('COLORS.bg') === E('THEMES.light.bg'));
+  win.galleryNew();
+  check('new gallery documents return to editorial presentation', E('visualPreset') === 'editorial' && E('visualGrammar') === 'flowchart' && E('visualDetail') === 'balanced');
 }
 
 // ---------------------------------------------------------------------------
@@ -2048,15 +2238,14 @@ group('Theming (#62): render colors derive from the palette, not dark literals')
   const { win, E } = boot();
   // palette swaps both ways
   win.applyTheme('light', false);
-  check('light theme accent is the light value', E('COLORS.accent') === '#3d59a1');
+  check('light theme accent is the editorial value', E('COLORS.accent') === E('EDITORIAL_THEMES.light.accent'));
   const pL = E(`parseMermaid('gantt\\n  dateFormat YYYY-MM-DD\\n  A :a1, 2026-06-01, 3d')`);
   check('gantt bar color derives from the (light) theme accent', pL.nodes.find(n => n.color).color === E('COLORS.accent'));
   win.applyTheme('dark', false);
   check('dark theme accent restored', E('COLORS.accent') === '#7aa2f7');
   const pD = E(`parseMermaid('gantt\\n  dateFormat YYYY-MM-DD\\n  A :a1, 2026-06-01, 3d')`);
   check('gantt bar color follows the (dark) theme accent', pD.nodes.find(n => n.color).color === '#7aa2f7');
-  // dark theme palette values byte-for-byte unchanged (no regression)
-  check('dark theme palette intact', E('COLORS.bg') === '#0f0f15' && E('COLORS.fg') === '#a9b1d6' && E('COLORS.border') === '#414868');
+  check('editorial dark palette intact', E('COLORS.bg') === E('EDITORIAL_THEMES.dark.bg') && E('COLORS.fg') === E('EDITORIAL_THEMES.dark.fg') && E('COLORS.border') === E('EDITORIAL_THEMES.dark.border'));
 }
 
 group('Keyboard a11y (#58): roving arrows + modal focus trap/restore');
@@ -2247,13 +2436,13 @@ group('Custom accent color (#78): live override, persist, reset');
 
   // Reset restores the active theme's default accent and clears the override.
   win.resetAccentColor();
-  check('reset restores theme default accent', E(`COLORS.accent`) === E(`THEMES[currentTheme].accent`));
+  check('reset restores preset theme accent', E(`COLORS.accent`) === E(`EDITORIAL_THEMES[currentTheme].accent`));
   check('reset clears the CSS var', doc.documentElement.style.getPropertyValue('--accent').trim() === '');
   check('reset clears the persisted setting', !E(`loadSetting('accent')`));
 
   // Light/dark toggle still works after reset (no regression).
   win.applyTheme('light');
-  check('theme toggle still works', E(`COLORS.bg`) === E(`THEMES.light.bg`));
+  check('theme toggle still works', E(`COLORS.bg`) === E(`EDITORIAL_THEMES.light.bg`));
   win.applyTheme('dark');
 }
 
@@ -3819,8 +4008,15 @@ group('Native host bridge: versioned state, Mermaid, and change events');
 
   check('host API reports protocol version 1', win.draphHostAPI.protocolVersion === 1);
   check('host is detected after injection', win.draphNativeHostAvailable());
-  check('host Mermaid import succeeds', win.draphHostAPI.importMermaid('flowchart TD\n  A --> B'));
-  check('host state export contains nodes', JSON.parse(win.draphHostAPI.exportState()).n.length === 2);
+  check('host Mermaid import succeeds', win.draphHostAPI.importMermaid('flowchart TD\n  A --> B', {
+    preset: 'editorial', grammar: 'architecture', direction: 'LR', detail: 'detailed', polish: true,
+  }));
+  const hostState = JSON.parse(win.draphHostAPI.exportState());
+  check('host state export contains nodes', hostState.n.length === 2);
+  check('host import options persist', hostState.vp === 'editorial' && hostState.vg === 'architecture' && hostState.vd === 'detailed' && hostState.vq === 1);
+  check('host quality report uses the selected grammar', win.draphHostAPI.qualityReport().grammar === 'architecture');
+  const presentation = win.draphHostAPI.setPresentation({ preset: 'classic', grammar: 'dependency', detail: 'compact' });
+  check('host presentation settings update together', presentation.preset === 'classic' && presentation.grammar === 'dependency' && presentation.detail === 'compact');
   check('host Mermaid export contains the edge', /A\s+-->\s+B/.test(win.draphHostAPI.exportMermaid()));
   check('host receives a versioned change event', posts.some(p => p.type === 'changed' && p.protocolVersion === 1));
   posts.length = 0;

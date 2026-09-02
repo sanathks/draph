@@ -1,0 +1,112 @@
+{
+  "n": [
+    {
+      "id": "s0",
+      "type": "rect",
+      "x": 80,
+      "y": 70,
+      "width": 150,
+      "height": 56,
+      "label": "Web",
+      "icon": "globe"
+    },
+    {
+      "id": "s1",
+      "type": "rect",
+      "x": 285,
+      "y": 70,
+      "width": 150,
+      "height": 56,
+      "label": "Mobile",
+      "icon": "smartphone"
+    },
+    {
+      "id": "s2",
+      "type": "rect",
+      "x": 490,
+      "y": 70,
+      "width": 150,
+      "height": 56,
+      "label": "Orders",
+      "icon": "table"
+    },
+    {
+      "id": "s3",
+      "type": "rect",
+      "x": 695,
+      "y": 70,
+      "width": 150,
+      "height": 56,
+      "label": "Billing",
+      "icon": "credit-card"
+    },
+    {
+      "id": "s4",
+      "type": "rect",
+      "x": 900,
+      "y": 70,
+      "width": 150,
+      "height": 56,
+      "label": "Support",
+      "icon": "message"
+    },
+    {
+      "id": "warehouse",
+      "type": "cylinder",
+      "x": 480,
+      "y": 430,
+      "width": 170,
+      "height": 70,
+      "label": "Event Warehouse",
+      "icon": "database",
+      "semanticRole": "focal"
+    }
+  ],
+  "c": [
+    {
+      "id": "e0",
+      "to": "warehouse",
+      "label": "ingest",
+      "lineStyle": "rounded",
+      "from": "s0"
+    },
+    {
+      "id": "e1",
+      "to": "warehouse",
+      "label": "ingest",
+      "lineStyle": "rounded",
+      "from": "s1"
+    },
+    {
+      "id": "e2",
+      "to": "warehouse",
+      "label": "ingest",
+      "lineStyle": "rounded",
+      "from": "s2"
+    },
+    {
+      "id": "e3",
+      "to": "warehouse",
+      "label": "ingest",
+      "lineStyle": "rounded",
+      "from": "s3"
+    },
+    {
+      "id": "e4",
+      "to": "warehouse",
+      "label": "ingest",
+      "lineStyle": "rounded",
+      "from": "s4"
+    }
+  ],
+  "v": {
+    "x": 0,
+    "y": 0,
+    "z": 1
+  },
+  "dt": "flowchart",
+  "vp": "editorial",
+  "vg": "dataflow",
+  "vd": "balanced",
+  "vq": 1
+}

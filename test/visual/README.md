@@ -2,12 +2,13 @@
 
 These Playwright tests verify rendered Draph output in a real browser.
 
-The first fixture locks these connector contracts:
+The fixtures lock these contracts:
 
 - Fan-in and fan-out edges use separate attach points.
-- Adjacent automatic ports target a 12-pixel gap.
-- Fan routes use separate cross-channels.
-- Mermaid-created edges use rounded orthogonal paths.
+- Routes avoid unrelated nodes and mark unavoidable crossings.
+- Parallel edges, cycles, containers, and labels remain readable.
+- English, CJK, emoji, and technical labels remain legible.
+- The 50-node and 100-edge fixture stays deterministic.
 - Light and dark output match reviewed screenshots.
 
 Run logic and visual checks:
@@ -31,4 +32,6 @@ docker run --rm --init --ipc=host \
   bash -lc "npm ci && npm run test:visual -- --update-snapshots"
 ```
 
-Review every changed screenshot before commit. Do not update screenshots to hide a failed geometry contract.
+Each JSON file in `fixtures/` has reviewed Darwin and Linux screenshots. Review every changed screenshot before commit.
+
+Do not update screenshots to hide a failed geometry contract.
