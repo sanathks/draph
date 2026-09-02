@@ -1,0 +1,98 @@
+{
+  "n": [
+    {
+      "id": "a",
+      "type": "rect",
+      "x": 90,
+      "y": 90,
+      "width": 150,
+      "height": 56,
+      "label": "Source A"
+    },
+    {
+      "id": "b",
+      "type": "rect",
+      "x": 870,
+      "y": 430,
+      "width": 150,
+      "height": 56,
+      "label": "Target B"
+    },
+    {
+      "id": "c",
+      "type": "rect",
+      "x": 90,
+      "y": 430,
+      "width": 150,
+      "height": 56,
+      "label": "Source C"
+    },
+    {
+      "id": "d",
+      "type": "rect",
+      "x": 870,
+      "y": 90,
+      "width": 150,
+      "height": 56,
+      "label": "Target D"
+    }
+  ],
+  "c": [
+    {
+      "id": "ab",
+      "to": "b",
+      "label": "primary",
+      "lineStyle": "rounded",
+      "waypoints": [
+        {
+          "x": 600,
+          "y": 118
+        },
+        {
+          "x": 600,
+          "y": 458
+        }
+      ],
+      "from": "a",
+      "fromSide": "right",
+      "fromSideLocked": true,
+      "toSide": "left",
+      "toSideLocked": true
+    },
+    {
+      "id": "cd",
+      "to": "d",
+      "label": "return",
+      "lineStyle": "rounded",
+      "waypoints": [
+        {
+          "x": 450,
+          "y": 458
+        },
+        {
+          "x": 450,
+          "y": 300
+        },
+        {
+          "x": 956,
+          "y": 300
+        }
+      ],
+      "from": "c",
+      "fromSide": "right",
+      "fromSideLocked": true,
+      "toSide": "bottom",
+      "toSideLocked": true
+    }
+  ],
+  "v": {
+    "x": 0,
+    "y": 0,
+    "z": 1
+  },
+  "dt": "flowchart",
+  "vp": "editorial",
+  "vg": "dependency",
+  "vd": "balanced",
+  "vq": 1
+}

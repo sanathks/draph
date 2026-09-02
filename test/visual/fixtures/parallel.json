@@ -1,0 +1,56 @@
+{
+  "n": [
+    {
+      "id": "client",
+      "type": "rect",
+      "x": 140,
+      "y": 250,
+      "width": 150,
+      "height": 56,
+      "label": "Client",
+      "semanticRole": "focal"
+    },
+    {
+      "id": "service",
+      "type": "rect",
+      "x": 820,
+      "y": 250,
+      "width": 150,
+      "height": 56,
+      "label": "Service"
+    }
+  ],
+  "c": [
+    {
+      "id": "request",
+      "to": "service",
+      "label": "request",
+      "lineStyle": "rounded",
+      "from": "client"
+    },
+    {
+      "id": "retry",
+      "to": "service",
+      "label": "",
+      "lineStyle": "rounded",
+      "from": "client"
+    },
+    {
+      "id": "response",
+      "to": "client",
+      "label": "",
+      "lineStyle": "rounded",
+      "from": "service"
+    }
+  ],
+  "v": {
+    "x": 0,
+    "y": 0,
+    "z": 1
+  },
+  "dt": "flowchart",
+  "vp": "editorial",
+  "vg": "architecture",
+  "vd": "balanced",
+  "vq": 1
+}

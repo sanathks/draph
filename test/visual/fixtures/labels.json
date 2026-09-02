@@ -1,0 +1,74 @@
+{
+  "n": [
+    {
+      "id": "start",
+      "type": "rect",
+      "x": 80,
+      "y": 260,
+      "width": 150,
+      "height": 56,
+      "label": "Input"
+    },
+    {
+      "id": "gate",
+      "type": "diamond",
+      "x": 450,
+      "y": 250,
+      "width": 170,
+      "height": 90,
+      "label": "Validation",
+      "semanticRole": "focal"
+    },
+    {
+      "id": "ok",
+      "type": "rect",
+      "x": 850,
+      "y": 120,
+      "width": 150,
+      "height": 56,
+      "label": "Accepted"
+    },
+    {
+      "id": "bad",
+      "type": "rect",
+      "x": 850,
+      "y": 410,
+      "width": 150,
+      "height": 56,
+      "label": "Rejected"
+    }
+  ],
+  "c": [
+    {
+      "id": "in",
+      "to": "gate",
+      "label": "signed request",
+      "lineStyle": "rounded",
+      "from": "start"
+    },
+    {
+      "id": "yes",
+      "to": "ok",
+      "label": "valid payload",
+      "lineStyle": "rounded",
+      "from": "gate"
+    },
+    {
+      "id": "no",
+      "to": "bad",
+      "label": "invalid payload",
+      "lineStyle": "rounded",
+      "from": "gate"
+    }
+  ],
+  "v": {
+    "x": 0,
+    "y": 0,
+    "z": 1
+  },
+  "dt": "flowchart",
+  "vp": "editorial",
+  "vg": "flowchart",
+  "vd": "balanced",
+  "vq": 1
+}

@@ -1,0 +1,74 @@
+{
+  "n": [
+    {
+      "id": "en",
+      "type": "rect",
+      "x": 80,
+      "y": 100,
+      "width": 230,
+      "height": 56,
+      "label": "Long English service name"
+    },
+    {
+      "id": "cjk",
+      "type": "rect",
+      "x": 430,
+      "y": 300,
+      "width": 210,
+      "height": 56,
+      "label": "注文処理サービス"
+    },
+    {
+      "id": "emoji",
+      "type": "rect",
+      "x": 800,
+      "y": 100,
+      "width": 210,
+      "height": 56,
+      "label": "Deploy 🚀 status",
+      "semanticRole": "focal"
+    },
+    {
+      "id": "meta",
+      "type": "rect",
+      "x": 800,
+      "y": 430,
+      "width": 220,
+      "height": 56,
+      "label": "api/v2 • p95 42ms"
+    }
+  ],
+  "c": [
+    {
+      "id": "e1",
+      "to": "cjk",
+      "label": "request accepted",
+      "lineStyle": "rounded",
+      "from": "en"
+    },
+    {
+      "id": "e2",
+      "to": "emoji",
+      "label": "処理結果",
+      "lineStyle": "rounded",
+      "from": "cjk"
+    },
+    {
+      "id": "e3",
+      "to": "meta",
+      "label": "ready ✅",
+      "lineStyle": "rounded",
+      "from": "emoji"
+    }
+  ],
+  "v": {
+    "x": 0,
+    "y": 0,
+    "z": 1
+  },
+  "dt": "flowchart",
+  "vp": "editorial",
+  "vg": "dataflow",
+  "vd": "balanced",
+  "vq": 1
+}

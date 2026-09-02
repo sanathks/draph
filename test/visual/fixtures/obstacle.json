@@ -1,0 +1,58 @@
+{
+  "n": [
+    {
+      "id": "api",
+      "type": "rect",
+      "x": 80,
+      "y": 260,
+      "width": 150,
+      "height": 56,
+      "label": "Public API",
+      "icon": "link"
+    },
+    {
+      "id": "policy",
+      "type": "rect",
+      "x": 450,
+      "y": 180,
+      "width": 190,
+      "height": 210,
+      "label": "Policy Engine",
+      "icon": "filter",
+      "semanticRole": "focal"
+    },
+    {
+      "id": "audit",
+      "type": "cylinder",
+      "x": 850,
+      "y": 250,
+      "width": 170,
+      "height": 74,
+      "label": "Audit Store",
+      "icon": "database"
+    }
+  ],
+  "c": [
+    {
+      "id": "route",
+      "to": "audit",
+      "label": "verified events",
+      "lineStyle": "rounded",
+      "fromSide": "right",
+      "toSide": "left",
+      "fromSideLocked": true,
+      "toSideLocked": true,
+      "from": "api"
+    }
+  ],
+  "v": {
+    "x": 0,
+    "y": 0,
+    "z": 1
+  },
+  "dt": "flowchart",
+  "vp": "editorial",
+  "vg": "architecture",
+  "vd": "balanced",
+  "vq": 1
+}

@@ -147,6 +147,8 @@
        the clean, lifted look of the reference). Inline filters — e.g. on sticky
        notes — override this. Theme-aware via --node-shadow. */
     .node-border { filter: drop-shadow(0 4px 6px var(--node-shadow)); }
+    :root[data-preset="editorial"] .node-border { filter: none; stroke-width: 1.5; }
+    :root[data-preset="editorial"] .connection { stroke-width: 1.5; }
     .node:hover .node-border { stroke-width: 2.5; }
     .node.selected .node-border { stroke: var(--accent); stroke-width: 2.5; }
     .connector { cursor: crosshair; opacity: 0; pointer-events: none; transition: opacity 0.15s, r 0.1s; }
@@ -559,6 +561,22 @@
             <div class="dropdown-item" onclick="arrangeDiagram('LR');closeDropdowns()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="9" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M9 12h3M12 6h3M12 18h3M12 6v12"/></svg>
               Auto-arrange → (LR)
+            </div>
+            <div class="dropdown-item" id="polishDiagramItem" onclick="polishDiagram();closeDropdowns()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.8 4.6L18 9.4l-4.2 1.8L12 16l-1.8-4.8L6 9.4l4.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>
+              Polish diagram
+            </div>
+            <div class="dropdown-item" onclick="toggleVisualPreset();closeDropdowns()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z"/></svg>
+              Presentation <span id="presentationValue" style="margin-left:auto;opacity:.65">Editorial</span>
+            </div>
+            <div class="dropdown-item" onclick="cycleVisualGrammar();closeDropdowns()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="7" height="6" rx="1"/><rect x="14" y="14" width="7" height="6" rx="1"/><path d="M10 7h5v7"/></svg>
+              Grammar <span id="grammarValue" style="margin-left:auto;opacity:.65">Flowchart</span>
+            </div>
+            <div class="dropdown-item" onclick="cycleVisualDetail();closeDropdowns()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h12M4 18h8"/></svg>
+              Detail <span id="detailValue" style="margin-left:auto;opacity:.65">Balanced</span>
             </div>
             <div class="dropdown-item" id="mermaidToggle" onclick="toggleMermaidSidebar();closeDropdowns()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
@@ -1177,10 +1195,12 @@
      *   fromSide,toSide:  'top'|'bottom'|'left'|'right'   which connector to attach to
      *   fromSideLocked, toSideLocked?: boolean   true = user chose this side; the
      *                                            auto-router must NOT override it
+     *   fromFrac,toFrac?: number     attach position along the chosen side (0..1)
+     *   fromFracLocked,toFracLocked?: boolean   true = user placed this endpoint
      *   fromIdx, toIdx?: number      connector index along a side (legacy; usually 1)
      *   label?:     string
      *   color?:     string           line color
-     *   lineStyle?: 'rounded'|'straight'
+     *   lineStyle?: 'curved'|'rounded'|'straight'
      *   strokeStyle?: 'dashed'       (else solid)
      *   isSequenceMessage?, messageY?, arrow?:  (sequence diagrams)
      * }
@@ -1242,6 +1262,10 @@
     let clipboard = null;        // copy/paste buffer (internal nodes)
     let suppressNextPaste = false; // set when Cmd+V handled an internal node paste
     let globalLineStyle = 'curved'; // default lineStyle for new connections
+    const VISUAL_QUALITY_VERSION = 1;
+    let visualPreset = 'editorial'; // classic for old files; editorial for new work
+    let visualGrammar = 'flowchart';
+    let visualDetail = 'balanced';
 
     // --- Persisted settings (localStorage-backed) ----------------------------
     // One place for the key prefix and the try/catch (Safari private mode / quota
@@ -1321,22 +1345,62 @@
       dark:  { bg: '#0f0f15', bg2: '#1c1d2b', fg: '#a9b1d6', accent: '#7aa2f7', border: '#414868' },
       light: { bg: '#f3f4fa', bg2: '#ffffff', fg: '#3a4060', accent: '#3d59a1', border: '#ccd0e0' },
     };
+    const EDITORIAL_THEMES = {
+      dark:  { bg: '#111318', bg2: '#191d24', fg: '#d8dee9', accent: '#7aa2f7', border: '#667085', paper: '#111318', surface: '#191d24', ink: '#d8dee9', muted: '#9aa4b2', soft: '#232936', rule: '#667085', accentTint: '#263b63', link: '#8bb8ff' },
+      light: { bg: '#f7f7f5', bg2: '#ffffff', fg: '#253044', accent: '#3467d6', border: '#9ca7b8', paper: '#f7f7f5', surface: '#ffffff', ink: '#253044', muted: '#667085', soft: '#eef1f5', rule: '#9ca7b8', accentTint: '#e8efff', link: '#2457bd' },
+    };
     const COLORS = { ...THEMES.dark };
     let currentTheme = 'dark';
     let accentOverride = null;   // #78: user's custom accent hex (overrides the theme default), or null
     // Switch theme: update the <html> data attribute (drives all CSS vars),
     // swap the canvas palette, persist, and re-render so canvas colors refresh.
-    function applyTheme(theme, persist = true) {
+    function applyTheme(theme, persist = true, shouldRender = true) {
       currentTheme = (theme === 'light') ? 'light' : 'dark';
       document.documentElement.dataset.theme = currentTheme;
-      Object.assign(COLORS, THEMES[currentTheme]);
+      document.documentElement.dataset.preset = visualPreset;
+      const palette = visualPreset === 'editorial' ? EDITORIAL_THEMES : THEMES;
+      Object.assign(COLORS, palette[currentTheme]);
       applyAccentOverride();   // #78: a custom accent survives theme switches
       if (persist) saveSetting('theme', currentTheme);
       const tbtn = document.getElementById('themeToggleBtn');
       if (tbtn) tbtn.title = currentTheme === 'light' ? 'Switch to dark theme' : 'Switch to light theme';
-      if (typeof render === 'function' && nodes) render();
+      if (shouldRender && typeof render === 'function' && nodes) render();
     }
     function toggleTheme() { applyTheme(currentTheme === 'light' ? 'dark' : 'light'); }
+    function syncPresentationControls() {
+      const label = value => value.charAt(0).toUpperCase() + value.slice(1);
+      const preset = document.getElementById('presentationValue');
+      const grammar = document.getElementById('grammarValue');
+      const detail = document.getElementById('detailValue');
+      if (preset) preset.textContent = label(visualPreset);
+      if (grammar) grammar.textContent = label(visualGrammar);
+      if (detail) detail.textContent = label(visualDetail);
+    }
+    function toggleVisualPreset() {
+      applyVisualPreset(visualPreset === 'editorial' ? 'classic' : 'editorial');
+      saveState();
+      toast(`${visualPreset === 'editorial' ? 'Editorial' : 'Classic'} presentation`, 'success');
+    }
+    function cycleVisualGrammar() {
+      const values = Object.keys(VISUAL_GRAMMARS), index = values.indexOf(visualGrammar);
+      visualGrammar = values[(index + 1) % values.length];
+      syncPresentationControls();
+      saveState();
+      toast(`${visualGrammar.charAt(0).toUpperCase() + visualGrammar.slice(1)} grammar`, 'success');
+    }
+    function cycleVisualDetail() {
+      const values = ['compact', 'balanced', 'detailed'], index = values.indexOf(visualDetail);
+      visualDetail = values[(index + 1) % values.length];
+      syncPresentationControls();
+      saveState();
+      toast(`${visualDetail.charAt(0).toUpperCase() + visualDetail.slice(1)} detail`, 'success');
+    }
+    function applyVisualPreset(preset, shouldRender = true) {
+      visualPreset = preset === 'classic' ? 'classic' : 'editorial';
+      applyTheme(currentTheme, false, false);
+      syncPresentationControls();
+      if (shouldRender && typeof render === 'function') render();
+    }
 
     // ---- Custom accent override (#78) ----------------------------------------
     // A user-chosen accent hex overrides the active theme's accent for both the
@@ -1362,7 +1426,7 @@
     function resetAccentColor() {
       accentOverride = null;
       removeSetting('accent');
-      COLORS.accent = THEMES[currentTheme].accent;
+      COLORS.accent = (visualPreset === 'editorial' ? EDITORIAL_THEMES : THEMES)[currentTheme].accent;
       document.documentElement.style.removeProperty('--accent');
       if (typeof render === 'function' && nodes) render();
     }
@@ -1808,6 +1872,10 @@
         nodes = data.n || [];
         connections = data.c || [];
         diagramType = data.dt || 'flowchart';   // restore source type (#165)
+        visualPreset = data.vp || 'classic';
+        visualGrammar = data.vg || selectVisualGrammar(diagramType);
+        visualDetail = ['compact', 'balanced', 'detailed'].includes(data.vd) ? data.vd : 'balanced';
+        applyVisualPreset(visualPreset, false);
         idCounter = Math.max(...nodes.map(n => parseInt(n.id.slice(1)) || 0), 0) + 1;
         // Link cards persist only their URL — rebuild the preview on load: show a
         // simple card immediately, then re-fetch the rich data (thumbnail/title).
@@ -1869,7 +1937,7 @@
     // Snapshot the live diagram as the persisted `{n, c, v}` payload (same shape
     // as the share-link / autosave / .draph file). Used by the document store.
     function exportState() {
-      return { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom }, dt: diagramType };
+      return { n: serializeNodes(), c: connections, v: { x: viewBox.x, y: viewBox.y, z: zoom }, dt: diagramType, vp: visualPreset, vg: visualGrammar, vd: visualDetail, vq: VISUAL_QUALITY_VERSION };
     }
 
     // === SECTION: DOCUMENT STORE ("My diagrams") ===============================
@@ -2358,7 +2426,11 @@
     //  All tunables live in ROUTE_CFG so future tweaks are one-liners.
     // =====================================================================
     const SIDE_NORMAL = { top: {x:0,y:-1}, bottom: {x:0,y:1}, left: {x:-1,y:0}, right: {x:1,y:0} };
-    const ROUTE_CFG = { maxClear: 24 }; // max perpendicular stub off a node connector
+    const ROUTE_CFG = {
+      maxClear: 24,        // max perpendicular stub off a node connector
+      portGap: 12,         // target gap between automatic ports on one side
+      portCornerPad: 16,   // keep automatic ports clear of rounded corners
+    };
 
     // Point on a node's side at a fractional position along it (0..1).
     function sidePoint(node, side, frac = 0.5) {
@@ -2371,25 +2443,150 @@
       return { x: node.x + node.width / 2, y: node.y + node.height / 2 };
     }
 
-    // Resolve each connection's attach sides. A side is honored verbatim when the
-    // user locked it (by dragging an endpoint); otherwise it's auto-chosen toward
-    // the other node. Edges landing on the same side share the connector (merged).
+    // Convert a pointer position into a stable fraction along one node side.
+    function sideFractionAtPoint(node, side, x, y) {
+      const raw = (side === 'top' || side === 'bottom')
+        ? (x - node.x) / Math.max(1, node.width)
+        : (y - node.y) / Math.max(1, node.height);
+      return Math.max(0, Math.min(1, raw));
+    }
+
+    function endpointProjection(entry, side, nodeById) {
+      const other = nodeById.get(entry.end === 'from' ? entry.conn.to : entry.conn.from);
+      if (!other) return 0;
+      return (side === 'top' || side === 'bottom')
+        ? other.x + other.width / 2
+        : other.y + other.height / 2;
+    }
+
+    // Separate automatic ports and order them by the opposite endpoint.
+    // Locked fractions remain exact user intent.
+    function assignPortFractions(sideOf, nodeById) {
+      const groups = new Map();
+      const add = (conn, end, nodeId, side) => {
+        const key = `${nodeId}:${side}`;
+        if (!groups.has(key)) groups.set(key, { nodeId, side, entries: [] });
+        groups.get(key).entries.push({ conn, end, geometry: sideOf.get(conn.id) });
+      };
+
+      connections.forEach(conn => {
+        if (conn.isSequenceMessage || conn.from === conn.to) return;
+        const geometry = sideOf.get(conn.id);
+        if (!geometry) return;
+        add(conn, 'from', conn.from, geometry.fromSide);
+        add(conn, 'to', conn.to, geometry.toSide);
+      });
+
+      groups.forEach(group => {
+        const node = nodeById.get(group.nodeId);
+        if (!node) return;
+        const horizontal = group.side === 'top' || group.side === 'bottom';
+        const dimension = Math.max(1, horizontal ? node.width : node.height);
+        const padding = Math.min(ROUTE_CFG.portCornerPad, dimension / 4);
+        const lower = padding;
+        const upper = dimension - padding;
+        const entries = group.entries.sort((a, b) => {
+          const delta = endpointProjection(a, group.side, nodeById) - endpointProjection(b, group.side, nodeById);
+          return Math.abs(delta) > 0.01 ? delta : `${a.conn.id}:${a.end}`.localeCompare(`${b.conn.id}:${b.end}`);
+        });
+        const span = Math.min(Math.max(0, upper - lower), ROUTE_CFG.portGap * Math.max(0, entries.length - 1));
+        const start = dimension / 2 - span / 2;
+        const step = entries.length > 1 ? span / (entries.length - 1) : 0;
+        const occupied = [];
+
+        // Reserve locked positions before placing automatic endpoints.
+        entries.forEach(entry => {
+          const key = `${entry.end}Frac`;
+          const lockKey = `${key}Locked`;
+          if (!entry.conn[lockKey] || !Number.isFinite(entry.conn[key])) return;
+          const position = Math.max(0, Math.min(dimension, entry.conn[key] * dimension));
+          entry.geometry[key] = position / dimension;
+          occupied.push(position);
+        });
+
+        entries.forEach((entry, index) => {
+          const key = `${entry.end}Frac`;
+          const lockKey = `${key}Locked`;
+          if (entry.conn[lockKey] && Number.isFinite(entry.conn[key])) return;
+          const desired = start + index * step;
+          const candidates = [desired];
+          for (let position = lower; position <= upper + 0.01; position += ROUTE_CFG.portGap) candidates.push(position);
+          for (let position = upper; position >= lower - 0.01; position -= ROUTE_CFG.portGap) candidates.push(position);
+          const unique = [...new Set(candidates.map(value => Math.round(value * 1000) / 1000))];
+          const valid = unique.filter(value => occupied.every(used => Math.abs(value - used) >= ROUTE_CFG.portGap - 0.01));
+          const pool = valid.length ? valid : unique;
+          pool.sort((a, b) => Math.abs(a - desired) - Math.abs(b - desired) || a - b);
+          const position = Math.max(0, Math.min(dimension, pool[0] ?? desired));
+          entry.geometry[key] = position / dimension;
+          occupied.push(position);
+        });
+
+        // Separate the cross-channels for fan-in and fan-out routes. The larger
+        // endpoint group wins when one edge belongs to groups at both ends.
+        if (entries.length > 1) {
+          entries.forEach((entry, index) => {
+            if ((entry.geometry._laneGroupSize || 0) >= entries.length) return;
+            entry.geometry._laneGroupSize = entries.length;
+            entry.geometry.laneOffset = (index - (entries.length - 1) / 2) * ROUTE_CFG.portGap;
+          });
+        }
+      });
+    }
+
+    // Resolve connection sides and separate automatic ports.
+    // Store only manual endpoint positions; calculate automatic fractions here.
     function computeConnectionGeometry(nodeById) {
-      const sideOf = new Map();   // connId -> { fromSide, toSide }
+      const sideOf = new Map();   // connId -> { fromSide, toSide, fromFrac, toFrac }
       connections.forEach(conn => {
         if (conn.isSequenceMessage) return;
         const from = nodeById.get(conn.from), to = nodeById.get(conn.to);
         if (!from || !to) return;
         const auto = getOptimalSides(from, to);
         // Re-seat non-locked sides every render so an edge follows its nodes as
-        // they move (no manual Auto-Arrange needed). Locked sides are user intent
-        // and never change. Write back to the connection so stored == rendered
-        // (export, endpoint handles, persistence all read conn.fromSide/toSide).
+        // they move. Locked sides are user intent and never change.
         if (!conn.fromSideLocked) conn.fromSide = auto.fromSide;
         if (!conn.toSideLocked) conn.toSide = auto.toSide;
-        sideOf.set(conn.id, { fromSide: conn.fromSide, toSide: conn.toSide });
+        sideOf.set(conn.id, {
+          fromSide: conn.fromSide,
+          toSide: conn.toSide,
+          fromFrac: conn.from === conn.to ? 0.7 : 0.5,
+          toFrac: conn.from === conn.to ? 0.35 : 0.5,
+        });
       });
+      assignPortFractions(sideOf, nodeById);
       return { sideOf };
+    }
+
+    // First geometry quality check: report ports that remain too close because a
+    // side is too small or manual endpoint locks conflict.
+    function analyzePortGeometry(nodeById, sideOf, minimumGap = 8) {
+      const groups = new Map();
+      const add = (conn, nodeId, side, frac) => {
+        const key = `${nodeId}:${side}`;
+        if (!groups.has(key)) groups.set(key, []);
+        const node = nodeById.get(nodeId);
+        if (!node) return;
+        const point = sidePoint(node, side, frac);
+        groups.get(key).push({ connId: conn.id, value: side === 'top' || side === 'bottom' ? point.x : point.y });
+      };
+      connections.forEach(conn => {
+        if (conn.isSequenceMessage || conn.from === conn.to) return;
+        const geometry = sideOf.get(conn.id);
+        if (!geometry) return;
+        add(conn, conn.from, geometry.fromSide, geometry.fromFrac);
+        add(conn, conn.to, geometry.toSide, geometry.toFrac);
+      });
+      const findings = [];
+      groups.forEach((ports, key) => {
+        ports.sort((a, b) => a.value - b.value || String(a.connId).localeCompare(String(b.connId)));
+        for (let index = 1; index < ports.length; index++) {
+          const gap = ports[index].value - ports[index - 1].value;
+          if (gap + 0.01 >= minimumGap) continue;
+          const [nodeId, side] = key.split(':');
+          findings.push({ type: 'port-gap', nodeId, side, connectionIds: [ports[index - 1].connId, ports[index].connId], gap, required: minimumGap });
+        }
+      });
+      return findings;
     }
 
     // Remove duplicate points and any point that sits *between* its neighbours on
@@ -2448,21 +2645,19 @@
     // from each node). The corner is picked so the segment ENTERING e2 is
     // perpendicular to the target normal n2 -> a clean 90° at the target, which
     // is what keeps the arrowhead from ever sitting on a spike/reversal.
-    function connectExits(e1, n1, e2, n2) {
+    function connectExits(e1, n1, e2, n2, laneOffset = 0) {
       const h1 = n1.x !== 0, h2 = n2.x !== 0;
       if (h1 === h2) {
         const sameDir = n1.x === n2.x && n1.y === n2.y;
         if (h1) {
-          // Both ends point the SAME horizontal way (e.g. both 'right'): the line
-          // has to wrap around, so run the cross-channel at the OUTERMOST x (past
-          // both nodes) instead of the midpoint, which would cut through a node.
-          // Opposite-facing ends (e.g. right->left) just jog at the midpoint.
+          // Same-facing ends wrap outside both nodes.
+          // Opposite-facing ends use separate fan-in and fan-out lanes.
           const x = sameDir ? (n1.x > 0 ? Math.max(e1.x, e2.x) : Math.min(e1.x, e2.x))
-                            : (e1.x + e2.x) / 2;
+                            : (e1.x + e2.x) / 2 + laneOffset;
           return [{ x, y: e1.y }, { x, y: e2.y }];
         }
         const y = sameDir ? (n1.y > 0 ? Math.max(e1.y, e2.y) : Math.min(e1.y, e2.y))
-                          : (e1.y + e2.y) / 2;
+                          : (e1.y + e2.y) / 2 + laneOffset;
         return [{ x: e1.x, y }, { x: e2.x, y }];
       }
       // mixed orientation -> one corner, entering e2 perpendicular to n2
@@ -2490,7 +2685,19 @@
       return { points, fromSide: 'top', toSide: 'right', endX: p2.x, endY: p2.y, inDir: { x: -1, y: 0 } };
     }
 
-    function routeConnection(from, to, fromSide, toSide, fromFrac = 0.5, toFrac = 0.5, waypoints = null) {
+    function connectionStubs(p1, p2, n1, n2) {
+      let limit;
+      if (n1.y !== 0 && n2.y !== 0) limit = Math.abs(p2.y - p1.y) / 2;
+      else if (n1.x !== 0 && n2.x !== 0) limit = Math.abs(p2.x - p1.x) / 2;
+      else limit = Math.min(Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y));
+      const clear = Math.max(1, Math.min(ROUTE_CFG.maxClear, limit));
+      return {
+        e1: { x: p1.x + n1.x * clear, y: p1.y + n1.y * clear },
+        e2: { x: p2.x + n2.x * clear, y: p2.y + n2.y * clear },
+      };
+    }
+
+    function routeConnection(from, to, fromSide, toSide, fromFrac = 0.5, toFrac = 0.5, waypoints = null, laneOffset = 0) {
       if (from === to) return selfLoopRoute(from);   // #104: self-transition
       const p1 = sidePoint(from, fromSide, fromFrac);
       const p2 = sidePoint(to, toSide, toFrac);
@@ -2519,16 +2726,500 @@
       // half the gap on THAT axis; for an L-shaped (mixed) route it's the smaller
       // of the two axis gaps. As nodes approach, the stub shrinks toward a clean
       // short/straight line.
-      let limit;
-      if (n1.y !== 0 && n2.y !== 0) limit = Math.abs(p2.y - p1.y) / 2;        // both vertical
-      else if (n1.x !== 0 && n2.x !== 0) limit = Math.abs(p2.x - p1.x) / 2;   // both horizontal
-      else limit = Math.min(Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y));    // mixed (L)
-      const clear = Math.max(1, Math.min(ROUTE_CFG.maxClear, limit));
-      const e1 = { x: p1.x + n1.x * clear, y: p1.y + n1.y * clear };
-      const e2 = { x: p2.x + n2.x * clear, y: p2.y + n2.y * clear };
-
-      const points = simplifyPath([p1, e1, ...connectExits(e1, n1, e2, n2), e2, p2]);
+      const { e1, e2 } = connectionStubs(p1, p2, n1, n2);
+      const points = simplifyPath([p1, e1, ...connectExits(e1, n1, e2, n2, laneOffset), e2, p2]);
       return { points, fromSide, toSide, endX: p2.x, endY: p2.y, inDir: { x: -n2.x, y: -n2.y } };
+    }
+
+    function routeSegments(points, connId = null) {
+      const segments = [];
+      for (let index = 1; index < points.length; index++) {
+        const a = points[index - 1], b = points[index];
+        if (Math.abs(a.x - b.x) < 0.01 && Math.abs(a.y - b.y) < 0.01) continue;
+        segments.push({ a, b, connId, index: index - 1 });
+      }
+      return segments;
+    }
+
+    function expandedObstacle(node, padding = 0) {
+      return {
+        id: node.id,
+        left: node.x - padding,
+        right: node.x + node.width + padding,
+        top: node.y - padding,
+        bottom: node.y + node.height + padding,
+      };
+    }
+
+    function pointInsideObstacle(point, rect) {
+      return point.x > rect.left + 0.01 && point.x < rect.right - 0.01 &&
+             point.y > rect.top + 0.01 && point.y < rect.bottom - 0.01;
+    }
+
+    function segmentHitsObstacle(a, b, rect) {
+      if (Math.abs(a.x - b.x) < 0.01) {
+        if (a.x <= rect.left + 0.01 || a.x >= rect.right - 0.01) return false;
+        return Math.max(Math.min(a.y, b.y), rect.top) < Math.min(Math.max(a.y, b.y), rect.bottom) - 0.01;
+      }
+      if (Math.abs(a.y - b.y) < 0.01) {
+        if (a.y <= rect.top + 0.01 || a.y >= rect.bottom - 0.01) return false;
+        return Math.max(Math.min(a.x, b.x), rect.left) < Math.min(Math.max(a.x, b.x), rect.right) - 0.01;
+      }
+      return true;
+    }
+
+    function collinearOverlap(a, b, c, d) {
+      if (Math.abs(a.y - b.y) < 0.01 && Math.abs(c.y - d.y) < 0.01 && Math.abs(a.y - c.y) < 0.01) {
+        return Math.max(0, Math.min(Math.max(a.x, b.x), Math.max(c.x, d.x)) - Math.max(Math.min(a.x, b.x), Math.min(c.x, d.x)));
+      }
+      if (Math.abs(a.x - b.x) < 0.01 && Math.abs(c.x - d.x) < 0.01 && Math.abs(a.x - c.x) < 0.01) {
+        return Math.max(0, Math.min(Math.max(a.y, b.y), Math.max(c.y, d.y)) - Math.max(Math.min(a.y, b.y), Math.min(c.y, d.y)));
+      }
+      return 0;
+    }
+
+    function perpendicularIntersection(first, second) {
+      const firstHorizontal = Math.abs(first.a.y - first.b.y) < 0.01;
+      const secondHorizontal = Math.abs(second.a.y - second.b.y) < 0.01;
+      if (firstHorizontal === secondHorizontal) return null;
+      const horizontal = firstHorizontal ? first : second;
+      const vertical = firstHorizontal ? second : first;
+      const x = vertical.a.x, y = horizontal.a.y;
+      const withinX = x > Math.min(horizontal.a.x, horizontal.b.x) + 0.01 && x < Math.max(horizontal.a.x, horizontal.b.x) - 0.01;
+      const withinY = y > Math.min(vertical.a.y, vertical.b.y) + 0.01 && y < Math.max(vertical.a.y, vertical.b.y) - 0.01;
+      return withinX && withinY ? { x, y } : null;
+    }
+
+    function segmentConflictCost(a, b, occupied) {
+      let cost = 0;
+      const segment = { a, b };
+      occupied.forEach(other => {
+        const overlap = collinearOverlap(a, b, other.a, other.b);
+        if (overlap > 0.01) cost += 1000 + overlap * 40;
+        else if (perpendicularIntersection(segment, other)) cost += 160;
+      });
+      return cost;
+    }
+
+    function backwardTravelCost(a, b) {
+      const direction = VISUAL_GRAMMARS[visualGrammar]?.direction || 'TB';
+      return direction === 'LR' ? Math.max(0, a.x - b.x) * 0.25 : Math.max(0, a.y - b.y) * 0.25;
+    }
+
+    function pathConflict(points, obstacles, occupied) {
+      return routeSegments(points).some(segment =>
+        obstacles.some(rect => segmentHitsObstacle(segment.a, segment.b, rect)) ||
+        occupied.some(other => collinearOverlap(segment.a, segment.b, other.a, other.b) > 0.01)
+      );
+    }
+
+    function nearbyLaneSegments(start, end, occupied, limit = 8) {
+      if (occupied.length <= limit) return occupied;
+      const center = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+      return occupied.map(segment => ({
+        segment,
+        distance: Math.abs((segment.a.x + segment.b.x) / 2 - center.x) + Math.abs((segment.a.y + segment.b.y) / 2 - center.y),
+      })).sort((left, right) => left.distance - right.distance || String(left.segment.id || '').localeCompare(String(right.segment.id || ''))).slice(0, limit).map(item => item.segment);
+    }
+
+    function doglegRoute(start, end, obstacles, occupied) {
+      const xs = new Set([start.x, end.x]);
+      const ys = new Set([start.y, end.y]);
+      obstacles.forEach(rect => { xs.add(rect.left); xs.add(rect.right); ys.add(rect.top); ys.add(rect.bottom); });
+      nearbyLaneSegments(start, end, occupied).forEach(segment => {
+        if (Math.abs(segment.a.x - segment.b.x) < 0.01) { xs.add(segment.a.x - ROUTE_CFG.portGap); xs.add(segment.a.x + ROUTE_CFG.portGap); }
+        else { ys.add(segment.a.y - ROUTE_CFG.portGap); ys.add(segment.a.y + ROUTE_CFG.portGap); }
+      });
+      const candidates = [
+        [start, { x: end.x, y: start.y }, end],
+        [start, { x: start.x, y: end.y }, end],
+      ];
+      xs.forEach(x => candidates.push([start, { x, y: start.y }, { x, y: end.y }, end]));
+      ys.forEach(y => candidates.push([start, { x: start.x, y }, { x: end.x, y }, end]));
+      const scored = candidates.map(simplifyPath).filter(points => !pathConflict(points, obstacles, occupied)).map(points => ({
+        points,
+        score: routeSegments(points).reduce((sum, segment) => sum + Math.abs(segment.a.x - segment.b.x) + Math.abs(segment.a.y - segment.b.y) + backwardTravelCost(segment.a, segment.b) + segmentConflictCost(segment.a, segment.b, occupied), 0) + Math.max(0, points.length - 2) * 28,
+      }));
+      scored.sort((left, right) => left.score - right.score || JSON.stringify(left.points).localeCompare(JSON.stringify(right.points)));
+      return scored[0]?.points || null;
+    }
+
+    // Build an orthogonal visibility graph when simple doglegs cannot pass.
+    function visibilityRoute(start, end, obstacles, occupied) {
+      const routeBounds = {
+        left: Math.min(start.x, end.x) - 160,
+        right: Math.max(start.x, end.x) + 160,
+        top: Math.min(start.y, end.y) - 160,
+        bottom: Math.max(start.y, end.y) + 160,
+      };
+      const relevant = obstacles.filter(rect => rect.right >= routeBounds.left && rect.left <= routeBounds.right && rect.bottom >= routeBounds.top && rect.top <= routeBounds.bottom);
+      const xs = new Set([start.x, end.x]);
+      const ys = new Set([start.y, end.y]);
+      relevant.forEach(rect => {
+        xs.add(rect.left); xs.add(rect.right);
+        ys.add(rect.top); ys.add(rect.bottom);
+      });
+      nearbyLaneSegments(start, end, occupied).forEach(segment => {
+        if (Math.abs(segment.a.x - segment.b.x) < 0.01) {
+          xs.add(segment.a.x - ROUTE_CFG.portGap); xs.add(segment.a.x + ROUTE_CFG.portGap);
+        } else {
+          ys.add(segment.a.y - ROUTE_CFG.portGap); ys.add(segment.a.y + ROUTE_CFG.portGap);
+        }
+      });
+
+      const xValues = [...xs].sort((a, b) => a - b);
+      const yValues = [...ys].sort((a, b) => a - b);
+      const vertices = [], rows = new Map(), columns = new Map();
+      const vertexByKey = new Map();
+      const pointKey = (x, y) => `${x.toFixed(3)}:${y.toFixed(3)}`;
+      yValues.forEach(y => xValues.forEach(x => {
+        const point = { x, y };
+        if (relevant.some(rect => pointInsideObstacle(point, rect))) return;
+        const index = vertices.length;
+        vertexByKey.set(pointKey(x, y), index);
+        vertices.push(point);
+        const rowKey = y.toFixed(3), columnKey = x.toFixed(3);
+        if (!rows.has(rowKey)) rows.set(rowKey, []);
+        if (!columns.has(columnKey)) columns.set(columnKey, []);
+        rows.get(rowKey).push(index);
+        columns.get(columnKey).push(index);
+      }));
+      const startIndex = vertexByKey.get(pointKey(start.x, start.y));
+      const endIndex = vertexByKey.get(pointKey(end.x, end.y));
+      if (startIndex === undefined || endIndex === undefined) return null;
+
+      const adjacency = Array.from({ length: vertices.length }, () => []);
+      const connectLine = indices => {
+        indices.sort((left, right) => {
+          const a = vertices[left], b = vertices[right];
+          return a.x - b.x || a.y - b.y;
+        });
+        for (let index = 1; index < indices.length; index++) {
+          const fromIndex = indices[index - 1], toIndex = indices[index];
+          const a = vertices[fromIndex], b = vertices[toIndex];
+          if (relevant.some(rect => segmentHitsObstacle(a, b, rect))) continue;
+          const length = Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+          adjacency[fromIndex].push({ to: toIndex, length });
+          adjacency[toIndex].push({ to: fromIndex, length });
+        }
+      };
+      rows.forEach(connectLine);
+      columns.forEach(connectLine);
+
+      const heap = [];
+      const push = item => {
+        heap.push(item);
+        let index = heap.length - 1;
+        while (index > 0) {
+          const parent = Math.floor((index - 1) / 2);
+          if (heap[parent].f < item.f || (heap[parent].f === item.f && heap[parent].key <= item.key)) break;
+          heap[index] = heap[parent]; index = parent;
+        }
+        heap[index] = item;
+      };
+      const pop = () => {
+        const root = heap[0], tail = heap.pop();
+        if (heap.length && tail) {
+          let index = 0;
+          while (true) {
+            let child = index * 2 + 1;
+            if (child >= heap.length) break;
+            if (child + 1 < heap.length && (heap[child + 1].f < heap[child].f || (heap[child + 1].f === heap[child].f && heap[child + 1].key < heap[child].key))) child++;
+            if (heap[child].f > tail.f || (heap[child].f === tail.f && heap[child].key >= tail.key)) break;
+            heap[index] = heap[child]; index = child;
+          }
+          heap[index] = tail;
+        }
+        return root;
+      };
+
+      const best = new Map(), parent = new Map();
+      const startKey = `${startIndex}:N`;
+      best.set(startKey, 0);
+      push({ key: startKey, vertex: startIndex, direction: 'N', g: 0, f: Math.abs(start.x - end.x) + Math.abs(start.y - end.y) });
+      let finalKey = null;
+      while (heap.length) {
+        const current = pop();
+        if (current.g !== best.get(current.key)) continue;
+        if (current.vertex === endIndex) { finalKey = current.key; break; }
+        const point = vertices[current.vertex];
+        const neighbors = [...adjacency[current.vertex]].sort((left, right) => left.to - right.to);
+        neighbors.forEach(edge => {
+          const next = vertices[edge.to];
+          const direction = Math.abs(point.x - next.x) < 0.01 ? 'V' : 'H';
+          const bend = current.direction !== 'N' && current.direction !== direction ? 28 : 0;
+          const conflict = segmentConflictCost(point, next, occupied);
+          const g = current.g + edge.length + bend + backwardTravelCost(point, next) + conflict;
+          const key = `${edge.to}:${direction}`;
+          if (g >= (best.get(key) ?? Infinity) - 0.01) return;
+          best.set(key, g);
+          parent.set(key, current.key);
+          const h = Math.abs(next.x - end.x) + Math.abs(next.y - end.y);
+          push({ key, vertex: edge.to, direction, g, f: g + h });
+        });
+      }
+      if (!finalKey) return null;
+
+      const path = [];
+      let key = finalKey;
+      while (key) {
+        const vertexIndex = Number(key.split(':')[0]);
+        path.push(vertices[vertexIndex]);
+        key = parent.get(key);
+      }
+      return simplifyPath(path.reverse());
+    }
+
+    function routeBackEdge(from, to, geometry, allNodes) {
+      const p1 = sidePoint(from, geometry.fromSide, geometry.fromFrac);
+      const p2 = sidePoint(to, geometry.toSide, geometry.toFrac);
+      const n1 = SIDE_NORMAL[geometry.fromSide] || { x: 0, y: 0 };
+      const n2 = SIDE_NORMAL[geometry.toSide] || { x: 0, y: 0 };
+      const { e1, e2 } = connectionStubs(p1, p2, n1, n2);
+      const placeable = allNodes.filter(node => !['text', 'line', 'pencil'].includes(node.type));
+      const bounds = {
+        left: Math.min(...placeable.map(node => node.x)) - 40,
+        right: Math.max(...placeable.map(node => node.x + node.width)) + 40,
+        top: Math.min(...placeable.map(node => node.y)) - 40,
+        bottom: Math.max(...placeable.map(node => node.y + node.height)) + 40,
+      };
+      let points;
+      if (n1.y !== 0 && n2.y !== 0) {
+        const outside = Math.abs(e1.x - bounds.left) <= Math.abs(bounds.right - e1.x) ? bounds.left : bounds.right;
+        points = [p1, e1, { x: outside, y: e1.y }, { x: outside, y: e2.y }, e2, p2];
+      } else {
+        const outside = Math.abs(e1.y - bounds.top) <= Math.abs(bounds.bottom - e1.y) ? bounds.top : bounds.bottom;
+        points = [p1, e1, { x: e1.x, y: outside }, { x: e2.x, y: outside }, e2, p2];
+      }
+      return { points: simplifyPath(points), endX: p2.x, endY: p2.y, inDir: { x: -n2.x, y: -n2.y }, detoured: true, backEdge: true };
+    }
+
+    function routeConnectionAvoidingObstacles(from, to, geometry, allNodes, occupied) {
+      if (geometry.backEdge) return routeBackEdge(from, to, geometry, allNodes);
+      const base = routeConnection(from, to, geometry.fromSide, geometry.toSide, geometry.fromFrac, geometry.toFrac, geometry.waypoints, geometry.laneOffset || 0);
+      if (from === to) return base;
+      const obstacles = [
+        ...allNodes.filter(node => node.id !== from.id && node.id !== to.id && !['container', 'text', 'line', 'pencil'].includes(node.type)).map(node => expandedObstacle(node, 12)),
+        // Containers are zones. Only their labelled header is an obstacle; the
+        // router can cross the remaining boundary through a clear gateway.
+        ...allNodes.filter(node => node.type === 'container' && node.id !== from.id && node.id !== to.id).map(node => ({ id: node.id, left: node.x - 6, right: node.x + node.width + 6, top: node.y - 6, bottom: node.y + 41 })),
+      ];
+      if (geometry.waypoints && geometry.waypoints.length) {
+        const p1 = sidePoint(from, geometry.fromSide, geometry.fromFrac);
+        const p2 = sidePoint(to, geometry.toSide, geometry.toFrac);
+        const n1 = SIDE_NORMAL[geometry.fromSide] || { x: 0, y: 0 };
+        const n2 = SIDE_NORMAL[geometry.toSide] || { x: 0, y: 0 };
+        const { e1, e2 } = connectionStubs(p1, p2, n1, n2);
+        const anchors = [e1, ...geometry.waypoints.map(point => ({ x: point.x, y: point.y })), e2];
+        const waypointObstacles = [...obstacles, expandedObstacle(from), expandedObstacle(to)];
+        const points = [p1, e1];
+        let fallback = false;
+        for (let index = 1; index < anchors.length; index++) {
+          const start = anchors[index - 1], end = anchors[index];
+          const bounds = { left: Math.min(start.x, end.x) - 160, right: Math.max(start.x, end.x) + 160, top: Math.min(start.y, end.y) - 160, bottom: Math.max(start.y, end.y) + 160 };
+          const relevantObstacles = waypointObstacles.filter(rect => rect.right >= bounds.left && rect.left <= bounds.right && rect.bottom >= bounds.top && rect.top <= bounds.bottom);
+          // Manual anchors override automatic lane reservations. Keep their
+          // intervals node-safe, then mark any intentional crossings with bridges.
+          const localOccupied = routeSegments(points);
+          const relevantOccupied = localOccupied.filter(segment => Math.max(segment.a.x, segment.b.x) >= bounds.left && Math.min(segment.a.x, segment.b.x) <= bounds.right && Math.max(segment.a.y, segment.b.y) >= bounds.top && Math.min(segment.a.y, segment.b.y) <= bounds.bottom);
+          const routed = doglegRoute(start, end, relevantObstacles, relevantOccupied) || visibilityRoute(start, end, relevantObstacles, relevantOccupied);
+          if (routed) points.push(...routed.slice(1));
+          else { points.push({ x: end.x, y: start.y }, end); fallback = true; }
+        }
+        points.push(p2);
+        return { ...base, points: simplifyPath(points), detoured: true, qualityFallback: fallback };
+      }
+      if (!pathConflict(base.points, obstacles, occupied)) return base;
+
+      const p1 = sidePoint(from, geometry.fromSide, geometry.fromFrac);
+      const p2 = sidePoint(to, geometry.toSide, geometry.toFrac);
+      const n1 = SIDE_NORMAL[geometry.fromSide] || { x: 0, y: 0 };
+      const n2 = SIDE_NORMAL[geometry.toSide] || { x: 0, y: 0 };
+      const { e1, e2 } = connectionStubs(p1, p2, n1, n2);
+      const bounds = { left: Math.min(e1.x, e2.x) - 160, right: Math.max(e1.x, e2.x) + 160, top: Math.min(e1.y, e2.y) - 160, bottom: Math.max(e1.y, e2.y) + 160 };
+      const relevantObstacles = obstacles.filter(rect => rect.right >= bounds.left && rect.left <= bounds.right && rect.bottom >= bounds.top && rect.top <= bounds.bottom);
+      const relevantOccupied = occupied.filter(segment => Math.max(segment.a.x, segment.b.x) >= bounds.left && Math.min(segment.a.x, segment.b.x) <= bounds.right && Math.max(segment.a.y, segment.b.y) >= bounds.top && Math.min(segment.a.y, segment.b.y) <= bounds.bottom);
+      const middle = doglegRoute(e1, e2, relevantObstacles, relevantOccupied) || visibilityRoute(e1, e2, relevantObstacles, relevantOccupied);
+      if (!middle) return { ...base, qualityFallback: true };
+      const points = simplifyPath([p1, ...middle, p2]);
+      return { ...base, points, detoured: true };
+    }
+
+    function connectionPriority(conn, includeSelection = true) {
+      if (includeSelection && conn.id === selectedConnId) return 0;
+      if (conn.semanticRole === 'primary' || nodes.some(node => node.semanticRole === 'focal' && (node.id === conn.from || node.id === conn.to))) return 1;
+      if (conn.semanticRole !== 'link' && conn.semanticRole !== 'external' && conn.strokeStyle !== 'dashed' && !conn.optional && !conn.isBackEdge && conn.semanticRole !== 'passive') return 2;
+      if (conn.semanticRole === 'link' || conn.semanticRole === 'external') return 3;
+      if (conn.strokeStyle === 'dashed' || conn.optional) return 4;
+      return 5;
+    }
+
+    let _routeCacheKey = null;
+    let _routeCache = null;
+    function computeConnectionRoutes(nodeById, connectionGeometry) {
+      const regular = connections.filter(conn => !conn.isSequenceMessage).map((conn, index) => ({ conn, index }))
+        .sort((left, right) => connectionPriority(left.conn, false) - connectionPriority(right.conn, false) || left.index - right.index).map(item => item.conn);
+      const cacheKey = JSON.stringify({
+        nodes: nodes.map(node => [node.id, node.type, node.x, node.y, node.width, node.height]),
+        connections: regular.map(conn => [conn.id, conn.from, conn.to, conn.fromSide, conn.toSide, conn.fromFrac, conn.toFrac, conn.fromSideLocked, conn.toSideLocked, conn.fromFracLocked, conn.toFracLocked, conn.waypoints, conn.isBackEdge]),
+      });
+      if (_routeCacheKey === cacheKey && _routeCache) return _routeCache;
+      const routeOf = new Map(), occupied = [];
+      regular.forEach(conn => {
+        const from = nodeById.get(conn.from), to = nodeById.get(conn.to);
+        const geometry = connectionGeometry.sideOf.get(conn.id);
+        if (!from || !to || !geometry) return;
+        const route = routeConnectionAvoidingObstacles(from, to, { ...geometry, waypoints: conn.waypoints, backEdge: conn.isBackEdge }, nodes, occupied);
+        routeOf.set(conn.id, route);
+        occupied.push(...routeSegments(route.points, conn.id));
+      });
+      _routeCacheKey = cacheKey;
+      _routeCache = routeOf;
+      return routeOf;
+    }
+
+    function computeCrossingBridges(routeOf) {
+      const bridges = new Map();
+      const regular = connections.filter(conn => !conn.isSequenceMessage && routeOf.has(conn.id));
+      for (let firstIndex = 0; firstIndex < regular.length; firstIndex++) {
+        const first = regular[firstIndex], firstSegments = routeSegments(routeOf.get(first.id).points, first.id);
+        for (let secondIndex = firstIndex + 1; secondIndex < regular.length; secondIndex++) {
+          const second = regular[secondIndex];
+          if (first.from === second.from || first.from === second.to || first.to === second.from || first.to === second.to) continue;
+          const secondSegments = routeSegments(routeOf.get(second.id).points, second.id);
+          firstSegments.forEach(a => secondSegments.forEach(b => {
+            const point = perpendicularIntersection(a, b);
+            if (!point) return;
+            const bridgeFirst = connectionPriority(first) > connectionPriority(second);
+            const bridgeConn = bridgeFirst ? first : second, bridgeSegment = bridgeFirst ? a : b;
+            const distance = Math.min(
+              Math.hypot(point.x - bridgeSegment.a.x, point.y - bridgeSegment.a.y),
+              Math.hypot(point.x - bridgeSegment.b.x, point.y - bridgeSegment.b.y)
+            );
+            if (distance < 12) return;
+            if (!bridges.has(bridgeConn.id)) bridges.set(bridgeConn.id, []);
+            bridges.get(bridgeConn.id).push({ ...point, horizontal: Math.abs(bridgeSegment.a.y - bridgeSegment.b.y) < 0.01 });
+          }));
+        }
+      }
+      bridges.forEach((items, id) => {
+        const unique = new Map(items.map(item => [`${item.x.toFixed(3)}:${item.y.toFixed(3)}`, item]));
+        bridges.set(id, [...unique.values()]);
+      });
+      return bridges;
+    }
+
+    function bridgeMarkup(items, color, width) {
+      const markup = (items || []).map(item => {
+        const mask = `<circle cx="${item.x}" cy="${item.y}" r="7" fill="${COLORS.bg}" style="pointer-events:none"/>`;
+        const path = item.horizontal
+          ? `M${item.x - 7},${item.y} Q${item.x},${item.y - 9} ${item.x + 7},${item.y}`
+          : `M${item.x},${item.y - 7} Q${item.x + 9},${item.y} ${item.x},${item.y + 7}`;
+        return `${mask}<path d="${path}" fill="none" stroke="${color}" stroke-width="${width}" style="pointer-events:none"/>`;
+      }).join('');
+      return markup ? `<g class="connection-bridges">${markup}</g>` : '';
+    }
+
+    function connectionLabelMetrics(label) {
+      const words = label.split(' '), lines = [];
+      let current = '';
+      words.forEach(word => {
+        if (`${current} ${word}`.trim().length <= 15) current = `${current} ${word}`.trim();
+        else { if (current) lines.push(current); current = word; }
+      });
+      if (current) lines.push(current);
+      const safeLines = lines.length ? lines : [''];
+      return {
+        lines: safeLines,
+        width: Math.max(...safeLines.map(line => labelWidthPx(line, 12))) + 16,
+        height: safeLines.length * 16 + 8,
+      };
+    }
+
+    function boxesOverlap(a, b, gap = 0) {
+      return a.x < b.x + b.width + gap && b.x < a.x + a.width + gap &&
+             a.y < b.y + b.height + gap && b.y < a.y + a.height + gap;
+    }
+
+    function computeConnectionLabels(routeOf, nodeById, bridges = new Map()) {
+      const placements = new Map(), occupied = [];
+      const bridgeBoxes = [...bridges.values()].flat().map(bridge => ({ x: bridge.x - 12, y: bridge.y - 12, width: 24, height: 24 }));
+      connections.filter(conn => !conn.isSequenceMessage && conn.label && routeOf.has(conn.id)).forEach(conn => {
+        const metrics = connectionLabelMetrics(conn.label);
+        if (conn.labelPositionLocked && Number.isFinite(conn.labelX) && Number.isFinite(conn.labelY)) {
+          const box = { x: conn.labelX, y: conn.labelY, width: metrics.width, height: metrics.height, lines: metrics.lines };
+          occupied.push(box); placements.set(conn.id, box); return;
+        }
+        const segments = routeSegments(routeOf.get(conn.id).points, conn.id)
+          .map(segment => ({ ...segment, length: Math.abs(segment.a.x - segment.b.x) + Math.abs(segment.a.y - segment.b.y) }))
+          .sort((a, b) => b.length - a.length || a.index - b.index);
+        const candidates = [];
+        segments.forEach(segment => {
+          const horizontal = Math.abs(segment.a.y - segment.b.y) < 0.01;
+          if (horizontal && segment.length >= metrics.width + 16) {
+            const centerX = (segment.a.x + segment.b.x) / 2;
+            [-1, 1].forEach(side => candidates.push({ x: centerX - metrics.width / 2, y: segment.a.y + side * (metrics.height / 2 + 8) - metrics.height / 2, width: metrics.width, height: metrics.height }));
+          } else if (!horizontal && segment.length >= metrics.height + 16) {
+            const centerY = (segment.a.y + segment.b.y) / 2;
+            [-1, 1].forEach(side => candidates.push({ x: segment.a.x + side * (metrics.width / 2 + 8) - metrics.width / 2, y: centerY - metrics.height / 2, width: metrics.width, height: metrics.height }));
+          }
+        });
+        const nodeBoxes = [...nodeById.values()].filter(node => !['line', 'pencil'].includes(node.type)).map(node => ({ x: node.x - 4, y: node.y - 4, width: node.width + 8, height: node.height + 8 }));
+        let box = candidates.find(candidate => !nodeBoxes.some(nodeBox => boxesOverlap(candidate, nodeBox)) && !occupied.some(other => boxesOverlap(candidate, other, 4)) && !bridgeBoxes.some(bridge => boxesOverlap(candidate, bridge)));
+        if (!box) {
+          const first = segments[0] || { a: { x: 0, y: 0 }, b: { x: 0, y: 0 } };
+          box = { x: (first.a.x + first.b.x) / 2 - metrics.width / 2, y: (first.a.y + first.b.y) / 2 - metrics.height - 8, width: metrics.width, height: metrics.height };
+        }
+        occupied.push(box);
+        placements.set(conn.id, { ...box, lines: metrics.lines });
+      });
+      return placements;
+    }
+
+    function analyzeDiagramGeometry(nodeById, connectionGeometry, routeOf, bridges, labels) {
+      const findings = [...analyzePortGeometry(nodeById, connectionGeometry.sideOf)];
+      const solidNodes = [...nodeById.values()].filter(node => !['container', 'text', 'line', 'pencil'].includes(node.type));
+      for (let first = 0; first < solidNodes.length; first++) for (let second = first + 1; second < solidNodes.length; second++) {
+        if (boxesOverlap(solidNodes[first], solidNodes[second])) findings.push({ type: 'node-overlap', nodeIds: [solidNodes[first].id, solidNodes[second].id] });
+      }
+      const regular = connections.filter(conn => !conn.isSequenceMessage && routeOf.has(conn.id));
+      regular.forEach(conn => {
+        const route = routeOf.get(conn.id);
+        const obstacles = [...nodeById.values()].filter(node => node.id !== conn.from && node.id !== conn.to && !['container', 'text', 'line', 'pencil'].includes(node.type));
+        routeSegments(route.points).forEach(segment => obstacles.forEach(node => {
+          if (segmentHitsObstacle(segment.a, segment.b, expandedObstacle(node))) findings.push({ type: 'edge-node', connectionId: conn.id, nodeId: node.id });
+        }));
+        if (route.qualityFallback) findings.push({ type: 'route-fallback', connectionId: conn.id });
+      });
+      for (let firstIndex = 0; firstIndex < regular.length; firstIndex++) {
+        for (let secondIndex = firstIndex + 1; secondIndex < regular.length; secondIndex++) {
+          const first = regular[firstIndex], second = regular[secondIndex];
+          routeSegments(routeOf.get(first.id).points).forEach(a => routeSegments(routeOf.get(second.id).points).forEach(b => {
+            const overlap = collinearOverlap(a.a, a.b, b.a, b.b);
+            if (overlap > 0.01) findings.push({ type: 'shared-segment', connectionIds: [first.id, second.id], overlap });
+            if (first.from === second.from || first.from === second.to || first.to === second.from || first.to === second.to) return;
+            const point = perpendicularIntersection(a, b);
+            if (!point) return;
+            const marked = [first.id, second.id].some(id => (bridges.get(id) || []).some(bridge => Math.hypot(bridge.x - point.x, bridge.y - point.y) < 1));
+            if (!marked) findings.push({ type: 'unbridged-crossing', connectionIds: [first.id, second.id], point });
+          }));
+        }
+      }
+      const labelEntries = [...labels.entries()];
+      labelEntries.forEach(([connId, box], index) => {
+        [...nodeById.values()].forEach(node => {
+          if (boxesOverlap(box, { x: node.x, y: node.y, width: node.width, height: node.height })) findings.push({ type: 'label-node', connectionId: connId, nodeId: node.id });
+        });
+        routeSegments(routeOf.get(connId)?.points || []).forEach(segment => {
+          if (segmentHitsObstacle(segment.a, segment.b, { left: box.x - 6, right: box.x + box.width + 6, top: box.y - 6, bottom: box.y + box.height + 6 })) findings.push({ type: 'label-route', connectionId: connId });
+        });
+        for (let other = index + 1; other < labelEntries.length; other++) {
+          if (boxesOverlap(box, labelEntries[other][1])) findings.push({ type: 'label-label', connectionIds: [connId, labelEntries[other][0]] });
+        }
+      });
+      const focalNodeIds = nodes.filter(node => node.semanticRole === 'focal').map(node => node.id);
+      if (focalNodeIds.length > 1) findings.push({ type: 'focal-accent-limit', nodeIds: focalNodeIds, allowed: 1 });
+      return [...new Map(findings.map(finding => [JSON.stringify(finding), finding])).values()];
     }
 
     // Smooth SVG path through freehand points (quadratic curve through midpoints).
@@ -2809,7 +3500,7 @@
           const el = nodesGroup.querySelector(`.node[data-id="${n.id}"]`);
           if (el) el.setAttribute('transform', `translate(${n.x - startX},${n.y - startY})`);
         });
-        renderConnections();
+        renderConnections(true);
       });
     }
 
@@ -2853,7 +3544,7 @@
       return { svg: '', baseDist: 0 };
     }
 
-    function renderConnections() {
+    function renderConnections(fastPreview = false) {
       // Build an id -> node index once so per-connection lookups are O(1)
       // instead of nodes.find() scanning the whole array for every endpoint.
       const nodeById = new Map(nodes.map(n => [n.id, n]));
@@ -2938,9 +3629,26 @@
 
       // Connections
       const connGeom = computeConnectionGeometry(nodeById);
+      const movingIds = fastPreview && dragging ? new Set((dragging.multiDrag || [{ node: dragging.node }]).map(item => item.node.id)) : new Set();
+      const partialPreview = fastPreview && connectionsGroup.querySelector('.connection-group');
+      const renderedConnections = partialPreview
+        ? connections.filter(conn => movingIds.has(conn.from) || movingIds.has(conn.to))
+        : connections;
+      const routeOf = fastPreview ? new Map(renderedConnections.filter(conn => !conn.isSequenceMessage).map(conn => {
+        const cached = _routeCache?.get(conn.id);
+        if (cached && !movingIds.has(conn.from) && !movingIds.has(conn.to)) return [conn.id, cached];
+        const from = nodeById.get(conn.from), to = nodeById.get(conn.to);
+        const geometry = connGeom.sideOf.get(conn.id);
+        if (!from || !to || !geometry) return [conn.id, null];
+        return [conn.id, routeConnection(from, to, geometry.fromSide, geometry.toSide, geometry.fromFrac, geometry.toFrac, conn.waypoints, geometry.laneOffset || 0)];
+      }).filter(([, route]) => route)) : computeConnectionRoutes(nodeById, connGeom);
+      // Bridges and labels do not change during the drag preview. Rebuild them in
+      // the full release render to keep pointer frames within budget.
+      const bridgeOf = fastPreview ? new Map() : computeCrossingBridges(routeOf);
+      const labelOf = fastPreview ? new Map() : computeConnectionLabels(routeOf, nodeById, bridgeOf);
       let selHandles = null;  // endpoint coords for the selected connection (drawn on top)
       const cullActive = nodes.length > CONFIG.cullThreshold;
-      connectionsGroup.innerHTML = framesSvg + activationsSvg + connections.map(conn => {
+      const connectionMarkup = renderedConnections.map(conn => {
         const from = nodeById.get(conn.from);
         const to = nodeById.get(conn.to);
         if (!from || !to) return '';
@@ -2958,7 +3666,7 @@
           const toX = to.x + to.width / 2;
           const y = conn.messageY || 150;
           const isConnSelected = selectedConnId === conn.id;
-          const strokeColor = conn.color || (isConnSelected ? COLORS.accent : COLORS.fg);
+          const strokeColor = conn.color || (isConnSelected ? COLORS.accent : conn.semanticRole === 'link' ? (COLORS.link || COLORS.accent) : conn.semanticRole === 'primary' ? COLORS.accent : conn.semanticRole === 'passive' ? (COLORS.muted || COLORS.fg) : COLORS.fg);
           const strokeWidth = conn.thick ? (isConnSelected ? 5 : 4) : (isConnSelected ? 3 : 2);
           
           // Arrow type - strokeStyle overrides arrow syntax if explicitly set
@@ -3039,9 +3747,11 @@
         // Smart routing — respects manually-locked sides, auto-distributes the rest.
         // A waypoint'd edge renders orthogonally (rounded) so its bends are honored
         // — 'curved' threads one bezier end-to-end and would smooth the bend away.
-        const lineStyle = (from === to || (conn.waypoints && conn.waypoints.length)) ? 'rounded' : (conn.lineStyle || 'curved');
-        const cg = connGeom.sideOf.get(conn.id) || getOptimalSides(from, to);
-        const { points, endX, endY, inDir } = routeConnection(from, to, cg.fromSide, cg.toSide, 0.5, 0.5, conn.waypoints);
+        const cg = connGeom.sideOf.get(conn.id) || { ...getOptimalSides(from, to), fromFrac: 0.5, toFrac: 0.5 };
+        const routed = routeOf.get(conn.id) || routeConnection(from, to, cg.fromSide, cg.toSide, cg.fromFrac, cg.toFrac, conn.waypoints, cg.laneOffset || 0);
+        const points = routed.points.map(point => ({ ...point }));
+        const { endX, endY, inDir } = routed;
+        const lineStyle = (from === to || routed.detoured || (conn.waypoints && conn.waypoints.length)) ? 'rounded' : (conn.lineStyle || 'curved');
         const [x1, y1] = [points[0].x, points[0].y];
         const [x2, y2] = [points[points.length-1].x, points[points.length-1].y];
         
@@ -3053,7 +3763,7 @@
         const ca = Math.cos(angle), sa = Math.sin(angle);
         const tipX = endX, tipY = endY;                       // tip on the connector
         const isConnSelected = selectedConnId === conn.id;
-        const strokeColor = conn.color || (isConnSelected ? COLORS.accent : COLORS.fg);
+        const strokeColor = conn.color || (isConnSelected ? COLORS.accent : conn.semanticRole === 'link' ? (COLORS.link || COLORS.accent) : conn.semanticRole === 'primary' ? COLORS.accent : conn.semanticRole === 'passive' ? (COLORS.muted || COLORS.fg) : COLORS.fg);
 
         // End-markers: UML glyphs for class relationships (markerStart/markerEnd),
         // otherwise the default filled arrow at the target end.
@@ -3117,37 +3827,15 @@
         
         let labelEl = '';
         if (label) {
-          // Word wrap for long labels (max ~15 chars per line)
-          const maxChars = 15;
-          const words = label.split(' ');
-          const lines = [];
-          let currentLine = '';
-          
-          words.forEach(word => {
-            if ((currentLine + ' ' + word).trim().length <= maxChars) {
-              currentLine = (currentLine + ' ' + word).trim();
-            } else {
-              if (currentLine) lines.push(currentLine);
-              currentLine = word;
-            }
-          });
-          if (currentLine) lines.push(currentLine);
-          
-          const lineHeight = 16;
-          const padding = 8;
-          const maxLineWidth = Math.max(...lines.map(l => l.length)) * 7;
-          const boxWidth = maxLineWidth + padding * 2;
-          const boxHeight = lines.length * lineHeight + padding;
-          const boxY = midY - boxHeight / 2;
-          
-          const tspans = lines.map((line, i) => 
-            `<tspan x="${midX}" dy="${i === 0 ? 0 : lineHeight}">${esc(line)}</tspan>`
+          const placement = labelOf.get(conn.id) || { x: midX - 20, y: midY - 24, width: 40, height: 20, lines: [label] };
+          const centerX = placement.x + placement.width / 2;
+          const tspans = placement.lines.map((line, index) =>
+            `<tspan x="${centerX}" dy="${index === 0 ? 0 : 16}">${esc(line)}</tspan>`
           ).join('');
-          
-          labelEl = `
-            <rect x="${midX - boxWidth/2}" y="${boxY}" width="${boxWidth}" height="${boxHeight}" rx="4" fill="${COLORS.bg}" stroke="none" data-conn="${conn.id}" style="cursor:pointer;pointer-events:fill"/>
-            <text x="${midX}" y="${boxY + padding + 10}" fill="${COLORS.fg}" font-size="12" font-family="system-ui, sans-serif" text-anchor="middle" data-conn="${conn.id}" style="cursor:pointer;pointer-events:painted">${tspans}</text>
-          `;
+          labelEl = `<g class="connection-label" data-conn="${conn.id}" style="cursor:move">
+            <rect x="${placement.x}" y="${placement.y}" width="${placement.width}" height="${placement.height}" rx="4" fill="${COLORS.bg}" stroke="none" style="pointer-events:fill"/>
+            <text x="${centerX}" y="${placement.y + 18}" fill="${COLORS.fg}" font-size="12" font-family="system-ui, sans-serif" text-anchor="middle" style="pointer-events:painted">${tspans}</text>
+          </g>`;
         }
         
         // Wider path for easier clicking
@@ -3156,6 +3844,7 @@
         const arrowHit = `<circle class="conn-hit" cx="${tipX}" cy="${tipY}" r="15" fill="transparent" data-conn="${conn.id}" style="cursor:pointer;pointer-events:all"/>`;
         
         const connDashArray = conn.strokeStyle === 'dashed' ? '5,3' : 'none';
+        const bridgeEl = bridgeMarkup(bridgeOf.get(conn.id), strokeColor, strokeWidth);
         // Endpoint drag-handles are drawn in the #connHandles overlay (above nodes)
         if (isConnSelected) {
           // midpoint handle = the existing waypoint, else the geometric middle of the route (#70)
@@ -3177,8 +3866,24 @@
             multSvg += mtxt(a.x + (b.x - a.x) * 0.15 + 7, a.y + (b.y - a.y) * 0.15 - 5, conn.toMult);
           }
         }
-        return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" role="img" aria-label="${esc(connAriaLabel(conn, nodeById))}" style="cursor:pointer">${hitArea}${arrowHit}<path class="connection" d="${path}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${connDashArray}" style="pointer-events:none"/>${startMarkerSvg}${endMarkerSvg}${labelEl}${multSvg}</g>`;
+        return `<g class="connection-group ${isConnSelected ? 'selected' : ''}" data-id="${conn.id}" data-conn="${conn.id}" role="img" aria-label="${esc(connAriaLabel(conn, nodeById))}" style="cursor:pointer">${hitArea}${arrowHit}<path class="connection" d="${path}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${connDashArray}" style="pointer-events:none"/>${bridgeEl}${startMarkerSvg}${endMarkerSvg}${labelEl}${multSvg}</g>`;
       }).join('');
+      if (partialPreview) {
+        const scratch = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        scratch.innerHTML = connectionMarkup;
+        Array.from(scratch.children).forEach(group => {
+          const current = Array.from(connectionsGroup.querySelectorAll('.connection-group')).find(item => item.dataset.id === group.dataset.id);
+          if (current) {
+            ['.connection-bridges', '.connection-label'].forEach(selector => {
+              const staticElement = current.querySelector(selector);
+              if (staticElement) group.appendChild(staticElement);
+            });
+            current.replaceWith(group);
+          }
+        });
+      } else {
+        connectionsGroup.innerHTML = framesSvg + activationsSvg + connectionMarkup;
+      }
 
       // Endpoint handles on top of everything, with a generous transparent hit area
       const handle = (end, cx, cy) => `
@@ -3206,7 +3911,8 @@
 
       nodesGroup.innerHTML = cullNodes(sorted).map(node => {
         const isSelected = node.id === selectedId || selectedIds.includes(node.id);
-        const strokeColor = node.outlineColor || COLORS.fg;
+        const roleStroke = node.semanticRole === 'focal' ? COLORS.accent : COLORS.fg;
+        const strokeColor = node.outlineColor || roleStroke;
         
         const getTextColor = (bgColor) => {
           if (!bgColor || bgColor === 'transparent') return COLORS.fg;
@@ -3645,13 +4351,13 @@
           const rx = node.type === 'pill' ? node.height / 2 : 8;
           // For outline, stripe, grid - use light text; for solid infill - use contrast text
           const txtColor = (style === 'outline' || style === 'stripe' || style === 'grid') ? (node.outlineColor || COLORS.fg) : textColor;
-          const rcx = node.x + node.width/2, rcy = node.y + node.height/2;
+          const rcx = node.x + node.width/2, rcy = node.y + node.height/2 - (node.sublabel ? 7 : 0);
           const clipId = 'clip-' + node.id;
           const pad = 8;
           shape = `${customPattern}<defs><clipPath id="${clipId}"><rect x="${node.x + pad}" y="${node.y + 2}" width="${node.width - pad*2}" height="${node.height - 4}" rx="${rx}"/></clipPath></defs>
             <rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${rx}"
             fill="${fill}" stroke="${strokeColor}" stroke-width="1.5" class="node-border"/>
-            <g clip-path="url(#${clipId})">${renderWrappedText(node.label, rcx, rcy, node.width - pad*2, 12, txtColor, '', node.icon, node.textAlign)}</g>`;
+            <g clip-path="url(#${clipId})">${renderWrappedText(node.label, rcx, rcy, node.width - pad*2, 12, txtColor, '', node.icon, node.textAlign)}${node.sublabel ? `<text x="${rcx}" y="${node.y + node.height / 2 + 16}" fill="${txtColor}" opacity="0.65" font-size="10" font-family="ui-monospace, monospace" text-anchor="middle" style="pointer-events:none">${esc(node.sublabel)}</text>` : ''}</g>${node.tag ? `<text x="${node.x + 10}" y="${node.y + 13}" fill="${COLORS.accent}" font-size="9" font-weight="600" font-family="ui-monospace, monospace" style="pointer-events:none">${esc(node.tag)}</text>` : ''}`;
           // journey actor avatars: one color-coded glyph per actor, above the pill
           if (node.actors && node.actors.length) {
             const gr = 7, gap = 4, gy = node.y - gr - 3;
@@ -3702,7 +4408,7 @@
         
         // Per-node opacity (#134): dim/de-emphasize. Default 1 → no attr.
         const opacityAttr = (node.opacity != null && node.opacity !== 1) ? ` opacity="${node.opacity}"` : '';
-        return `<g class="node ${isSelected ? 'selected' : ''}" data-id="${node.id}" role="img" aria-label="${esc(nodeAriaLabel(node))}"${opacityAttr}>
+        return `<g class="node ${isSelected ? 'selected' : ''}" data-id="${node.id}" data-role="${esc(node.semanticRole || 'process')}" role="img" aria-label="${esc(nodeAriaLabel(node))}"${opacityAttr}>
           ${lifeline}
           ${shape}
           ${connectors}
@@ -3774,6 +4480,14 @@
       });
       connectionsGroup.addEventListener('pointerdown', (e) => {
         if (e.target.closest('[data-conn]')) onConnectionMouseDown(e);
+      });
+      connectionsGroup.addEventListener('dblclick', (e) => {
+        const label = e.target.closest('.connection-label');
+        if (!label || readOnly) return;
+        const conn = connections.find(item => item.id === label.dataset.conn);
+        if (!conn) return;
+        delete conn.labelX; delete conn.labelY; delete conn.labelPositionLocked;
+        saveState(); render(); e.preventDefault(); e.stopPropagation();
       });
       connHandlesGroup.addEventListener('pointerdown', (e) => {
         const wp = e.target.closest('.conn-waypoint');
@@ -4549,6 +5263,8 @@
       [conn.fromSide, conn.toSide] = [conn.toSide, conn.fromSide];
       [conn.fromIdx, conn.toIdx] = [conn.toIdx, conn.fromIdx];
       [conn.fromSideLocked, conn.toSideLocked] = [conn.toSideLocked, conn.fromSideLocked];
+      [conn.fromFrac, conn.toFrac] = [conn.toFrac, conn.fromFrac];
+      [conn.fromFracLocked, conn.toFracLocked] = [conn.toFracLocked, conn.fromFracLocked];
       if (conn.markerStart !== undefined || conn.markerEnd !== undefined) {
         [conn.markerStart, conn.markerEnd] = [conn.markerEnd, conn.markerStart];
       }
@@ -4949,6 +5665,7 @@
     function galleryNew() {
       saveActiveDoc();                        // bank the current diagram first
       nodes = []; connections = []; deselectAll();
+      visualGrammar = 'flowchart'; visualDetail = 'balanced'; applyVisualPreset('editorial', false);
       activeDocId = docStore.save({ title: 'Untitled diagram', data: exportState() }).id;
       saveState(); render();
       if (galleryIsOpen()) renderGallery();
@@ -4984,6 +5701,101 @@
 
     // Smart auto-arrange based on diagram type
     // === SECTION: LAYOUT (auto-arrange algorithms per diagram type) ===
+
+    const grammar = (direction, maxNodes, maxEdges, roles, rankGap, crossGap, labelPreference = 'horizontal') => ({
+      direction, maxNodes, maxEdges, roles, spacing: { rank: rankGap, cross: crossGap },
+      connectorExemptions: [], backEdge: 'outside', labelPreference,
+    });
+    const VISUAL_GRAMMARS = {
+      architecture: grammar('LR', 12, 16, ['external', 'process', 'store', 'focal'], 100, 65),
+      flowchart: grammar('TB', 12, 16, ['process', 'decision', 'focal'], 90, 55),
+      dependency: grammar('LR', 12, 18, ['process', 'focal'], 90, 52),
+      dataflow: grammar('LR', 10, 14, ['external', 'process', 'store', 'focal'], 105, 62),
+      sequence: { ...grammar('LR', 10, 24, ['external', 'process'], 50, 70, 'message-lane'), connectorExemptions: ['sequence-message'], backEdge: 'message-return' },
+      class: { ...grammar('TB', 10, 16, ['class', 'store'], 80, 55), connectorExemptions: ['uml-relationship'], backEdge: 'outside' },
+    };
+
+    function selectVisualGrammar(type = diagramType) {
+      const value = String(type || '').toLowerCase();
+      if (value.includes('architecture') || value.startsWith('c4')) return 'architecture';
+      if (value === 'sequence') return 'sequence';
+      if (value === 'class' || value === 'er') return 'class';
+      if (value.includes('requirement')) return 'dependency';
+      return 'flowchart';
+    }
+
+    function assignSemanticRoles() {
+      const degree = new Map(nodes.map(node => [node.id, 0]));
+      connections.forEach(conn => {
+        degree.set(conn.from, (degree.get(conn.from) || 0) + 1);
+        degree.set(conn.to, (degree.get(conn.to) || 0) + 1);
+      });
+      nodes.forEach(node => {
+        if (node.semanticRole) return;
+        if (node.type === 'cylinder' || node.icon === 'database') node.semanticRole = 'store';
+        else if (node.type === 'diamond') node.semanticRole = 'decision';
+        else if (node.isParticipant || node.icon === 'user' || node.icon === 'users') node.semanticRole = 'external';
+        else node.semanticRole = 'process';
+      });
+      if (!nodes.some(node => node.semanticRole === 'focal')) {
+        const focal = [...nodes].filter(node => !['container', 'text', 'line', 'pencil'].includes(node.type))
+          .sort((a, b) => (degree.get(b.id) || 0) - (degree.get(a.id) || 0) || String(a.id).localeCompare(String(b.id)))[0];
+        if (focal) focal.semanticRole = 'focal';
+      }
+    }
+
+    function getDiagramQualityReport() {
+      const nodeById = new Map(nodes.map(node => [node.id, node]));
+      const geometry = computeConnectionGeometry(nodeById);
+      const routes = computeConnectionRoutes(nodeById, geometry);
+      const bridges = computeCrossingBridges(routes);
+      const labels = computeConnectionLabels(routes, nodeById, bridges);
+      const findings = analyzeDiagramGeometry(nodeById, geometry, routes, bridges, labels);
+      const grammar = VISUAL_GRAMMARS[visualGrammar] || VISUAL_GRAMMARS.flowchart;
+      const densityScale = visualDetail === 'compact' ? 0.75 : visualDetail === 'detailed' ? 1.5 : 1;
+      const maxNodes = Math.round(grammar.maxNodes * densityScale), maxEdges = Math.round(grammar.maxEdges * densityScale);
+      const regularNodes = nodes.filter(node => !['container', 'text', 'line', 'pencil'].includes(node.type));
+      const regularEdges = connections.filter(conn => !conn.isSequenceMessage);
+      if (regularNodes.length > maxNodes) findings.push({ type: 'node-density', count: regularNodes.length, recommended: maxNodes });
+      if (regularEdges.length > maxEdges) findings.push({ type: 'edge-density', count: regularEdges.length, recommended: maxEdges });
+      return { grammar: visualGrammar, findings };
+    }
+
+    function showQualityPanel(report) {
+      document.getElementById('qualityPanel')?.remove();
+      const panel = document.createElement('aside');
+      panel.id = 'qualityPanel';
+      panel.setAttribute('role', 'status');
+      panel.style.cssText = 'position:fixed;right:16px;top:60px;width:320px;max-height:calc(100vh - 76px);overflow:auto;z-index:80;padding:14px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--fg);box-shadow:0 10px 30px rgba(0,0,0,.18);font:12px system-ui';
+      const labels = {
+        'node-overlap': 'Separate overlapping nodes', 'edge-node': 'Move the edge away from a node',
+        'shared-segment': 'Separate shared connector lanes', 'unbridged-crossing': 'Mark the connector crossing',
+        'port-gap': 'Increase endpoint spacing', 'label-node': 'Move the edge label away from a node',
+        'label-label': 'Separate edge labels', 'label-route': 'Increase the label-to-route gap',
+        'route-fallback': 'Review the fallback route', 'node-density': 'Split this diagram or reduce nodes',
+        'edge-density': 'Split this diagram or reduce edges', 'focal-accent-limit': 'Keep one focal node',
+      };
+      const rows = report.findings.slice(0, 12).map(finding => `<li style="margin:6px 0">${labels[finding.type] || finding.type}</li>`).join('');
+      panel.innerHTML = `<div style="display:flex;align-items:center;gap:8px"><strong style="font-size:13px">Quality report</strong><button aria-label="Close quality report" style="margin-left:auto;border:0;background:none;color:var(--fg);cursor:pointer;font-size:16px">×</button></div><div style="margin-top:5px;color:var(--fg-dim)">${report.findings.length ? `${report.findings.length} finding${report.findings.length === 1 ? '' : 's'} remain` : 'No geometry findings'}</div>${rows ? `<ul style="margin:9px 0 0;padding-left:18px">${rows}</ul>` : ''}${report.findings.length > 12 ? `<div style="margin-top:8px;color:var(--fg-dim)">And ${report.findings.length - 12} more</div>` : ''}`;
+      panel.querySelector('button').onclick = () => panel.remove();
+      document.body.appendChild(panel);
+    }
+
+    function polishDiagram(direction, requestedGrammar) {
+      if (!nodes.length) return { grammar: visualGrammar, findings: [] };
+      visualGrammar = requestedGrammar && VISUAL_GRAMMARS[requestedGrammar] ? requestedGrammar : selectVisualGrammar();
+      applyVisualPreset('editorial', false);
+      assignSemanticRoles();
+      connections.filter(conn => !conn.isSequenceMessage).forEach(conn => { conn.lineStyle = 'rounded'; });
+      const grammar = VISUAL_GRAMMARS[visualGrammar] || VISUAL_GRAMMARS.flowchart;
+      arrangeDiagram(direction || grammar.direction);
+      const report = getDiagramQualityReport();
+      const remaining = report.findings.length;
+      showQualityPanel(report);
+      toast(remaining ? `Polished with ${remaining} quality finding${remaining === 1 ? '' : 's'}` : 'Diagram polished', remaining ? 'info' : 'success');
+      announce(remaining ? `Diagram polished with ${remaining} quality findings` : 'Diagram polished');
+      return report;
+    }
 
     let importedDirection = null;   // #113: last imported flowchart direction (TB/LR), default for auto-arrange
     function arrangeDiagram(direction) {
@@ -5270,23 +6082,27 @@
         if (fromNode === toNode) return;   // self-loop keeps its own sides (#104)
         c.fromSideLocked = false;
         c.toSideLocked = false;
+        c.fromFracLocked = false;
+        c.toFracLocked = false;
+        delete c.fromFrac;
+        delete c.toFrac;
         if (isLR) {
           // Left-to-right: route along x (parent-left → right side into child's left).
           if (fromNode.x + fromNode.width <= toNode.x + 1) {
-            c.fromSide = 'right'; c.toSide = 'left';         // parent left of child
+            c.fromSide = 'right'; c.toSide = 'left'; c.isBackEdge = false;
           } else if (toNode.x + toNode.width <= fromNode.x + 1) {
-            c.fromSide = 'left'; c.toSide = 'right';         // back-edge (child left)
+            c.fromSide = 'left'; c.toSide = 'right'; c.isBackEdge = true;
           } else {
             const { fromSide, toSide } = getOptimalSides(fromNode, toNode);
-            c.fromSide = fromSide; c.toSide = toSide;        // same column: nearest sides
+            c.fromSide = fromSide; c.toSide = toSide; c.isBackEdge = false;
           }
         } else if (fromNode.y + fromNode.height <= toNode.y + 1) {
-          c.fromSide = 'bottom'; c.toSide = 'top';          // parent above child
+          c.fromSide = 'bottom'; c.toSide = 'top'; c.isBackEdge = false;
         } else if (toNode.y + toNode.height <= fromNode.y + 1) {
-          c.fromSide = 'top'; c.toSide = 'bottom';          // back-edge (child above)
+          c.fromSide = 'top'; c.toSide = 'bottom'; c.isBackEdge = true;
         } else {
           const { fromSide, toSide } = getOptimalSides(fromNode, toNode);
-          c.fromSide = fromSide; c.toSide = toSide;         // same band: nearest sides
+          c.fromSide = fromSide; c.toSide = toSide; c.isBackEdge = false;
         }
       });
       
@@ -5326,6 +6142,7 @@
     // actually moves — a plain click just selects, it never silently re-routes.
     let connEndpointDrag = null;
     let connWaypointDrag = null;   // dragging the midpoint handle to place a waypoint (#70)
+    let connLabelDrag = null;
     let _snapTargetEl = null;
     function beginEndpointDrag(connId, end, fixedPoint, downPos) {
       connEndpointDrag = { connId, end, fixed: fixedPoint || null, moved: false, downPos: downPos || null };
@@ -5346,10 +6163,14 @@
       const from = nodes.find(n => n.id === conn.from);
       const to = nodes.find(n => n.id === conn.to);
       if (!from || !to) return null;
+      const nodeById = new Map(nodes.map(node => [node.id, node]));
+      const connectionGeometry = computeConnectionGeometry(nodeById);
+      const geometry = connectionGeometry.sideOf.get(conn.id);
       const auto = getOptimalSides(from, to);
-      const fromSide = conn.fromSideLocked ? conn.fromSide : auto.fromSide;
-      const toSide = conn.toSideLocked ? conn.toSide : auto.toSide;
-      const g = routeConnection(from, to, fromSide, toSide);
+      const fromSide = geometry?.fromSide || (conn.fromSideLocked ? conn.fromSide : auto.fromSide);
+      const toSide = geometry?.toSide || (conn.toSideLocked ? conn.toSide : auto.toSide);
+      const g = computeConnectionRoutes(nodeById, connectionGeometry).get(conn.id) ||
+        routeConnection(from, to, fromSide, toSide, geometry?.fromFrac ?? 0.5, geometry?.toFrac ?? 0.5, null, geometry?.laneOffset || 0);
       return { start: g.points[0], end: { x: g.endX, y: g.endY } };
     }
 
@@ -5473,6 +6294,12 @@
       const hit = e.target.closest('[data-conn]');
       const connId = hit && hit.dataset.conn;
       if (!connId) return;
+      const label = e.target.closest('.connection-label');
+      if (label && !readOnly) {
+        const rect = label.querySelector('rect');
+        const pos = screenToCanvas(e.clientX, e.clientY);
+        connLabelDrag = { connId, offsetX: pos.x - Number(rect?.getAttribute('x') || 0), offsetY: pos.y - Number(rect?.getAttribute('y') || 0), moved: false };
+      }
 
       // Select connection and show toolbar (toolbar has label input)
       selectedConnId = connId;
@@ -5485,6 +6312,8 @@
 
       e.stopPropagation();
       e.preventDefault();
+
+      if (connLabelDrag) return;
 
       // If the press is near one of the connection's ends, also grab that
       // endpoint so you can re-route it in a single click-and-drag. The side
@@ -5694,6 +6523,15 @@
         if (Math.hypot(pos.x - last.x, pos.y - last.y) >= 2) {
           penciling.points.push({ x: pos.x, y: pos.y, pressure: typeof e.pressure === 'number' ? e.pressure : 0 });
           tempPath.setAttribute('d', freehandPath(penciling.points));
+        }
+        return;
+      }
+
+      if (connLabelDrag) {
+        const conn = connections.find(c => c.id === connLabelDrag.connId);
+        if (conn) {
+          conn.labelX = pos.x - connLabelDrag.offsetX; conn.labelY = pos.y - connLabelDrag.offsetY;
+          conn.labelPositionLocked = true; connLabelDrag.moved = true; scheduleRender();
         }
         return;
       }
@@ -5926,6 +6764,12 @@
     document.addEventListener('pointerup', (e) => {
       const pos = screenToCanvas(e.clientX, e.clientY);
 
+      if (connLabelDrag) {
+        if (connLabelDrag.moved) { saveState(); render(); }
+        connLabelDrag = null;
+        return;
+      }
+
       // Commit a waypoint drag (#70): persist + snapshot for undo.
       if (connWaypointDrag) {
         if (connWaypointDrag.moved) { saveState(); render(); }
@@ -5949,8 +6793,14 @@
           }
           if (attachNode) {
             const side = getBestConnectorSide(attachNode, pos.x, pos.y);
-            if (end === 'from') { conn.fromSide = side; conn.fromSideLocked = true; }
-            else { conn.toSide = side; conn.toSideLocked = true; }
+            const fraction = sideFractionAtPoint(attachNode, side, pos.x, pos.y);
+            if (end === 'from') {
+              conn.fromSide = side; conn.fromSideLocked = true;
+              conn.fromFrac = fraction; conn.fromFracLocked = true;
+            } else {
+              conn.toSide = side; conn.toSideLocked = true;
+              conn.toFrac = fraction; conn.toFracLocked = true;
+            }
             saveState();
             render();
           }
@@ -9283,37 +10133,86 @@
         layerNodes[l].push(id);
         maxLayer = Math.max(maxLayer, l);
       });
-      
+
+      // Insert ordering-only dummy nodes so long edges influence every rank they
+      // cross. Remove them before coordinate assignment; they never persist.
+      const dummyIds = new Set(), orderEdges = [], orderIn = {}, orderOut = {};
+      ids.forEach(id => { orderIn[id] = []; orderOut[id] = []; });
+      rawEdges.forEach((edge, edgeIndex) => {
+        if (layer[edge.from] >= layer[edge.to]) return;
+        let previous = edge.from;
+        for (let rank = layer[edge.from] + 1; rank < layer[edge.to]; rank++) {
+          const dummy = `__dummy_${edgeIndex}_${rank}`;
+          dummyIds.add(dummy); layer[dummy] = rank;
+          if (!layerNodes[rank]) layerNodes[rank] = [];
+          layerNodes[rank].push(dummy); orderIn[dummy] = []; orderOut[dummy] = [];
+          orderEdges.push({ from: previous, to: dummy });
+          orderOut[previous].push(dummy); orderIn[dummy].push(previous);
+          previous = dummy;
+        }
+        orderEdges.push({ from: previous, to: edge.to });
+        orderOut[previous].push(edge.to); orderIn[edge.to].push(previous);
+      });
+
       function getPos(arr) {
         const p = {};
         arr.forEach((id, i) => { p[id] = i; });
         return p;
       }
       
+      const medianPosition = (neighbors, positions) => {
+        const values = neighbors.filter(id => positions[id] !== undefined).map(id => positions[id]).sort((a, b) => a - b);
+        if (!values.length) return Infinity;
+        const middle = Math.floor(values.length / 2);
+        return values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2;
+      };
       for (let sweep = 0; sweep < 4; sweep++) {
         for (let l = 1; l <= maxLayer; l++) {
           if (!layerNodes[l]) continue;
           const prevPos = getPos(layerNodes[l - 1] || []);
           layerNodes[l].sort((a, b) => {
-            const ap = inEdges[a].filter(p => prevPos[p] !== undefined);
-            const bp = inEdges[b].filter(p => prevPos[p] !== undefined);
-            const ab = ap.length > 0 ? ap.reduce((s, p) => s + prevPos[p], 0) / ap.length : 999;
-            const bb = bp.length > 0 ? bp.reduce((s, p) => s + prevPos[p], 0) / bp.length : 999;
-            return ab - bb;
+            const ab = medianPosition(orderIn[a] || [], prevPos);
+            const bb = medianPosition(orderIn[b] || [], prevPos);
+            return ab - bb || String(a).localeCompare(String(b));
           });
         }
         for (let l = maxLayer - 1; l >= 0; l--) {
           if (!layerNodes[l]) continue;
           const nextPos = getPos(layerNodes[l + 1] || []);
           layerNodes[l].sort((a, b) => {
-            const ak = outEdges[a].filter(c => nextPos[c] !== undefined);
-            const bk = outEdges[b].filter(c => nextPos[c] !== undefined);
-            const ab = ak.length > 0 ? ak.reduce((s, c) => s + nextPos[c], 0) / ak.length : 999;
-            const bb = bk.length > 0 ? bk.reduce((s, c) => s + nextPos[c], 0) / bk.length : 999;
-            return ab - bb;
+            const ab = medianPosition(orderOut[a] || [], nextPos);
+            const bb = medianPosition(orderOut[b] || [], nextPos);
+            return ab - bb || String(a).localeCompare(String(b));
           });
         }
       }
+
+      // Transpose adjacent nodes when a swap reduces layered edge crossings.
+      const crossingScore = () => {
+        const positions = {};
+        Object.values(layerNodes).forEach(list => list.forEach((id, index) => { positions[id] = index; }));
+        let score = 0;
+        for (let first = 0; first < orderEdges.length; first++) {
+          const a = orderEdges[first];
+          for (let second = first + 1; second < orderEdges.length; second++) {
+            const b = orderEdges[second];
+            if (layer[a.from] !== layer[b.from] || layer[a.to] !== layer[b.to]) continue;
+            if ((positions[a.from] - positions[b.from]) * (positions[a.to] - positions[b.to]) < 0) score++;
+          }
+        }
+        return score;
+      };
+      for (let pass = 0; pass < 4; pass++) {
+        for (let level = 0; level <= maxLayer; level++) {
+          const list = layerNodes[level] || [];
+          for (let index = 0; index < list.length - 1; index++) {
+            const before = crossingScore();
+            [list[index], list[index + 1]] = [list[index + 1], list[index]];
+            if (crossingScore() >= before) [list[index], list[index + 1]] = [list[index + 1], list[index]];
+          }
+        }
+      }
+      Object.keys(layerNodes).forEach(level => { layerNodes[level] = layerNodes[level].filter(id => !dummyIds.has(id)); });
       
       // --- Coordinate assignment ---
       const spacingX = 170;
@@ -9328,8 +10227,9 @@
       // estimate when a parsed node has no measured size yet.
       const estW = (n) => (n && n.width) || Math.max(90, ((n && n.label) || '').length * 8 + 30);
       const estH = (n) => (n && n.height) || 50;
-      const HGAP = 55;   // min horizontal gap between nodes in a layer
-      const VGAP = 80;   // vertical gap between layers (room for edge labels)
+      const activeGrammar = VISUAL_GRAMMARS[visualGrammar] || VISUAL_GRAMMARS.flowchart;
+      const HGAP = activeGrammar.spacing.cross;
+      const VGAP = activeGrammar.spacing.rank;
 
       // If we have subgraphs, layout children within each subgraph container
       if (subgraphs && subgraphs.length > 0) {
@@ -9617,6 +10517,8 @@
         if (!append) {
           const firstMeaningful = (code.split('\n').find(l => l.trim() && !l.trim().startsWith('%%')) || '');
           diagramType = detectMermaidType(firstMeaningful);
+          visualGrammar = selectVisualGrammar(diagramType);
+          applyVisualPreset('editorial', false);
         }
 
         // Store sequence frames for rendering
@@ -9777,6 +10679,7 @@
                   fromIdx: 1,
                   toIdx: 1,
                   label: c.label || '',
+                  lineStyle: 'rounded',
                   relType: c.relType,
                   strokeStyle: c.strokeStyle,
                   thick: c.thick,
@@ -9866,9 +10769,13 @@
         render();
         return loaded;
       },
-      importMermaid(code) {
+      importMermaid(code, options = {}) {
         const loaded = importMermaid(true, { code: String(code || '') });
         if (loaded) {
+          if (options.grammar && VISUAL_GRAMMARS[options.grammar]) visualGrammar = options.grammar;
+          if (['compact', 'balanced', 'detailed'].includes(options.detail)) visualDetail = options.detail;
+          if (options.preset) applyVisualPreset(options.preset, false);
+          if (options.polish) polishDiagram(options.direction, options.grammar);
           historyStack = [];
           historyIndex = -1;
           saveState();
@@ -9883,6 +10790,15 @@
         sequenceActivations = [];
         saveState();
         render();
+      },
+      polish(options = {}) { return polishDiagram(options.direction, options.grammar); },
+      qualityReport() { return getDiagramQualityReport(); },
+      setPresentation(options = {}) {
+        if (options.grammar && VISUAL_GRAMMARS[options.grammar]) visualGrammar = options.grammar;
+        if (['compact', 'balanced', 'detailed'].includes(options.detail)) visualDetail = options.detail;
+        if (options.preset) applyVisualPreset(options.preset);
+        saveState();
+        return { grammar: visualGrammar, preset: visualPreset, detail: visualDetail };
       },
       exportState() { return JSON.stringify(exportState()); },
       exportMermaid() { return nodes.length ? generateMermaid() : ''; }

@@ -1,0 +1,92 @@
+{
+  "n": [
+    {
+      "id": "front",
+      "type": "container",
+      "x": 60,
+      "y": 80,
+      "width": 450,
+      "height": 440,
+      "label": "Edge Zone"
+    },
+    {
+      "id": "back",
+      "type": "container",
+      "x": 610,
+      "y": 80,
+      "width": 450,
+      "height": 440,
+      "label": "Core Zone"
+    },
+    {
+      "id": "web",
+      "type": "rect",
+      "x": 120,
+      "y": 180,
+      "width": 150,
+      "height": 56,
+      "label": "Web App"
+    },
+    {
+      "id": "cdn",
+      "type": "rect",
+      "x": 120,
+      "y": 350,
+      "width": 150,
+      "height": 56,
+      "label": "CDN"
+    },
+    {
+      "id": "api2",
+      "type": "rect",
+      "x": 670,
+      "y": 180,
+      "width": 150,
+      "height": 56,
+      "label": "API",
+      "semanticRole": "focal"
+    },
+    {
+      "id": "db",
+      "type": "cylinder",
+      "x": 820,
+      "y": 350,
+      "width": 150,
+      "height": 56,
+      "label": "Database"
+    }
+  ],
+  "c": [
+    {
+      "id": "fc",
+      "to": "cdn",
+      "label": "",
+      "lineStyle": "rounded",
+      "from": "web"
+    },
+    {
+      "id": "wa",
+      "to": "api2",
+      "label": "HTTPS",
+      "lineStyle": "rounded",
+      "from": "web"
+    },
+    {
+      "id": "ad",
+      "to": "db",
+      "label": "SQL",
+      "lineStyle": "rounded",
+      "from": "api2"
+    }
+  ],
+  "v": {
+    "x": 0,
+    "y": 0,
+    "z": 1
+  },
+  "dt": "flowchart",
+  "vp": "editorial",
+  "vg": "architecture",
+  "vd": "balanced",
+  "vq": 1
+}

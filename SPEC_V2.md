@@ -207,13 +207,16 @@ Each feature lists **Why**, **What**, and **Acceptance criteria (AC)**. Priority
 ---
 
 ## 5. Data model v2
-- **Versioned document:** `{ schema: 2, id, title, theme, createdAt, updatedAt,
-  nodes, connections, sequenceFrames, viewport }`.
-- **Node** extends v1 with: `groupId?`, `z?` (layer order), `style?` (theme-aware
-  overrides), and per-type extras (`points` for pencil, `waypoints` carried on
-  connections).
-- **Connection** extends v1 with: `waypoints?: {x,y}[]`, `labelPos?`, keeping
-  `fromSide/toSide(+Locked)` semantics.
+- **Versioned document:** Draph v2 stores nodes in `n`, connections in `c`, the
+  viewport in `v`, and the source type in `dt`.
+- **Presentation:** optional `vp`, `vg`, and `vd` store preset, grammar, and detail.
+  `vq` stores the visual-quality contract version. Missing preset data means Classic.
+- **Node** extends v1 with `groupId?`, `z?`, `semanticRole?`, `tag?`, `sublabel?`,
+  style overrides, and per-type extras such as pencil points.
+- **Connection** extends v1 with `waypoints?: {x,y}[]`, locked endpoint fractions,
+  manually locked label coordinates, and optional semantic role.
+- Automatic port fractions, route lanes, obstacle paths, bridges, and label
+  placements are computed and never persisted.
 - **Migration:** a `migrate(doc)` step upgrades v1 (schema 1 / bare hash) → v2 on
   load; round-trips are lossless within v2. **AC:** any v1 URL hash opens and
   re-saves as schema 2 with no visual change.
